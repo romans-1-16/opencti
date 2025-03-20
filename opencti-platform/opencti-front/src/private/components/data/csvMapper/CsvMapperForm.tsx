@@ -14,14 +14,17 @@ import { CsvMapperFormData } from '@components/data/csvMapper/CsvMapper';
 import classNames from 'classnames';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import { formDataToCsvMapper } from '@components/data/csvMapper/CsvMapperUtils';
+import { CsvMapperProvider } from '@components/data/csvMapper/CsvMapperContext';
 import type { Theme } from '../../../../components/Theme';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import useAuth from '../../../../utils/hooks/useAuth';
 import { representationInitialization } from './representations/RepresentationUtils';
 import CsvMapperTestDialog from './CsvMapperTestDialog';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -37,9 +40,6 @@ const useStyles = makeStyles<Theme>((theme) => ({
   marginTop: {
     marginTop: 20,
   },
-  formContainer: {
-    margin: '20px 0',
-  },
   representationContainer: {
     marginTop: 20,
     display: 'flex',
@@ -47,9 +47,9 @@ const useStyles = makeStyles<Theme>((theme) => ({
 }));
 
 const csvMapperValidation = (t_i18n: (s: string) => string) => Yup.object().shape({
-  name: Yup.string().required(t_i18n('This field is required')),
+  name: Yup.string().trim().required(t_i18n('This field is required')),
   has_header: Yup.boolean().required(t_i18n('This field is required')),
-  separator: Yup.string().required(t_i18n('This field is required')),
+  separator: Yup.string().trim().required(t_i18n('This field is required')),
   skipLineChar: Yup.string().max(1),
 });
 
@@ -59,13 +59,12 @@ interface CsvMapperFormProps {
     values: CsvMapperFormData,
     formikHelpers: FormikHelpers<CsvMapperFormData>,
   ) => void;
+  isDuplicated?: boolean,
 }
 
-const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSubmit }) => {
+const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSubmit, isDuplicated }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
-
-  // -- INIT --
 
   // accordion state
   const [open, setOpen] = useState(false);
@@ -140,6 +139,16 @@ const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSub
     ]);
   };
 
+  const getButtonText = () => {
+    if (isDuplicated) {
+      return t_i18n('Duplicate');
+    }
+    if (csvMapper.id) {
+      return t_i18n('Update');
+    }
+    return t_i18n('Create');
+  };
+
   // -- ERRORS --
   // on edit mode, csvMapper.errors might be set; on create mode backend validation is not done yet so error is null
   const [hasError, setHasError] = useState<boolean>(
@@ -151,9 +160,8 @@ const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSub
     errors = { ...errors, [key]: value };
     setHasError(Object.values(errors).filter((v) => v).length > 0);
   };
-
   return (
-    <>
+    <CsvMapperProvider>
       <Formik<CsvMapperFormData>
         enableReinitialize
         initialValues={csvMapper}
@@ -162,7 +170,7 @@ const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSub
       >
         {({ submitForm, isSubmitting, setFieldValue, values }) => {
           return (
-            <Form className={classes.formContainer}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"
@@ -201,17 +209,17 @@ const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSub
                   >
                     <FormControlLabel
                       value=","
-                      control={<Radio />}
+                      control={<Radio/>}
                       label={t_i18n('Comma')}
                     />
                     <FormControlLabel
                       value=";"
-                      control={<Radio />}
+                      control={<Radio/>}
                       label={t_i18n('Semicolon')}
                     />
                     <FormControlLabel
                       value={'|'}
-                      control={<Radio />}
+                      control={<Radio/>}
                       label={t_i18n('Pipe')}
                     />
                   </RadioGroup>
@@ -332,7 +340,7 @@ const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSub
                   disabled={isSubmitting}
                   classes={{ root: classes.button }}
                 >
-                  {csvMapper.id ? t_i18n('Update') : t_i18n('Create')}
+                  {getButtonText()}
                 </Button>
               </div>
               <CsvMapperTestDialog
@@ -344,7 +352,7 @@ const CsvMapperForm: FunctionComponent<CsvMapperFormProps> = ({ csvMapper, onSub
           );
         }}
       </Formik>
-    </>
+    </CsvMapperProvider>
   );
 };
 

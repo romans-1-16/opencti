@@ -273,7 +273,6 @@ describe('Notification manager behaviors test', async () => {
     groups: [],
     capabilities: [{ name: 'KNOWLEDGE_KNUPDATE' }],
     organizations: [],
-    allowed_organizations: [{ internal_id: userOrganizationId, standard_id: userOrganizationStandardId }],
     allowed_marking: [{ internal_id: greenMarkingInternalId, standard_id: greenMarkingStandardId }],
     default_marking: [],
     all_marking: [],
@@ -1392,7 +1391,7 @@ describe('Notification manager behaviors test', async () => {
 
     // O is a green organization, trigger on O and another organization
     result = await buildTargetEvents(context, users, streamEventShareMalwareWithGreenOrganization, triggerOrganizationsAllEvents, true);
-    expect(result.length).toEqual(1);
+    expect(result.length).toEqual(2);
     expect(result[0].type).toEqual(EVENT_TYPE_UPDATE);
     expect(result[0].message).toEqual('[identity] greenOrganization_name added in [malware] malware_name');
 

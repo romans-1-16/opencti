@@ -107,6 +107,7 @@ class CreatedByField extends Component {
       helpertext,
       disabled,
       dryrun,
+      required = false,
     } = this.props;
     return (
       <>
@@ -114,20 +115,22 @@ class CreatedByField extends Component {
           component={AutocompleteField}
           style={style}
           name={name}
+          required={required}
           disabled={disabled}
           textfieldprops={{
             variant: 'standard',
             label: label ?? t('Author'),
             helperText: helpertext,
             onFocus: this.searchIdentities.bind(this),
+            required,
           }}
           noOptionsText={t('No available options')}
           options={this.state.identities.sort((a, b) => a.label.localeCompare(b.label))}
           onInputChange={this.handleSearch.bind(this)}
           openCreate={this.handleOpenIdentityCreation.bind(this)}
           onChange={typeof onChange === 'function' ? onChange.bind(this) : null}
-          renderOption={(props, option) => (
-            <li {...props}>
+          renderOption={({ key, ...props }, option) => (
+            <li key={key} {...props}>
               <div className={classes.icon}>
                 <ItemIcon type={option.type} />
               </div>

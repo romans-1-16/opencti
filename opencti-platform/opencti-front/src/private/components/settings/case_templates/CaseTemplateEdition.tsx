@@ -1,12 +1,12 @@
 import { Field, Form, Formik } from 'formik';
 import * as R from 'ramda';
 import React, { FunctionComponent, useRef } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import * as Yup from 'yup';
 import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { deleteNode, insertNode } from '../../../../utils/store';
@@ -14,6 +14,7 @@ import CaseTemplateTasks from '../../common/form/CaseTemplateTasks';
 import { Option } from '../../common/form/ReferenceField';
 import { CaseTemplateLine_node$data } from './__generated__/CaseTemplateLine_node.graphql';
 import { CaseTemplateTasksLines_DataQuery$variables } from './__generated__/CaseTemplateTasksLines_DataQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 const caseTemplateAddTask = graphql`
   mutation CaseTemplateEditionAddTaskMutation(
@@ -77,9 +78,9 @@ const CaseTemplateEdition: FunctionComponent<CaseTemplateEditionProps> = ({
   const { t_i18n } = useFormatter();
   const handleClose = () => setOpenPanel(false);
 
-  const [commitAddTask] = useMutation(caseTemplateAddTask);
-  const [commitDeleteTask] = useMutation(caseTemplateDeleteTask);
-  const [commitFieldPatch] = useMutation(caseTemplateFieldPatch);
+  const [commitAddTask] = useApiMutation(caseTemplateAddTask);
+  const [commitDeleteTask] = useApiMutation(caseTemplateDeleteTask);
+  const [commitFieldPatch] = useApiMutation(caseTemplateFieldPatch);
 
   const existingTasks = useRef<Option[] | undefined>();
   if (!existingTasks.current) {
@@ -148,7 +149,7 @@ const CaseTemplateEdition: FunctionComponent<CaseTemplateEditionProps> = ({
         validationSchema={caseTemplateValidation(t_i18n)}
       >
         {({ values: currentValues, setFieldValue }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               variant="standard"

@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
-import { Link, withRouter } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import * as R from 'ramda';
 import withStyles from '@mui/styles/withStyles';
 import IconButton from '@mui/material/IconButton';
@@ -10,7 +10,7 @@ import ListItemText from '@mui/material/ListItemText';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import Collapse from '@mui/material/Collapse';
-import { Domain, ExpandLess, ExpandMore, FileDownloadOutlined, LibraryBooksOutlined } from '@mui/icons-material';
+import { Domain, ExpandLess, ExpandMore, FileDownloadOutlined } from '@mui/icons-material';
 import { AutoFix, FormatListGroup, RelationManyToMany } from 'mdi-material-ui';
 import { createRefetchContainer, graphql } from 'react-relay';
 import Tooltip from '@mui/material/Tooltip';
@@ -30,6 +30,7 @@ import StixCoreRelationshipsExports from '../stix_core_relationships/StixCoreRel
 import ItemMarkings from '../../../../components/ItemMarkings';
 import { export_max_size } from '../../../../utils/utils';
 import MarkdownDisplay from '../../../../components/MarkdownDisplay';
+import withRouter from '../../../../utils/compat_router/withRouter';
 
 const styles = (theme) => ({
   container: {
@@ -60,7 +61,7 @@ class StixDomainObjectVictimologySectorsComponent extends Component {
     let params = {};
     if (!props.noState) {
       params = buildViewParamsFromUrlAndStorage(
-        props.history,
+        props.navigate,
         props.location,
         LOCAL_STORAGE_KEY,
       );
@@ -81,7 +82,7 @@ class StixDomainObjectVictimologySectorsComponent extends Component {
     if (!this.props.noState) {
       const LOCAL_STORAGE_KEY = `victimology-sectors-${this.props.entityId}`;
       saveViewParameters(
-        this.props.history,
+        this.props.navigate,
         this.props.location,
         LOCAL_STORAGE_KEY,
         this.state,
@@ -301,7 +302,7 @@ class StixDomainObjectVictimologySectorsComponent extends Component {
     return (
       <div>
         <div className={classes.parameters}>
-          <div style={{ float: 'left', marginRight: 20, marginTop: -10 }}>
+          <div style={{ float: 'left', marginRight: 20 }}>
             <SearchInput
               variant="small"
               onSubmit={this.handleSearch.bind(this)}
@@ -309,7 +310,7 @@ class StixDomainObjectVictimologySectorsComponent extends Component {
             />
           </div>
           <div className={classes.views}>
-            <div style={{ float: 'right', marginTop: -20 }}>
+            <div style={{ float: 'right', marginTop: -10 }}>
               <ToggleButtonGroup
                 size="small"
                 color="secondary"
@@ -324,11 +325,6 @@ class StixDomainObjectVictimologySectorsComponent extends Component {
                 }}
                 style={{ margin: '7px 0 0 5px' }}
               >
-                <ToggleButton value="entities" aria-label="lines">
-                  <Tooltip title={t('Entities view')}>
-                    <LibraryBooksOutlined fontSize="small" color="primary" />
-                  </Tooltip>
-                </ToggleButton>
                 <ToggleButton value="relationships" aria-label="lines">
                   <Tooltip title={t('Relationships view')}>
                     <RelationManyToMany fontSize="small" color="primary" />

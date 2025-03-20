@@ -17,24 +17,32 @@ import * as Yup from 'yup';
 import makeStyles from '@mui/styles/makeStyles';
 import { FormikConfig } from 'formik/dist/types';
 import { FragmentRefs } from 'relay-runtime';
-import * as R from 'ramda';
+import ObjectMarkingField from '@components/common/form/ObjectMarkingField';
+import ManageImportConnectorMessage from '@components/data/import/ManageImportConnectorMessage';
+import { Option } from '@components/common/form/ReferenceField';
+import { CsvMapperFieldOption } from '@components/common/form/CsvMapperField';
+import { FileManagerAskJobImportMutation$variables } from '@components/common/files/__generated__/FileManagerAskJobImportMutation.graphql';
 import FileLine from '../../common/files/FileLine';
 import { TEN_SECONDS } from '../../../../utils/Time';
 import FileUploader from '../../common/files/FileUploader';
 import inject18n, { useFormatter } from '../../../../components/i18n';
 import { commitMutation, MESSAGING$ } from '../../../../relay/environment';
 import { fileManagerAskJobImportMutation } from '../../common/files/FileManager';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import { ExternalReferenceFileImportViewer_entity$data } from './__generated__/ExternalReferenceFileImportViewer_entity.graphql';
 import { FileLine_file$data } from '../../common/files/__generated__/FileLine_file.graphql';
 import { scopesConn } from '../../common/stix_core_objects/StixCoreObjectFilesAndHistory';
+import { fieldSpacingContainerStyle } from '../../../../utils/field';
+import { resolveHasUserChoiceParsedCsvMapper } from '../../../../utils/csvMapperUtils';
+import { KNOWLEDGE_KNUPLOAD } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
 
 const interval$ = interval(TEN_SECONDS);
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     marginTop: -7,
     padding: '10px 15px 10px 15px',
     borderRadius: 4,
@@ -50,6 +58,7 @@ interface Connector {
   id: string;
   name: string;
   active: boolean;
+  only_contextual: boolean;
   connector_scope: string[];
   updated_at: string;
   configurations: ConnectorConfiguration[];
@@ -63,6 +72,7 @@ const importValidation = (t: (value: string) => string, configurations: boolean)
     return Yup.object().shape({
       ...shape,
       configuration: Yup.string().required(t('This field is required')),
+      objectMarking: Yup.array().required(t('This field is required')),
     });
   }
   return Yup.object().shape(shape);
@@ -97,17 +107,26 @@ ExternalReferenceFileImportViewerBaseProps
   const importConnsPerFormat = scopesConn(connectorsImport);
   const handleOpenImport = (file: FileLine_file$data | null | undefined) => setFileToImport(file);
   const handleCloseImport = () => setFileToImport(null);
-  const onSubmitImport: FormikConfig<{ connector_id: string, configuration: string }>['onSubmit'] = (
+  const onSubmitImport: FormikConfig<{ connector_id: string, configuration: string, objectMarking: Option[] }>['onSubmit'] = (
     values,
     { setSubmitting, resetForm },
   ) => {
+    const variables: FileManagerAskJobImportMutation$variables = {
+      fileName: fileToImport?.id ?? '',
+      connectorId: values.connector_id,
+    };
+    if (selectedConnector?.name === 'ImportCsv') {
+      const markings = values.objectMarking.map((option) => option.value);
+      const parsedConfig = JSON.parse(values.configuration);
+      if (typeof parsedConfig === 'object') {
+        parsedConfig.markings = [...markings];
+        variables.configuration = JSON.stringify(parsedConfig);
+      }
+    }
+
     commitMutation({
       mutation: fileManagerAskJobImportMutation,
-      variables: {
-        fileName: fileToImport?.id,
-        connectorId: values.connector_id,
-        configuration: values.configuration,
-      },
+      variables,
       onCompleted: () => {
         setSubmitting(false);
         resetForm();
@@ -135,10 +154,26 @@ ExternalReferenceFileImportViewerBaseProps
   const fileToImportBoolean = () => {
     return !!fileToImport;
   };
-  const connectors = connectorsImport.filter((n) => !R.isEmpty(n.configurations));
+  const connectors = connectorsImport.filter((n) => !n.only_contextual);
 
   const handleSelectConnector = (_: string, value: string) => {
     setSelectedConnector(connectors?.find((c) => c.id === value) ?? null);
+  };
+
+  const invalidCsvMapper = selectedConnector?.name === 'ImportCsv'
+      && selectedConnector?.configurations?.length === 0;
+  const [hasUserChoiceCsvMapper, setHasUserChoiceCsvMapper] = useState(false);
+  const onCsvMapperSelection = (option: string | CsvMapperFieldOption) => {
+    if (selectedConnector?.name === 'ImportCsv') {
+      const parsedOption = typeof option === 'string' ? JSON.parse(option) : option;
+      const parsedRepresentations = JSON.parse(parsedOption.representations);
+      const selectedCsvMapper = {
+        ...parsedOption,
+        representations: [...parsedRepresentations],
+      };
+      const hasUserChoiceCsvMapperRepresentations = resolveHasUserChoiceParsedCsvMapper(selectedCsvMapper);
+      setHasUserChoiceCsvMapper(hasUserChoiceCsvMapperRepresentations);
+    }
   };
   return (
     <React.Fragment>
@@ -146,19 +181,21 @@ ExternalReferenceFileImportViewerBaseProps
         <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
           {t_i18n('Uploaded files')}
         </Typography>
-        <div style={{ float: 'left', marginTop: -17 }}>
-          <FileUploader
-            entityId={id}
-            onUploadSuccess={() => {
-              if (relay.refetch) {
-                relay.refetch({ id });
-              }
-            }}
-            size={undefined}
-          />
-        </div>
+        <Security needs={[KNOWLEDGE_KNUPLOAD]} placeholder={<div style={{ height: 30 }} />}>
+          <div style={{ float: 'left', marginTop: -17 }}>
+            <FileUploader
+              entityId={id}
+              onUploadSuccess={() => {
+                if (relay.refetch) {
+                  relay.refetch({ id });
+                }
+              }}
+              size={undefined}
+            />
+          </div>
+        </Security>
         <div className="clearfix" />
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           {importFiles?.edges?.length ? (
             <List>
               {importFiles?.edges?.map(
@@ -204,18 +241,18 @@ ExternalReferenceFileImportViewerBaseProps
       <div>
         <Formik
           enableReinitialize={true}
-          initialValues={{ connector_id: '', configuration: '' }}
+          initialValues={{ connector_id: '', configuration: '', objectMarking: [] as Option[] }}
           validationSchema={importValidation(t_i18n, (selectedConnector?.configurations?.length ?? 0) > 0)}
           onSubmit={onSubmitImport}
           onReset={handleCloseImport}
         >
-          {({ submitForm, handleReset, isSubmitting }) => (
+          {({ submitForm, handleReset, isSubmitting, setFieldValue, isValid }) => (
             <Form style={{ margin: '0 0 20px 0' }}>
               <Dialog
                 PaperProps={{ elevation: 1 }}
                 open={fileToImportBoolean()}
                 keepMounted={true}
-                onClose={handleCloseImport}
+                onClose={() => handleReset()}
                 fullWidth={true}
               >
                 <DialogTitle>{t_i18n('Launch an import')}</DialogTitle>
@@ -247,26 +284,39 @@ ExternalReferenceFileImportViewerBaseProps
                     })}
                   </Field>
                   {(selectedConnector?.configurations?.length ?? 0) > 0
-                        && <Field
-                          component={SelectField}
-                          variant="standard"
-                          name="configuration"
-                          label={t_i18n('Configuration')}
-                          fullWidth={true}
-                          containerstyle={{ marginTop: 20, width: '100%' }}
-                           >
-                            {selectedConnector?.configurations.map((config) => {
-                              return (
-                                <MenuItem
-                                  key={config.id}
-                                  value={config.configuration}
-                                >
-                                  {config.name}
-                                </MenuItem>
-                              );
-                            })}
-                        </Field>
+                    ? <Field
+                        component={SelectField}
+                        variant="standard"
+                        name="configuration"
+                        label={t_i18n('Configuration')}
+                        fullWidth={true}
+                        containerstyle={{ marginTop: 20, width: '100%' }}
+                        onChange={(_: string, value: CsvMapperFieldOption) => onCsvMapperSelection(value)}
+                      >
+                      {selectedConnector?.configurations.map((config) => {
+                        return (
+                          <MenuItem
+                            key={config.id}
+                            value={config.configuration}
+                          >
+                            {config.name}
+                          </MenuItem>
+                        );
+                      })}
+                    </Field> : <ManageImportConnectorMessage name={selectedConnector?.name }/>
                     }
+                  {selectedConnector?.name === 'ImportCsv'
+                      && hasUserChoiceCsvMapper
+                      && (
+                      <>
+                        <ObjectMarkingField
+                          name="objectMarking"
+                          style={fieldSpacingContainerStyle}
+                          setFieldValue={setFieldValue}
+                        />
+                      </>
+                      )
+                  }
                 </DialogContent>
                 <DialogActions>
                   <Button onClick={handleReset} disabled={isSubmitting}>
@@ -275,7 +325,7 @@ ExternalReferenceFileImportViewerBaseProps
                   <Button
                     color="secondary"
                     onClick={submitForm}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !isValid || invalidCsvMapper || !selectedConnector}
                   >
                     {t_i18n('Create')}
                   </Button>
@@ -328,6 +378,7 @@ const ExternalReferenceFileImportViewer = createRefetchContainer(
         name
         active
         connector_scope
+        only_contextual
         updated_at
         configurations {
             id

@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import gql from 'graphql-tag';
-import {ADMIN_USER, participantQuery, queryAsAdmin, USER_PARTICIPATE} from '../../utils/testQuery';
-import {FORBIDDEN_ACCESS} from '../../../src/config/errors';
+import { ADMIN_USER, queryAsAdmin, testContext, USER_PARTICIPATE } from '../../utils/testQuery';
+import { queryAsAdminWithSuccess, queryAsUserIsExpectedForbidden } from '../../utils/testQueryHelper';
+import { patchCsvIngestion } from '../../../src/modules/ingestion/ingestion-csv-domain';
+import { utcDate } from '../../../src/utils/format';
+import { SYSTEM_USER } from '../../../src/utils/access';
 
 describe('CSV ingestion resolver standard behavior', () => {
   let singleColumnCsvMapperId = '';
@@ -151,6 +154,43 @@ describe('CSV ingestion resolver standard behavior', () => {
     expect(stopSingleColumnCsvFeedsIngesterQueryResult?.data?.ingestionCsvFieldPatch?.name).toBe('Single column CSV feed ingester');
   });
 
+  it('should reset state of CSV feeds ingester', async () => {
+    // shortcut to set a hash that is defined
+    const patch = { current_state_hash: 'bbbbbbbbbbbbbbbbbb', added_after_start: utcDate() };
+    const result = await patchCsvIngestion(testContext, SYSTEM_USER, singleColumnCsvFeedIngesterId, patch);
+    expect(result.current_state_hash).toBe('bbbbbbbbbbbbbbbbbb');
+
+    const CSV_FEED_INGESTER_RESET = {
+      id: singleColumnCsvFeedIngesterId,
+    };
+    const resetStateQueryResult = await queryAsAdminWithSuccess({
+      query: gql`
+          mutation ingestionCsvResetState($id: ID!) {
+              ingestionCsvResetState(id: $id){
+                  id
+                  current_state_hash
+              }
+          }
+      `,
+      variables: CSV_FEED_INGESTER_RESET
+    });
+    expect(resetStateQueryResult?.data?.ingestionCsvFieldPatch?.current_state_hash).toBeUndefined();
+  });
+
+  it('should fail to delete the mapper used by the ingester', async () => {
+    const deleteResult = await queryAsAdmin({
+      query: gql`
+        mutation CsvMapperDelete($id: ID!) {
+          csvMapperDelete(id: $id)
+        }
+      `,
+      variables: { id: singleColumnCsvMapperId },
+    });
+    const { errors } = deleteResult;
+    expect(errors).toBeDefined();
+    expect(errors?.[0].message).toBe('Cannot delete this CSV Mapper: it is used by one or more IngestionCsv ingester(s)');
+  });
+
   it('should delete the CSV feeds ingester', async () => {
     const CSV_FEED_INGESTER_TO_DELETE = {
       id: singleColumnCsvFeedIngesterId,
@@ -176,8 +216,9 @@ describe('CSV ingestion resolver standard behavior', () => {
         user_id: USER_PARTICIPATE.id
       }
     };
-    const participantCreateResult = await participantQuery({
-      query: gql`
+    await queryAsUserIsExpectedForbidden(
+      USER_PARTICIPATE.client,
+      { query: gql`
         mutation createSingleColumnCsvFeedsIngester($input: IngestionCsvAddInput!) {
           ingestionCsvAdd(input: $input) {
             id
@@ -187,14 +228,16 @@ describe('CSV ingestion resolver standard behavior', () => {
         },
       `,
       variables: CSV_FEED_INGESTER_TO_CREATE
-    });
-    expect(participantCreateResult.errors.length, 'TAXIIAPI_SETCSVMAPPERS should be required to create csv mapper.').toBe(1);
-    expect(participantCreateResult.errors[0].name).toBe(FORBIDDEN_ACCESS);
+      },
+      'CSVMAPPERS should be required to create csv mapper.'
+    );
   });
 
   it('should participant forbidden to list csv mapper', async () => {
-    const participantListResult = await participantQuery({
-      query: gql`
+    await queryAsUserIsExpectedForbidden(
+      USER_PARTICIPATE.client,
+      {
+        query: gql`
         query listCsvMappers(
           $first: Int
           $after: ID
@@ -217,8 +260,8 @@ describe('CSV ingestion resolver standard behavior', () => {
           }
         }
       `
-    });
-    expect(participantListResult.errors.length, 'TAXIIAPI_SETCSVMAPPERS should be required to list csv mapper.').toBe(1);
-    expect(participantListResult.errors[0].name).toBe(FORBIDDEN_ACCESS);
+      },
+      'CSVMAPPERS should be required to list csv mapper.'
+    );
   });
 });

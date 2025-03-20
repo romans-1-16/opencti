@@ -1,4 +1,5 @@
 import React, { FunctionComponent } from 'react';
+import useHelper from 'src/utils/hooks/useHelper';
 import ListLines from '../../../components/list_lines/ListLines';
 import PositionCreation from './positions/PositionCreation';
 import Security from '../../../utils/Security';
@@ -11,11 +12,16 @@ import PositionsLines, { positionsLinesQuery } from './positions/PositionsLines'
 import { emptyFilterGroup } from '../../../utils/filters/filtersUtils';
 import { useFormatter } from '../../../components/i18n';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY_POSITIONS = 'positions';
 
 const Positions: FunctionComponent = () => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const FABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Positions | Locations'));
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<PositionsLinesPaginationQuery$variables>(
     LOCAL_STORAGE_KEY_POSITIONS,
     {
@@ -79,6 +85,9 @@ const Positions: FunctionComponent = () => {
         filters={filters}
         paginationOptions={paginationOptions}
         numberOfElements={numberOfElements}
+        createButton={FABReplaced && <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <PositionCreation paginationOptions={paginationOptions} />
+        </Security>}
       >
         {queryRef && (
           <React.Suspense
@@ -105,11 +114,13 @@ const Positions: FunctionComponent = () => {
   };
   return (
     <>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Locations') }, { label: t_i18n('Positions'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Locations') }, { label: t_i18n('Positions'), current: true }]} />
       {renderLines()}
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <PositionCreation paginationOptions={paginationOptions} />
-      </Security>
+      {!FABReplaced
+        && <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <PositionCreation paginationOptions={paginationOptions} />
+        </Security>
+      }
     </>
   );
 };

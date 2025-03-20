@@ -8,7 +8,7 @@ import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
 import StatusField from '../../common/form/StatusField';
@@ -19,6 +19,8 @@ import ConfidenceField from '../../common/form/ConfidenceField';
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useHelper from '../../../../utils/hooks/useHelper';
+import ChannelDeletion from './ChannelDeletion';
 
 const channelMutationFieldPatch = graphql`
   mutation ChannelEditionOverviewFieldPatchMutation(
@@ -79,9 +81,10 @@ const channelMutationRelationDelete = graphql`
 const ChannelEditionOverviewComponent = (props) => {
   const { channel, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     channel_types: Yup.array().nullable(),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
@@ -180,7 +183,7 @@ const ChannelEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={channel} />
           <Field
             component={TextField}
@@ -251,21 +254,28 @@ const ChannelEditionOverviewComponent = (props) => {
             name="objectMarking"
             style={fieldSpacingContainerStyle}
             helpertext={
-              <SubscriptionFocus context={context} fieldname="objectMarking"/>
+              <SubscriptionFocus context={context} fieldname="objectMarking" />
             }
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={channel.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <ChannelDeletion
+                  id={channel.id}
+                />
+              : <div />}
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={channel.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -280,6 +290,7 @@ export default createFragmentContainer(ChannelEditionOverviewComponent, {
       channel_types
       description
       confidence
+      entity_type
       createdBy {
         ... on Identity {
           id

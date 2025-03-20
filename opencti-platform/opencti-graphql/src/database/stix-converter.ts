@@ -22,7 +22,6 @@ import {
   INPUT_ENCAPSULATED_BY,
   INPUT_ENCAPSULATES,
   INPUT_IMAGE,
-  INPUT_LINKED,
   INPUT_OPENED_CONNECTION,
   INPUT_OPERATING_SYSTEM,
   INPUT_PARENT,
@@ -35,6 +34,7 @@ import {
   INPUT_SRC,
   INPUT_SRC_PAYLOAD,
   INPUT_VALUES,
+  objects,
   RELATION_GRANTED_TO,
   RELATION_OBJECT_MARKING
 } from '../schema/stixRefRelationship';
@@ -44,7 +44,7 @@ import type * as SDO from '../types/stix-sdo';
 import type * as SRO from '../types/stix-sro';
 import type * as SCO from '../types/stix-sco';
 import type * as SMO from '../types/stix-smo';
-import type { StoreCommon, StoreCyberObservable, StoreEntity, StoreEntityIdentity, StoreObject, StoreRelation } from '../types/store';
+import type { StoreCommon, StoreCyberObservable, StoreEntity, StoreEntityIdentity, StoreFileWithRefs, StoreObject, StoreRelation } from '../types/store';
 import {
   ENTITY_TYPE_ATTACK_PATTERN,
   ENTITY_TYPE_CAMPAIGN,
@@ -73,6 +73,7 @@ import { isStixSightingRelationship } from '../schema/stixSightingRelationship';
 import {
   ENTITY_AUTONOMOUS_SYSTEM,
   ENTITY_BANK_ACCOUNT,
+  ENTITY_CREDENTIAL,
   ENTITY_CRYPTOGRAPHIC_KEY,
   ENTITY_CRYPTOGRAPHIC_WALLET,
   ENTITY_DIRECTORY,
@@ -91,10 +92,12 @@ import {
   ENTITY_MUTEX,
   ENTITY_NETWORK_TRAFFIC,
   ENTITY_PAYMENT_CARD,
+  ENTITY_PERSONA,
   ENTITY_PHONE_NUMBER,
   ENTITY_PROCESS,
   ENTITY_SOFTWARE,
   ENTITY_TEXT,
+  ENTITY_TRACKING_NUMBER,
   ENTITY_URL,
   ENTITY_USER_ACCOUNT,
   ENTITY_USER_AGENT,
@@ -137,6 +140,9 @@ export const convertTypeToStixType = (type: string): string => {
   if (isStixCoreRelationship(type)) {
     return 'relationship';
   }
+  if (isInternalRelationship(type)) {
+    return 'internal-relationship';
+  }
   if (isStixSightingRelationship(type)) {
     return 'sighting';
   }
@@ -158,20 +164,9 @@ export const cleanObject = <T>(data: T): T => {
   const obj: T = { ...data };
   // eslint-disable-next-line no-restricted-syntax
   for (const key in data) {
-    if (isEmptyField(obj[key])) {
+    // cleanup empty keys except object_refs
+    if (key !== objects.stixName && isEmptyField(obj[key])) {
       delete obj[key];
-    } else if (key === 'extensions') {
-      // Extensions can be generated with only the extension_type
-      // If it's the case and the type is property-extension, no need to keep the extension
-      const extensionDefinitions = Object.entries(obj[key] as Record<string, unknown>);
-      for (let i = 0; i < extensionDefinitions.length; i += 1) {
-        const [extKey, extObject] = extensionDefinitions[i];
-        const extRecord = extObject as Record<string, unknown>;
-        if (extRecord.extension_type === 'property-extension' && Object.entries(extRecord).length === 1) {
-          const ext = obj[key] as any;
-          delete ext[extKey];
-        }
-      }
     }
   }
   return obj;
@@ -219,19 +214,20 @@ export const buildOCTIExtensions = (instance: StoreObject): S.StixOpenctiExtensi
     created_at: convertToStixDate(instance.created_at),
     updated_at: convertToStixDate(instance.updated_at),
     aliases: instance.x_opencti_aliases ?? [],
-    files: (instance.x_opencti_files ?? []).map((file) => ({
+    files: (instance.x_opencti_files ?? []).map((file: StoreFileWithRefs) => ({
       name: file.name,
       uri: `/storage/get/${file.id}`,
       version: file.version,
       mime_type: file.mime_type,
+      object_marking_refs: (file[INPUT_MARKINGS] ?? []).filter((f) => f).map((f) => f.standard_id),
     })),
     stix_ids: (instance.x_opencti_stix_ids ?? []).filter((stixId: string) => isTrustedStixId(stixId)),
     is_inferred: instance._index ? isInferredIndex(instance._index) : undefined, // TODO Use case for empty _index?
     // Refs
     granted_refs: (instance[INPUT_GRANTED_REFS] ?? []).map((m) => m.standard_id),
-    linked_to_refs: (instance[INPUT_LINKED] ?? []).map((m) => m.standard_id),
     // Internals
     creator_ids: builtCreatorIds,
+    granted_refs_ids: (instance[INPUT_GRANTED_REFS] ?? []).map((m) => m.internal_id),
     assignee_ids: (instance[INPUT_ASSIGNEE] ?? []).map((m) => m.internal_id),
     participant_ids: (instance[INPUT_PARTICIPANT] ?? []).map((m) => m.internal_id),
     authorized_members: instance.authorized_members ?? undefined,
@@ -481,6 +477,9 @@ const convertVulnerabilityToStix = (instance: StoreEntity, type: string): SDO.St
         base_severity: instance.x_opencti_cvss_base_severity,
         confidentiality_impact: instance.x_opencti_cvss_confidentiality_impact,
         integrity_impact: instance.x_opencti_cvss_integrity_impact,
+        cisa_kev: instance.x_opencti_cisa_kev,
+        epss_score: instance.x_opencti_epss_score,
+        epss_percentile: instance.x_opencti_epss_percentile,
       })
     }
   };
@@ -972,6 +971,40 @@ const convertBankAccountToStix = (instance: StoreCyberObservable, type: string):
     }
   };
 };
+const convertCredentialToStix = (instance: StoreCyberObservable, type: string): SCO.StixCredential => {
+  assertType(ENTITY_CREDENTIAL, type);
+  const stixCyberObject = buildStixCyberObservable(instance);
+  return {
+    ...stixCyberObject,
+    value: instance.value,
+    labels: (instance[INPUT_LABELS] ?? []).map((m) => m.value),
+    description: instance.x_opencti_description,
+    score: instance.x_opencti_score,
+    created_by_ref: instance[INPUT_CREATED_BY]?.standard_id,
+    external_references: buildExternalReferences(instance),
+    extensions: {
+      [STIX_EXT_OCTI]: stixCyberObject.extensions[STIX_EXT_OCTI],
+      [STIX_EXT_OCTI_SCO]: { extension_type: 'new-sco' }
+    }
+  };
+};
+const convertTrackingNumberToStix = (instance: StoreCyberObservable, type: string): SCO.StixTrackingNumber => {
+  assertType(ENTITY_TRACKING_NUMBER, type);
+  const stixCyberObject = buildStixCyberObservable(instance);
+  return {
+    ...stixCyberObject,
+    value: instance.value,
+    labels: (instance[INPUT_LABELS] ?? []).map((m) => m.value),
+    description: instance.x_opencti_description,
+    score: instance.x_opencti_score,
+    created_by_ref: instance[INPUT_CREATED_BY]?.standard_id,
+    external_references: buildExternalReferences(instance),
+    extensions: {
+      [STIX_EXT_OCTI]: stixCyberObject.extensions[STIX_EXT_OCTI],
+      [STIX_EXT_OCTI_SCO]: { extension_type: 'new-sco' }
+    }
+  };
+};
 const convertPhoneNumberToStix = (instance: StoreCyberObservable, type: string): SCO.StixPhoneNumber => {
   assertType(ENTITY_PHONE_NUMBER, type);
   const stixCyberObject = buildStixCyberObservable(instance);
@@ -1120,6 +1153,23 @@ const convertX509CertificateToStix = (instance: StoreCyberObservable, type: stri
       certificate_policies: instance.certificate_policies,
       policy_mappings: instance.policy_mappings,
     })
+  };
+};
+const convertPersonaToStix = (instance: StoreCyberObservable, type: string): SCO.StixPersona => {
+  assertType(ENTITY_PERSONA, type);
+  const stixCyberObject = buildStixCyberObservable(instance);
+  return {
+    ...buildStixCyberObservable(instance),
+    persona_name: instance.persona_name,
+    persona_type: instance.persona_type,
+    labels: (instance[INPUT_LABELS] ?? []).map((m) => m.value),
+    score: instance.x_opencti_score,
+    created_by_ref: instance[INPUT_CREATED_BY]?.standard_id,
+    external_references: buildExternalReferences(instance),
+    extensions: {
+      [STIX_EXT_OCTI]: stixCyberObject.extensions[STIX_EXT_OCTI],
+      [STIX_EXT_OCTI_SCO]: { extension_type: 'new-sco' }
+    }
   };
 };
 
@@ -1313,7 +1363,7 @@ export const registerStixMetaConverter = <T extends StoreEntity, Z extends S.Sti
 const convertToStix = (instance: StoreCommon): S.StixObject => {
   const type = instance.entity_type;
   if (!isBasicObject(type) && !isBasicRelationship(type)) {
-    throw UnsupportedError('Type cannot be converted to Stix', { type, instance });
+    throw UnsupportedError('Type cannot be converted to Stix', { type });
   }
   // SRO: relations and sightings
   if (isBasicRelationship(type)) {
@@ -1440,6 +1490,12 @@ const convertToStix = (instance: StoreCommon): S.StixObject => {
     if (ENTITY_BANK_ACCOUNT === type) {
       return convertBankAccountToStix(cyber, type);
     }
+    if (ENTITY_CREDENTIAL === type) {
+      return convertCredentialToStix(cyber, type);
+    }
+    if (ENTITY_TRACKING_NUMBER === type) {
+      return convertTrackingNumberToStix(cyber, type);
+    }
     if (ENTITY_CRYPTOGRAPHIC_WALLET === type) {
       return convertCryptocurrencyWalletToStix(cyber, type);
     }
@@ -1475,6 +1531,9 @@ const convertToStix = (instance: StoreCommon): S.StixObject => {
     }
     if (ENTITY_MEDIA_CONTENT === type) {
       return convertMediaContentToStix(cyber, type);
+    }
+    if (ENTITY_PERSONA === type) {
+      return convertPersonaToStix(cyber, type);
     }
     if (ENTITY_MUTEX === type) {
       return convertMutexToStix(cyber, type);
@@ -1525,7 +1584,7 @@ export const convertStoreToStix = (instance: StoreCommon): S.StixObject => {
   const converted = convertToStix(instance);
   const stix = cleanObject(converted);
   if (!isValidStix(stix)) {
-    throw FunctionalError('Invalid stix data conversion', { data: instance });
+    throw FunctionalError('Invalid stix data conversion', { id: instance.standard_id, type: instance.entity_type });
   }
   return stix;
 };

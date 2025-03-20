@@ -15,6 +15,10 @@ import {
   MEMBERS_GROUP_FILTER,
   MEMBERS_ORGANIZATION_FILTER,
   MEMBERS_USER_FILTER,
+  OPINIONS_METRICS_MAX_FILTER,
+  OPINIONS_METRICS_MEAN_FILTER,
+  OPINIONS_METRICS_MIN_FILTER,
+  OPINIONS_METRICS_TOTAL_FILTER,
   SIGHTED_BY_FILTER,
   specialFilterKeys
 } from './filtering-constants';
@@ -120,35 +124,34 @@ export const extractFilterGroupValues = (inputFilters: FilterGroup, key: string 
 };
 
 /**
- * Insert a Filter inside a FilterGroup
+ * Construct a filter: filterGroup AND (new filter constructed from key, values, operator and mode)
  * If the input filterGroup is not defined, it will return a new filterGroup with only the added filter (and / or).
  * Note that this function does input coercion, accepting string[] and string alike
  */
-export const addFilter = (filterGroup: FilterGroup | undefined | null, newKey: string | string[], newValues: string | string[] | undefined | null, operator = 'eq'): FilterGroup => {
+export const addFilter = (filterGroup: FilterGroup | undefined | null, newKey: string | string[], newValues: string | string[] | undefined | null, operator = 'eq', localMode = 'or'): FilterGroup => {
   const keyArray = Array.isArray(newKey) ? newKey : [newKey];
   let valuesArray: string[] = [];
   if (newValues) {
     valuesArray = Array.isArray(newValues) ? newValues : [newValues];
   }
   return {
-    mode: filterGroup?.mode ?? 'and',
+    mode: 'and',
     filters: [
       {
         key: keyArray,
         values: valuesArray,
         operator,
-        mode: 'or'
+        mode: localMode
       },
-      ...(filterGroup?.filters ?? [])
     ],
-    filterGroups: filterGroup?.filterGroups ?? [],
+    filterGroups: filterGroup ? [filterGroup] : [],
   } as FilterGroup;
 };
 
 const replaceFilterKeyInFilter = (filter: Filter, oldKey: string, newKey: string) : Filter => {
   return {
     ...filter,
-    key: filter.key.map((k) => (k === oldKey ? newKey : oldKey)),
+    key: filter.key.map((k) => (k === oldKey ? newKey : k)),
   };
 };
 
@@ -174,6 +177,10 @@ export const replaceFilterKey = (filterGroup: FilterGroup, oldKey: string, newKe
 // the second element is the converted key used in backend
 const specialFilterKeysConvertor = new Map([
   [SIGHTED_BY_FILTER, buildRefRelationKey(STIX_SIGHTING_RELATIONSHIP)],
+  [OPINIONS_METRICS_MEAN_FILTER, 'opinions_metrics.mean'],
+  [OPINIONS_METRICS_MAX_FILTER, 'opinions_metrics.max'],
+  [OPINIONS_METRICS_MIN_FILTER, 'opinions_metrics.min'],
+  [OPINIONS_METRICS_TOTAL_FILTER, 'opinions_metrics.total'],
   [CONTEXT_ENTITY_ID_FILTER, 'context_data.id'],
   [CONTEXT_ENTITY_TYPE_FILTER, 'context_data.entity_type'],
   [CONTEXT_CREATOR_FILTER, 'context_data.creator_ids'],
@@ -189,7 +196,7 @@ const specialFilterKeysConvertor = new Map([
  * Return a filterGroup where all special keys (rel refs) have been converted from frontend format to backend format
  * @param filterGroup
  */
-const convertRelationRefsFilterKeys = (filterGroup: FilterGroup): FilterGroup => {
+export const convertRelationRefsFilterKeys = (filterGroup: FilterGroup): FilterGroup => {
   if (isFilterGroupNotEmpty(filterGroup)) {
     const { filters = [], filterGroups = [] } = filterGroup;
     const newFiltersContent: Filter[] = [];

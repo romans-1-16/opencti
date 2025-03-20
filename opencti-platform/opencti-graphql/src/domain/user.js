@@ -10,12 +10,13 @@ import {
   BUS_TOPICS,
   DEFAULT_ACCOUNT_STATUS,
   ENABLED_DEMO_MODE,
+  isFeatureEnabled,
   logApp,
   OPENCTI_SESSION,
-  PLATFORM_VERSION,
+  PLATFORM_VERSION
 } from '../config/conf';
 import { AuthenticationFailure, DatabaseError, ForbiddenAccess, FunctionalError, UnsupportedError } from '../config/errors';
-import { getEntitiesListFromCache, getEntitiesMapFromCache, getEntityFromCache } from '../database/cache';
+import { getEntitiesListFromCache, getEntitiesMapFromCache, getEntityFromCache, resetCacheForEntity } from '../database/cache';
 import { elLoadBy, elRawDeleteByQuery } from '../database/engine';
 import { createEntity, createRelation, deleteElementById, deleteRelationsByFromAndTo, patchAttribute, updateAttribute, updatedInputsToData } from '../database/middleware';
 import {
@@ -32,7 +33,7 @@ import {
 } from '../database/middleware-loader';
 import { delEditContext, delUserContext, notify, setEditContext } from '../database/redis';
 import { findSessionsForUsers, killUserSessions, markSessionForRefresh } from '../database/session';
-import { buildPagination, isEmptyField, isNotEmptyField, READ_INDEX_INTERNAL_OBJECTS } from '../database/utils';
+import { buildPagination, isEmptyField, isNotEmptyField, READ_INDEX_INTERNAL_OBJECTS, READ_INDEX_STIX_DOMAIN_OBJECTS } from '../database/utils';
 import { extractEntityRepresentativeName } from '../database/entity-representative';
 import { publishUserAction } from '../listener/UserActionListener';
 import { ABSTRACT_INTERNAL_RELATIONSHIP, ABSTRACT_STIX_DOMAIN_OBJECT, OPENCTI_ADMIN_UUID } from '../schema/general';
@@ -44,7 +45,7 @@ import {
   RELATION_HAS_CAPABILITY,
   RELATION_HAS_ROLE,
   RELATION_MEMBER_OF,
-  RELATION_PARTICIPATE_TO,
+  RELATION_PARTICIPATE_TO
 } from '../schema/internalRelationship';
 import { ENTITY_TYPE_IDENTITY_INDIVIDUAL } from '../schema/stixDomainObject';
 import { ENTITY_TYPE_MARKING_DEFINITION } from '../schema/stixMetaObject';
@@ -52,13 +53,14 @@ import {
   BYPASS,
   executionContext,
   INTERNAL_USERS,
+  isOnlyOrgaAdmin,
   isBypassUser,
   isUserHasCapability,
-  KNOWLEDGE_ORGANIZATION_RESTRICT,
   REDACTED_USER,
   SETTINGS_SET_ACCESSES,
   SYSTEM_USER,
   VIRTUAL_ORGANIZATION_ADMIN,
+  INTERNAL_USERS_WITHOUT_REDACTED
 } from '../utils/access';
 import { ASSIGNEE_FILTER, CREATOR_FILTER, PARTICIPANT_FILTER } from '../utils/filtering/filtering-constants';
 import { now, utcDate } from '../utils/format';
@@ -70,13 +72,17 @@ import { ENTITY_TYPE_WORKSPACE } from '../modules/workspace/workspace-types';
 import { extractFilterKeys } from '../utils/filtering/filtering-utils';
 import { testFilterGroup, testStringFilter } from '../utils/filtering/boolean-logic-engine';
 import { computeUserEffectiveConfidenceLevel } from '../utils/confidence-level';
+import { STATIC_NOTIFIER_EMAIL, STATIC_NOTIFIER_UI } from '../modules/notifier/notifier-statics';
+import { cleanMarkings } from '../utils/markingDefinition-utils';
+import { UnitSystem } from '../generated/graphql';
 
 const BEARER = 'Bearer ';
 const BASIC = 'Basic ';
-const AUTH_BEARER = 'Bearer';
+export const AUTH_BEARER = 'Bearer';
 const AUTH_BASIC = 'BasicAuth';
 export const TAXIIAPI = 'TAXIIAPI';
 const PLATFORM_ORGANIZATION = 'settings_platform_organization';
+export const MEMBERS_ENTITY_TYPES = [ENTITY_TYPE_USER, ENTITY_TYPE_IDENTITY_ORGANIZATION, ENTITY_TYPE_GROUP];
 
 const roleSessionRefresh = async (context, user, roleId) => {
   // Get all groups that have this role
@@ -116,6 +122,7 @@ export const userWithOrigin = (req, user) => {
     referer: req?.headers.referer,
     applicant_id: req?.headers['opencti-applicant-id'],
     call_retry_number: req?.headers['opencti-retry-number'],
+    playbook_id: req?.headers['opencti-playbook-id']
   };
   return { ...user, origin };
 };
@@ -195,8 +202,13 @@ export const findParticipants = (context, user, args) => {
 
 export const findAllMembers = (context, user, args) => {
   const { entityTypes = null } = args;
-  const types = entityTypes || [ENTITY_TYPE_USER, ENTITY_TYPE_IDENTITY_ORGANIZATION, ENTITY_TYPE_GROUP];
+  const types = entityTypes || MEMBERS_ENTITY_TYPES;
   return listEntities(context, user, types, args);
+};
+
+export const findAllSystemMembers = () => {
+  const members = R.values(INTERNAL_USERS_WITHOUT_REDACTED);
+  return buildPagination(0, null, members.map((r) => ({ node: r })), members.length);
 };
 
 // build only a creator object with what we need to expose of users
@@ -207,7 +219,7 @@ const buildCreatorUser = (user) => {
   return {
     id: user.id,
     entity_type: user.entity_type,
-    name: user.name,
+    name: ENABLED_DEMO_MODE ? REDACTED_USER.name : user.name,
     description: user.description,
     standard_id: user.id
   };
@@ -221,6 +233,11 @@ export const batchCreators = async (context, user, userListIds) => {
   const userIds = userListIds.map((u) => (Array.isArray(u) ? u : [u]));
   const platformUsers = await getEntitiesMapFromCache(context, SYSTEM_USER, ENTITY_TYPE_USER);
   return userIds.map((ids) => ids.map((id) => INTERNAL_USERS[id] || buildCreatorUser(platformUsers.get(id)) || SYSTEM_USER));
+};
+
+export const userOrganizationsPaginatedWithoutInferences = async (context, user, userId, opts) => {
+  const args = { ...opts, withInferences: false };
+  return listEntitiesThroughRelationsPaginated(context, user, userId, RELATION_PARTICIPATE_TO, ENTITY_TYPE_IDENTITY_ORGANIZATION, false, args);
 };
 
 export const userOrganizationsPaginated = async (context, user, userId, opts) => {
@@ -295,21 +312,53 @@ export const computeAvailableMarkings = (userMarkings, allMarkings) => {
   return R.uniqBy((m) => m.id, computedMarkings);
 };
 
+// Return all the available markings a user can share
+export const getAvailableDataSharingMarkings = async (context, user) => {
+  const maxMarkings = user.max_shareable_marking;
+  const allMarkings = await getEntitiesListFromCache(context, SYSTEM_USER, ENTITY_TYPE_MARKING_DEFINITION);
+  return computeAvailableMarkings(maxMarkings, allMarkings);
+};
+
+export const checkUserCanShareMarkings = async (context, user, markingsToShare) => {
+  const shareableMarkings = await getAvailableDataSharingMarkings(context, user);
+  const contentMaxMarkingsIsShareable = markingsToShare.every((m) => (
+    shareableMarkings.some((shareableMarking) => m.definition_type === shareableMarking.definition_type && m.x_opencti_order <= shareableMarking.x_opencti_order)));
+  if (!contentMaxMarkingsIsShareable) {
+    throw ForbiddenAccess('You are not allowed to share these markings', { markings: markingsToShare });
+  }
+};
+
 const getUserAndGlobalMarkings = async (context, userId, userGroups, capabilities) => {
   const groupIds = userGroups.map((r) => r.id);
   const userCapabilities = capabilities.map((c) => c.name);
   const shouldBypass = userCapabilities.includes(BYPASS) || userId === OPENCTI_ADMIN_UUID;
   const allMarkingsPromise = getEntitiesListFromCache(context, SYSTEM_USER, ENTITY_TYPE_MARKING_DEFINITION);
-  let userMarkingsPromise;
-  if (shouldBypass) { // Bypass user have all platform markings
-    userMarkingsPromise = allMarkingsPromise;
-  } else { // Standard user have markings related to his groups
-    userMarkingsPromise = listAllToEntitiesThroughRelations(context, SYSTEM_USER, groupIds, RELATION_ACCESSES_TO, ENTITY_TYPE_MARKING_DEFINITION);
-  }
   const defaultGroupMarkingsPromise = defaultMarkingDefinitionsFromGroups(context, groupIds);
-  const [userMarkings, markings, defaultMarkings] = await Promise.all([userMarkingsPromise, allMarkingsPromise, defaultGroupMarkingsPromise]);
-  const computedMarkings = computeAvailableMarkings(userMarkings, markings);
-  return { user: computedMarkings, all: markings, default: defaultMarkings };
+  let userMarkings;
+  let maxShareableMarkings;
+  const [all, defaultMarkings] = await Promise.all([allMarkingsPromise, defaultGroupMarkingsPromise]);
+
+  if (shouldBypass) { // Bypass user have all platform markings and can share all markings
+    userMarkings = all;
+    maxShareableMarkings = all;
+  } else { // Standard user have markings related to his groups
+    userMarkings = await listAllToEntitiesThroughRelations(context, SYSTEM_USER, groupIds, RELATION_ACCESSES_TO, ENTITY_TYPE_MARKING_DEFINITION);
+
+    const notShareableMarkings = userGroups.flatMap(
+      ({ max_shareable_markings }) => max_shareable_markings?.filter(({ value }) => value === 'none')
+        .map(({ type }) => type)
+    );
+
+    maxShareableMarkings = userGroups.flatMap(({ max_shareable_markings }) => max_shareable_markings?.filter(({ value }) => value !== 'none')).filter((m) => !!m);
+
+    const allShareableMarkings = all.filter(({ definition_type }) => (
+      !notShareableMarkings.includes(definition_type) && !maxShareableMarkings.some(({ type }) => type === definition_type)
+    )).filter(({ id }) => userMarkings.some((m) => m.id === id)).map(({ id }) => id);
+    maxShareableMarkings = [...maxShareableMarkings.map(({ value }) => value), ...allShareableMarkings];
+  }
+
+  const computedMarkings = computeAvailableMarkings(userMarkings, all);
+  return { user: computedMarkings, all, default: defaultMarkings, max_shareable: await cleanMarkings(context, maxShareableMarkings) };
 };
 
 export const getRoles = async (context, userGroups) => {
@@ -317,7 +366,7 @@ export const getRoles = async (context, userGroups) => {
   return listAllToEntitiesThroughRelations(context, SYSTEM_USER, groupIds, RELATION_HAS_ROLE, ENTITY_TYPE_ROLE);
 };
 
-export const getCapabilities = async (context, userId, userRoles, isUserPlatform) => {
+export const getCapabilities = async (context, userId, userRoles) => {
   const roleIds = userRoles.map((r) => r.id);
   const capabilities = await listAllToEntitiesThroughRelations(context, SYSTEM_USER, roleIds, RELATION_HAS_CAPABILITY, ENTITY_TYPE_CAPABILITY);
   // Force push the bypass for default admin
@@ -327,7 +376,7 @@ export const getCapabilities = async (context, userId, userRoles, isUserPlatform
     capabilities.push({ id, standard_id: id, internal_id: id, name: BYPASS });
     return capabilities;
   }
-  return isUserPlatform ? capabilities : capabilities.filter((c) => c.name !== KNOWLEDGE_ORGANIZATION_RESTRICT);
+  return capabilities;
 };
 
 export const roleCapabilities = async (context, user, roleId) => {
@@ -381,10 +430,22 @@ export const roleEditContext = async (context, user, roleId, input) => {
   });
 };
 
+const isUserAdministratingOrga = (user, organizationId) => {
+  return user.administrated_organizations.some(({ id }) => id === organizationId);
+};
+
 export const assignOrganizationToUser = async (context, user, userId, organizationId) => {
-  if (!isUserHasCapability(user, SETTINGS_SET_ACCESSES) && isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN)) {
-    throw ForbiddenAccess();
+  if (isOnlyOrgaAdmin(user)) {
+    // When user is organization admin, we make sure she is also admin of organization added
+    if (!isUserAdministratingOrga(user, organizationId)) {
+      throw ForbiddenAccess();
+    }
   }
+  const targetUser = await findById(context, user, userId);
+  if (!targetUser) {
+    throw FunctionalError('Cannot add the relation, User cannot be found.');
+  }
+
   const input = { fromId: userId, toId: organizationId, relationship_type: RELATION_PARTICIPATE_TO };
   const created = await createRelation(context, user, input);
   const actionEmail = ENABLED_DEMO_MODE ? REDACTED_USER.user_email : created.from.user_email;
@@ -394,10 +455,12 @@ export const assignOrganizationToUser = async (context, user, userId, organizati
     event_scope: 'update',
     event_access: 'administration',
     message: `adds ${created.toType} \`${extractEntityRepresentativeName(created.to)}\` to user \`${actionEmail}\``,
-    context_data: { id: organizationId, entity_type: ENTITY_TYPE_USER, input }
+    context_data: { id: userId, entity_type: ENTITY_TYPE_USER, input }
   });
+
   await userSessionRefresh(userId);
-  return user;
+  resetCacheForEntity(ENTITY_TYPE_SETTINGS);
+  return notify(BUS_TOPICS[ENTITY_TYPE_USER].EDIT_TOPIC, targetUser, user);
 };
 
 export const assignOrganizationNameToUser = async (context, user, userId, organizationName) => {
@@ -483,7 +546,7 @@ export const addUser = async (context, user, newUser) => {
   const userEmail = newUser.user_email.toLowerCase();
   const existingUser = await elLoadBy(context, SYSTEM_USER, 'user_email', userEmail, ENTITY_TYPE_USER);
   if (existingUser) {
-    throw FunctionalError('User already exists', { email: userEmail });
+    throw FunctionalError('User already exists', { user_id: existingUser.internal_id });
   }
   if (isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN) && !isUserHasCapability(user, SETTINGS_SET_ACCESSES)) {
     // user is Organization Admin
@@ -517,8 +580,10 @@ export const addUser = async (context, user, newUser) => {
     R.assoc('account_lock_after_date', newUser.account_lock_after_date),
     R.assoc('unit_system', newUser.unit_system),
     R.assoc('user_confidence_level', newUser.user_confidence_level ?? null), // can be null
+    R.assoc('personal_notifiers', [STATIC_NOTIFIER_UI, STATIC_NOTIFIER_EMAIL]),
     R.dissoc('roles'),
-    R.dissoc('groups')
+    R.dissoc('groups'),
+    R.dissoc('prevent_default_groups')
   )(newUser);
   const { element, isCreation } = await createEntity(context, user, userToCreate, ENTITY_TYPE_USER, { complete: true });
   // Link to organizations
@@ -529,24 +594,32 @@ export const addUser = async (context, user, newUser) => {
     relationship_type: RELATION_PARTICIPATE_TO,
   }));
   await Promise.all(relationOrganizations.map((relation) => createRelation(context, user, relation)));
-  // Either use the provided groups or Assign the default groups to user (SSO)
-  const userRelationGroups = (newUser.groups ?? []).map((group) => ({
-    fromId: element.id,
-    toId: group,
-    relationship_type: RELATION_MEMBER_OF,
-  }));
-  const defaultAssignationFilter = {
-    mode: 'and',
-    filters: [{ key: 'default_assignation', values: [true] }],
-    filterGroups: [],
-  };
-  const defaultGroups = await findGroups(context, user, { filters: defaultAssignationFilter });
-  const defaultRelationGroups = defaultGroups.edges.map((e) => ({
-    fromId: element.id,
-    toId: e.node.internal_id,
-    relationship_type: RELATION_MEMBER_OF,
-  }));
-  const relationGroups = [...userRelationGroups, ...defaultRelationGroups];
+  // Add the provided groups
+  let relationGroups = [];
+  if ((newUser.groups ?? []).length > 0) {
+    relationGroups = (newUser.groups ?? []).map((group) => ({
+      fromId: element.id,
+      toId: group,
+      relationship_type: RELATION_MEMBER_OF,
+    }));
+  }
+  // if prevent_default_groups is not true, assign the default groups to the user
+  if (newUser.prevent_default_groups !== true) {
+    const defaultAssignationFilter = {
+      mode: 'and',
+      filters: [{ key: 'default_assignation', values: [true] }],
+      filterGroups: [],
+    };
+    const defaultGroups = await findGroups(context, user, { filters: defaultAssignationFilter });
+    const relationDefaultGroups = defaultGroups.edges
+      .filter((e) => !(newUser.groups ?? []).includes(e.node.internal_id)) // remove groups already in new user group input
+      .map((e) => ({
+        fromId: element.id,
+        toId: e.node.internal_id,
+        relationship_type: RELATION_MEMBER_OF,
+      }));
+    relationGroups = [...relationGroups, ...relationDefaultGroups];
+  }
   await Promise.all(relationGroups.map((relation) => createRelation(context, user, relation)));
   // Audit log
   if (isCreation) {
@@ -627,11 +700,12 @@ export const userEditField = async (context, user, userId, rawInputs) => {
   const userToUpdate = await internalLoadById(context, user, userId);
   // Check in an organization admin edits a user that's not in its administrated organizations
   const myAdministratedOrganizationsIds = user.administrated_organizations.map((orga) => orga.id);
-  if (!isUserHasCapability(user, SETTINGS_SET_ACCESSES) && isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN)) {
-    if (!userToUpdate.objectOrganization.find((orga) => myAdministratedOrganizationsIds.includes(orga))) {
+  if (isOnlyOrgaAdmin(user)) {
+    if (userId !== user.id && !userToUpdate[RELATION_PARTICIPATE_TO].find((orga) => myAdministratedOrganizationsIds.includes(orga))) {
       throw ForbiddenAccess();
     }
   }
+  let refreshSessionNeeded = false;
   for (let index = 0; index < rawInputs.length; index += 1) {
     const input = rawInputs[index];
     if (input.key === 'password') {
@@ -656,11 +730,29 @@ export const userEditField = async (context, user, userId, rawInputs) => {
     }
     if (input.key === 'user_confidence_level') {
       // user's effective level might have changed, we need to refresh session info
-      await userSessionRefresh(userId);
+      refreshSessionNeeded = true;
+    }
+    if (input.key === 'draft_context') {
+      // draft context might have changed, we need to check draft context exists and refresh session info
+      const draftContext = R.head(input.value).toString();
+      if (draftContext !== '') {
+        const draftWorkspace = await internalLoadById(context, user, draftContext);
+        if (!draftWorkspace) throw Error('Could not find draft workspace');
+      }
+      refreshSessionNeeded = true;
+    }
+    if (input.key === 'unit_system') {
+      const unit = R.head(input.value).toString();
+      if (!Object.keys(UnitSystem).map((option) => option.toLowerCase()).includes(unit.toLowerCase())) {
+        throw UnsupportedError('Unsupported unit system', { unit });
+      }
     }
     inputs.push(input);
   }
   const { element } = await updateAttribute(context, user, userId, ENTITY_TYPE_USER, inputs);
+  if (refreshSessionNeeded) { // refresh session after update
+    await userSessionRefresh(userId);
+  }
   const input = updatedInputsToData(element, inputs);
   const personalUpdate = user.id === userId;
   const actionEmail = ENABLED_DEMO_MODE ? REDACTED_USER.user_email : element.user_email;
@@ -738,25 +830,49 @@ export const addBookmark = async (context, user, id, type) => {
 
 const PROTECTED_USER_ATTRIBUTES = ['api_token', 'external'];
 const PROTECTED_EXTERNAL_ATTRIBUTES = ['user_email', 'user_name'];
+const ME_USER_MODIFIABLE_ATTRIBUTES = [
+  'user_email',
+  'user_name',
+  'description',
+  'firstname',
+  'lastname',
+  'theme',
+  'language',
+  'personal_notifiers',
+  'default_dashboard',
+  'default_time_field',
+  'unit_system',
+  'submenu_show_icons',
+  'submenu_auto_collapse',
+  'monochrome_labels',
+  'password',
+  'draft_context',
+];
 export const meEditField = async (context, user, userId, inputs, password = null) => {
-  const input = R.head(inputs);
-  const { key } = input;
-  // Check if field can be updated by the user
-  if (PROTECTED_USER_ATTRIBUTES.includes(key)) {
-    throw ForbiddenAccess();
-  }
-  // If the user is external, some extra attributes must be protected
-  if (user.external && PROTECTED_EXTERNAL_ATTRIBUTES.includes(key)) {
-    throw ForbiddenAccess();
-  }
-  // Check password confirmation in case of password change
-  if (key === 'password') {
-    const dbPassword = user.session_password;
-    const match = bcrypt.compareSync(password, dbPassword);
-    if (!match) {
-      throw FunctionalError('The current password you have provided is not valid');
+  inputs.forEach((input) => {
+    const { key } = input;
+    // Check if field can be updated by the user
+    if (PROTECTED_USER_ATTRIBUTES.includes(key)) {
+      throw ForbiddenAccess();
     }
-  }
+    // If the user is external, some extra attributes must be protected
+    if (user.external && PROTECTED_EXTERNAL_ATTRIBUTES.includes(key)) {
+      throw ForbiddenAccess();
+    }
+    // On MeUser only some fields are updatable
+    if (!ME_USER_MODIFIABLE_ATTRIBUTES.includes(key)) {
+      throw ForbiddenAccess();
+    }
+    // Check password confirmation in case of password change
+    if (key === 'password') {
+      const dbPassword = user.session_password;
+      const match = bcrypt.compareSync(password, dbPassword);
+      if (!match) {
+        throw FunctionalError('The current password you have provided is not valid');
+      }
+    }
+  });
+
   return userEditField(context, user, userId, inputs);
 };
 
@@ -852,11 +968,11 @@ export const deleteAllNotificationByUser = async (userId) => {
  * @returns {Promise<*>}
  */
 export const userDelete = async (context, user, userId) => {
-  if (!isUserHasCapability(user, SETTINGS_SET_ACCESSES) && isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN)) {
+  if (isOnlyOrgaAdmin(user)) {
     // When user is organization admin, we make sure that the deleted user is in one of the administrated organizations of the admin
     const userData = await storeLoadById(context, user, userId, ENTITY_TYPE_USER);
     const myAdministratedOrganizationsIds = user.administrated_organizations.map(({ id }) => id);
-    if (!userData.objectOrganization.find((orga) => myAdministratedOrganizationsIds.includes(orga))) {
+    if (!userData[RELATION_PARTICIPATE_TO].find((orga) => myAdministratedOrganizationsIds.includes(orga))) {
       throw ForbiddenAccess();
     }
   }
@@ -888,7 +1004,7 @@ export const userAddRelation = async (context, user, userId, input) => {
   }
   // Check in case organization admins adds non-grantable goup a user
   const myGrantableGroups = R.uniq(user.administrated_organizations.map((orga) => orga.grantable_groups).flat());
-  if (!isUserHasCapability(user, SETTINGS_SET_ACCESSES) && isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN)) {
+  if (isOnlyOrgaAdmin(user)) {
     if (input.relationship_type === 'member-of' && !myGrantableGroups.includes(input.toId)) {
       throw ForbiddenAccess();
     }
@@ -939,16 +1055,19 @@ export const userIdDeleteRelation = async (context, user, userId, toId, relation
 };
 
 export const userDeleteOrganizationRelation = async (context, user, userId, toId) => {
-  if (!isUserHasCapability(user, SETTINGS_SET_ACCESSES) && isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN)) {
-    throw ForbiddenAccess();
+  if (isOnlyOrgaAdmin(user)) {
+    // When user is organization admin, we make sure she is also admin of organization removed
+    if (!isUserAdministratingOrga(user, toId)) {
+      throw ForbiddenAccess();
+    }
   }
-  const targetUser = await storeLoadById(context, user, userId, ENTITY_TYPE_USER);
+  const targetUser = await findById(context, user, userId);
   if (!targetUser) {
     throw FunctionalError('Cannot delete the relation, User cannot be found.');
   }
 
   const { to } = await deleteRelationsByFromAndTo(context, user, userId, toId, RELATION_PARTICIPATE_TO, ABSTRACT_INTERNAL_RELATIONSHIP);
-  if (to.authorized_authorities.includes(userId)) {
+  if (to.authorized_authorities?.includes(userId)) {
     const indexOfMember = to.authorized_authorities.indexOf(userId);
     to.authorized_authorities.splice(indexOfMember, 1);
     const patch = { authorized_authorities: to.authorized_authorities };
@@ -967,11 +1086,16 @@ export const userDeleteOrganizationRelation = async (context, user, userId, toId
     context_data: { id: userId, entity_type: ENTITY_TYPE_USER, input }
   });
   await userSessionRefresh(userId);
+  resetCacheForEntity(ENTITY_TYPE_SETTINGS);
   return notify(BUS_TOPICS[ENTITY_TYPE_USER].EDIT_TOPIC, targetUser, user);
 };
 
 export const loginFromProvider = async (userInfo, opts = {}) => {
-  const { providerGroups = [], providerOrganizations = [], autoCreateGroup = false } = opts;
+  const {
+    providerGroups = [],
+    providerOrganizations = [],
+    autoCreateGroup = false,
+  } = opts;
   const context = executionContext('login_provider');
   // region test the groups existence and eventually auto create groups
   if (providerGroups.length > 0) {
@@ -1001,11 +1125,12 @@ export const loginFromProvider = async (userInfo, opts = {}) => {
   if (isEmptyField(email)) {
     throw ForbiddenAccess('User email not provided');
   }
-  const name = isEmptyField(providedName) ? email : providedName;
-  const user = await elLoadBy(context, SYSTEM_USER, 'user_email', email, ENTITY_TYPE_USER);
+  const userEmail = email.toLowerCase();
+  const name = isEmptyField(providedName) ? userEmail : providedName;
+  const user = await elLoadBy(context, SYSTEM_USER, 'user_email', userEmail, ENTITY_TYPE_USER);
   if (!user) {
     // If user doesn't exist, create it. Providers are trusted
-    const newUser = { name, firstname, lastname, user_email: email.toLowerCase(), external: true };
+    const newUser = { name, firstname, lastname, user_email: userEmail, external: true };
     return addUser(context, SYSTEM_USER, newUser).then(() => {
       // After user creation, reapply login to manage roles and groups
       return loginFromProvider(userInfo, opts);
@@ -1021,8 +1146,8 @@ export const loginFromProvider = async (userInfo, opts = {}) => {
     const userGroups = await listAllToEntitiesThroughRelations(context, SYSTEM_USER, user.id, RELATION_MEMBER_OF, ENTITY_TYPE_GROUP);
     const deleteGroups = userGroups.filter((o) => !providerGroups.includes(o.name));
     for (let index = 0; index < deleteGroups.length; index += 1) {
-      const userGroup = userGroups[index];
-      await userDeleteRelation(context, SYSTEM_USER, user, userGroup.id, RELATION_MEMBER_OF);
+      const deleteGroup = deleteGroups[index];
+      await userDeleteRelation(context, SYSTEM_USER, user, deleteGroup.id, RELATION_MEMBER_OF);
     }
     // 02 - Create groups from providers
     const createGroups = providerGroups.filter((n) => !userGroups.map((o) => o.name).includes(n));
@@ -1087,6 +1212,10 @@ export const userAddIndividual = async (context, user) => {
 };
 
 export const otpUserActivation = async (context, user, { secret, code }) => {
+  // User activation can only be done if otp is not already activated
+  if (user.otp_activated) {
+    throw UnsupportedError('You need to deactivate your current 2FA before generating a new one');
+  }
   const isValidated = authenticator.check(code, secret);
   if (isValidated) {
     const uri = authenticator.keyuri(user.user_email, 'OpenCTI', secret);
@@ -1129,7 +1258,7 @@ const regenerateUserSession = async (user, req, res) => {
 
 const buildSessionUser = (origin, impersonate, provider, settings) => {
   const user = impersonate ?? origin;
-  return {
+  const sessionUser = {
     id: user.id,
     individual_id: user.individual_id,
     session_creation: now(),
@@ -1147,6 +1276,9 @@ const buildSessionUser = (origin, impersonate, provider, settings) => {
     account_status: user.account_status,
     account_lock_after_date: user.account_lock_after_date,
     unit_system: user.unit_system,
+    submenu_show_icons: user.submenu_show_icons,
+    submenu_auto_collapse: user.submenu_auto_collapse,
+    monochrome_labels: user.monochrome_labels,
     groups: user.groups,
     roles: user.roles,
     impersonate: impersonate !== undefined,
@@ -1155,10 +1287,15 @@ const buildSessionUser = (origin, impersonate, provider, settings) => {
     default_hidden_types: user.default_hidden_types,
     group_ids: user.groups?.map((g) => g.internal_id) ?? [],
     organizations: user.organizations ?? [],
-    allowed_organizations: user.allowed_organizations,
     administrated_organizations: user.administrated_organizations ?? [],
     inside_platform_organization: user.inside_platform_organization,
     allowed_marking: user.allowed_marking.map((m) => ({
+      id: m.id,
+      standard_id: m.standard_id,
+      internal_id: m.internal_id,
+      definition_type: m.definition_type,
+    })),
+    max_shareable_marking: user.max_shareable_marking.map((m) => ({
       id: m.id,
       standard_id: m.standard_id,
       internal_id: m.internal_id,
@@ -1181,8 +1318,16 @@ const buildSessionUser = (origin, impersonate, provider, settings) => {
     })),
     session_version: PLATFORM_VERSION,
     effective_confidence_level: user.effective_confidence_level,
+    no_creators: user.no_creators,
+    restrict_delete: user.restrict_delete,
+    personal_notifiers: user.personal_notifiers,
     ...user.provider_metadata
   };
+
+  if (isFeatureEnabled('DRAFT_WORKSPACE')) {
+    return { ...sessionUser, draft_context: user.draft_context };
+  }
+  return sessionUser;
 };
 
 const virtualOrganizationAdminCapability = {
@@ -1194,17 +1339,33 @@ const virtualOrganizationAdminCapability = {
   created_at: Date.now(),
   updated_at: Date.now()
 };
+const getStackTrace = () => {
+  const obj = {};
+  Error.captureStackTrace(obj, getStackTrace);
+  return obj.stack;
+};
+
+export const isSensitiveChangesAllowed = (userId, roles) => {
+  if (userId === OPENCTI_ADMIN_UUID) {
+    return true;
+  }
+  return roles.some(({ can_manage_sensitive_config }) => can_manage_sensitive_config);
+};
+
 export const buildCompleteUser = async (context, client) => {
   if (!client) {
     return undefined;
   }
+  const initialCallStack = getStackTrace();
+  logApp.debug('Building complete user', { client, stack: initialCallStack });
   const contactInformationFilter = {
     mode: 'and',
     filters: [{ key: 'contact_information', values: [client.user_email] }],
     filterGroups: [],
   };
-  const args = { filters: contactInformationFilter, connectionFormat: false, noFiltersChecking: true };
-  const individualsPromise = listEntities(context, SYSTEM_USER, [ENTITY_TYPE_IDENTITY_INDIVIDUAL], args);
+  // find user corresponding individual (we need only to get the first one)
+  const individualArgs = { first: 1, indices: [READ_INDEX_STIX_DOMAIN_OBJECTS], filters: contactInformationFilter, connectionFormat: false, noFiltersChecking: true };
+  const individualsPromise = listEntities(context, SYSTEM_USER, [ENTITY_TYPE_IDENTITY_INDIVIDUAL], individualArgs);
   const organizationsPromise = listAllToEntitiesThroughRelations(
     context,
     SYSTEM_USER,
@@ -1215,12 +1376,12 @@ export const buildCompleteUser = async (context, client) => {
   );
   const userGroupsPromise = listAllToEntitiesThroughRelations(context, SYSTEM_USER, client.id, RELATION_MEMBER_OF, ENTITY_TYPE_GROUP);
   const settings = await getEntityFromCache(context, SYSTEM_USER, ENTITY_TYPE_SETTINGS);
-  const allowed_organizations = await listAllToEntitiesThroughRelations(context, SYSTEM_USER, client.id, RELATION_PARTICIPATE_TO, ENTITY_TYPE_IDENTITY_ORGANIZATION);
-  const userOrganizations = allowed_organizations.map((m) => m.internal_id);
-  const isUserPlatform = settings.platform_organization ? userOrganizations.includes(settings.platform_organization) : true;
   const [individuals, organizations, groups] = await Promise.all([individualsPromise, organizationsPromise, userGroupsPromise]);
+  const userOrganizationIds = organizations.map((m) => m.internal_id);
+  const isUserPlatform = settings.platform_organization ? userOrganizationIds.includes(settings.platform_organization) : true;
   const roles = await getRoles(context, groups);
-  const capabilities = await getCapabilities(context, client.id, roles, isUserPlatform);
+  const capabilities = await getCapabilities(context, client.id, roles);
+  const isByPass = R.find((s) => s.name === BYPASS, capabilities) !== undefined;
   const marking = await getUserAndGlobalMarkings(context, client.id, groups, capabilities);
   const administrated_organizations = organizations.filter((o) => o.authorized_authorities?.includes(client.id));
   if (administrated_organizations.length > 0) {
@@ -1230,28 +1391,43 @@ export const buildCompleteUser = async (context, client) => {
 
   // Default hidden types
   const defaultHiddenTypesGroups = getDefaultHiddenTypes(groups);
-  const defaultHiddenTypesOrgs = getDefaultHiddenTypes(allowed_organizations);
+  const defaultHiddenTypesOrgs = getDefaultHiddenTypes(organizations);
   const default_hidden_types = uniq(defaultHiddenTypesGroups.concat(defaultHiddenTypesOrgs));
 
   // effective confidence level
   const effective_confidence_level = computeUserEffectiveConfidenceLevel({ ...client, groups, capabilities });
 
+  // Other groups attribute
+  const no_creators = groups.filter((g) => g.no_creators).length === groups.length;
+  const restrict_delete = !isByPass && groups.filter((g) => g.restrict_delete).length === groups.length;
+
+  const canManageSensitiveConfig = { can_manage_sensitive_config: isSensitiveChangesAllowed(client.id, roles) };
+
   return {
     ...client,
+    ...canManageSensitiveConfig,
     roles,
     capabilities,
     default_hidden_types,
     groups,
     organizations,
-    allowed_organizations,
     administrated_organizations,
     individual_id: individualId,
     inside_platform_organization: isUserPlatform,
     allowed_marking: marking.user,
     all_marking: marking.all,
     default_marking: marking.default,
+    max_shareable_marking: marking.max_shareable,
     effective_confidence_level,
+    no_creators,
+    restrict_delete,
   };
+};
+
+export const resolveUserByIdFromCache = async (context, id) => {
+  if (INTERNAL_USERS[id]) return INTERNAL_USERS[id];
+  const platformUsers = await getEntitiesMapFromCache(context, SYSTEM_USER, ENTITY_TYPE_USER);
+  return platformUsers.get(id);
 };
 
 export const resolveUserById = async (context, id) => {
@@ -1260,15 +1436,35 @@ export const resolveUserById = async (context, id) => {
   return buildCompleteUser(context, client);
 };
 
-const resolveUserByToken = async (context, tokenValue) => {
+export const resolveUserByToken = async (context, tokenValue) => {
   const client = await elLoadBy(context, SYSTEM_USER, 'api_token', tokenValue, ENTITY_TYPE_USER);
   return buildCompleteUser(context, client);
 };
 
 export const userRenewToken = async (context, user, userId) => {
+  if (userId === OPENCTI_ADMIN_UUID) {
+    throw FunctionalError('Cannot renew token of admin user defined in configuration, please change configuration instead.');
+  }
+
+  const userData = await storeLoadById(context, user, userId, ENTITY_TYPE_USER);
+  if (!userData) {
+    throw FunctionalError(`Cannot renew token, ${userId} user cannot be found.`);
+  }
   const patch = { api_token: uuid() };
   await patchAttribute(context, user, userId, ENTITY_TYPE_USER, patch);
-  return storeLoadById(context, user, userId, ENTITY_TYPE_USER);
+  const result = storeLoadById(context, user, userId, ENTITY_TYPE_USER);
+
+  const actionEmail = ENABLED_DEMO_MODE ? REDACTED_USER.user_email : userData.user_email;
+  await publishUserAction({
+    user,
+    event_type: 'mutation',
+    event_scope: 'update',
+    event_access: 'administration',
+    message: `renew token of user \`${actionEmail}\``,
+    context_data: { id: userId, entity_type: ENTITY_TYPE_USER }
+  });
+
+  return result;
 };
 
 /**
@@ -1302,7 +1498,7 @@ export const internalAuthenticateUser = async (context, req, user, provider, { t
   const applicantId = req.headers['opencti-applicant-id'];
   if (isNotEmptyField(applicantId) && logged.id !== applicantId) {
     if (isBypassUser(logged)) {
-      const applicantUser = await resolveUserById(context, applicantId);
+      const applicantUser = await resolveUserByIdFromCache(context, applicantId);
       if (isEmptyField(applicantUser)) {
         logApp.warn('User cant be impersonate (not exists)', { applicantId });
       } else {
@@ -1318,19 +1514,21 @@ export const internalAuthenticateUser = async (context, req, user, provider, { t
     sessionUser.impersonate_user_id = previousSession.impersonate_user_id;
   }
   const userOrigin = userWithOrigin(req, sessionUser);
-  if (!isSessionRefresh) {
-    await publishUserAction({
-      user: userOrigin,
-      event_type: 'authentication',
-      event_access: 'administration',
-      event_scope: 'login',
-      context_data: { provider }
-    });
+  if (isEmptyField(user.stateless_session) || user.stateless_session === false) {
+    if (!isSessionRefresh) {
+      await publishUserAction({
+        user: userOrigin,
+        event_type: 'authentication',
+        event_access: 'administration',
+        event_scope: 'login',
+        context_data: { provider }
+      });
+    }
+    req.session.user = sessionUser;
+    req.session.session_provider = { provider, token };
+    req.session.session_refresh = false;
+    req.session.save();
   }
-  req.session.user = sessionUser;
-  req.session.session_provider = { provider, token };
-  req.session.session_refresh = false;
-  req.session.save();
   return userOrigin;
 };
 
@@ -1405,7 +1603,7 @@ export const authenticateUserFromRequest = async (context, req, res, isSessionRe
         return await authenticateUser(context, req, user, loginProvider, opts);
       }
     } catch (err) {
-      logApp.error(err);
+      logApp.error('Error resolving user by token', { cause: err });
     }
   }
   // If user still not identified, try headers authentication
@@ -1429,7 +1627,7 @@ export const initAdmin = async (context, email, password, tokenValue) => {
     const patch = {
       account_status: ACCOUNT_STATUS_ACTIVE,
       user_email: email,
-      password: bcrypt.hashSync(password),
+      password: bcrypt.hashSync(password.toString()),
       api_token: tokenValue,
       external: true,
     };
@@ -1445,7 +1643,7 @@ export const initAdmin = async (context, email, password, tokenValue) => {
       lastname: 'OpenCTI',
       description: 'Principal admin account',
       api_token: tokenValue,
-      password,
+      password: password.toString(),
       user_confidence_level: {
         max_confidence: 100,
         overrides: [],
@@ -1468,19 +1666,46 @@ export const findDefaultDashboards = async (context, user, currentUser) => {
 // region context
 export const userCleanContext = async (context, user, userId) => {
   await delEditContext(user, userId);
-  return storeLoadById(context, user, userId, ENTITY_TYPE_USER).then((userToReturn) => notify(BUS_TOPICS[ENTITY_TYPE_USER].EDIT_TOPIC, userToReturn, user));
+  return storeLoadById(context, user, userId, ENTITY_TYPE_USER);
 };
 
 export const userEditContext = async (context, user, userId, input) => {
   await setEditContext(user, userId, input);
-  return storeLoadById(context, user, userId, ENTITY_TYPE_USER).then((userToReturn) => notify(BUS_TOPICS[ENTITY_TYPE_USER].EDIT_TOPIC, userToReturn, user));
+  return storeLoadById(context, user, userId, ENTITY_TYPE_USER);
 };
 // endregion
 
-export const getUserEffectiveConfidenceLevel = async (userId, context) => {
-  const user = await findById(context, context.user, userId); // this returns a complete user, with groups
-  if (!user) {
-    throw FunctionalError('User not found', { user_id: userId });
+const buildCompleteUserFromCacheOrDb = async (context, user, userToLoad, cachedUsers) => {
+  const cachedUser = cachedUsers.get(userToLoad.id);
+  let completeUser;
+  if (cachedUser) {
+    // in case we need to resolve user effective confidence level on edit (cache not updated with user edited fields yet)
+    // we need groups and capabilities to compute user effective confidence level, which are accurate in cache.
+    completeUser = {
+      ...userToLoad,
+      groups: cachedUser.groups,
+      capabilities: cachedUser.capabilities,
+    };
+  } else { // in case we need to resolve user effective confidence level on creation.
+    completeUser = await findById(context, user, userToLoad.id);
   }
-  return computeUserEffectiveConfidenceLevel(user);
+  return completeUser;
+};
+
+export const batchUserEffectiveConfidenceLevel = async (context, user, batchUsers) => {
+  const platformUsers = await getEntitiesMapFromCache(context, SYSTEM_USER, ENTITY_TYPE_USER);
+  const completeUsers = [];
+  for (let i = 0; i < batchUsers.length; i += 1) {
+    const batchUser = batchUsers[i];
+    const completeUser = await buildCompleteUserFromCacheOrDb(context, user, batchUser, platformUsers);
+    completeUsers.push(completeUser);
+  }
+  return completeUsers.map((u) => computeUserEffectiveConfidenceLevel(u));
+};
+
+export const getUserEffectiveConfidenceLevel = async (user, context) => {
+  // we load the user from cache to have the complete user with groupos
+  const platformUsers = await getEntitiesMapFromCache(context, SYSTEM_USER, ENTITY_TYPE_USER);
+  const completeUser = await buildCompleteUserFromCacheOrDb(context, context.user, user, platformUsers);
+  return computeUserEffectiveConfidenceLevel(completeUser);
 };

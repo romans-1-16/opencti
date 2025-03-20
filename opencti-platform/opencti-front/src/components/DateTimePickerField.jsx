@@ -12,6 +12,7 @@ const dateTimeFormatsMap = {
   'es-es': 'dd/MM/yyyy HH:mm',
   'ja-jp': 'yyyy/MM/dd hh:mm a',
   'zg-cn': 'yyyy-MM-dd hh:mm a',
+  'ko-kr': 'yyyy-MM-dd hh:mm a',
 };
 
 const dateTimeFormatsMapWithSeconds = {
@@ -20,6 +21,7 @@ const dateTimeFormatsMapWithSeconds = {
   'es-es': 'dd/MM/yyyy HH:mm:ss',
   'ja-jp': 'yyyy/MM/dd hh:mm:ss a',
   'zg-cn': 'yyyy-MM-dd hh:mm:ss a',
+  'ko-kr': 'yyyy-MM-dd hh:mm:ss a',
 };
 
 const DateTimePickerField = (props) => {
@@ -31,6 +33,7 @@ const DateTimePickerField = (props) => {
     onSubmit,
     textFieldProps,
     withSeconds = false,
+    required = false,
   } = props;
   const intl = useIntl();
   const [field, meta] = useField(name);
@@ -45,9 +48,10 @@ const DateTimePickerField = (props) => {
   );
   const internalOnChange = React.useCallback(
     (date) => {
-      setFieldValue(name, date ?? null);
+      const defaultEmpty = null;
+      setFieldValue(name, date ?? defaultEmpty);
       if (typeof onChange === 'function') {
-        onChange(name, date ?? null);
+        onChange(name, date ?? defaultEmpty);
       }
     },
     [setFieldValue, onChange, name],
@@ -69,6 +73,7 @@ const DateTimePickerField = (props) => {
       <DateTimePicker
         {...fieldToDateTimePicker(props)}
         variant="inline"
+        required={required}
         disableToolbar={false}
         autoOk={true}
         allowKeyboardControl={true}
@@ -94,6 +99,7 @@ const DateTimePickerField = (props) => {
     <DateTimePicker
       {...fieldToDateTimePicker(props)}
       variant="inline"
+      required={required}
       disableToolbar={false}
       autoOk={true}
       allowKeyboardControl={true}

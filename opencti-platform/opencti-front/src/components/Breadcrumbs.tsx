@@ -1,9 +1,10 @@
-import React, { FunctionComponent } from 'react';
-import MUIBreadcrumbs from '@mui/material/Breadcrumbs';
+import React, { Fragment, FunctionComponent } from 'react';
 import { Link } from 'react-router-dom';
 import Typography from '@mui/material/Typography';
-import makeStyles from '@mui/styles/makeStyles';
+import { useTheme } from '@mui/styles';
+import DangerZoneChip from '@components/common/danger_zone/DangerZoneChip';
 import { truncate } from '../utils/String';
+import type { Theme } from './Theme';
 
 interface element {
   label: string;
@@ -12,50 +13,54 @@ interface element {
 }
 
 interface BreadcrumbsProps {
-  variant: 'standard' | 'list' | 'object',
-  elements: element[],
+  elements: element[]
+  noMargin?: boolean
+  isSensitive?: boolean
 }
 
-const useStyles = makeStyles(() => ({
-  breadcrumbsList: {
-    marginTop: -5,
-    marginBottom: 25,
-  },
-  breadcrumbsObject: {
-    marginTop: -5,
-    marginBottom: 15,
-  },
-  breadcrumbsStandard: {
-    marginTop: -5,
-  },
-}));
+const Breadcrumbs: FunctionComponent<BreadcrumbsProps> = ({ elements, noMargin = false, isSensitive = false }) => {
+  const theme = useTheme<Theme>();
 
-const Breadcrumbs: FunctionComponent<BreadcrumbsProps> = ({ elements, variant }) => {
-  const classes = useStyles();
-  let className = classes.breadcrumbsStandard;
-  if (variant === 'list') {
-    className = classes.breadcrumbsList;
-  } else if (variant === 'object') {
-    className = classes.breadcrumbsObject;
-  }
+  const SplitDiv = ({ show = true }) => (
+    <div style={{ display: show ? 'none' : 'unset', marginLeft: theme.spacing(1), marginRight: theme.spacing(1) }}>/</div>
+  );
+
   return (
-    <MUIBreadcrumbs classes={{ root: className }}>
-      {elements.map((element) => {
+    <div
+      id="page-breadcrumb"
+      data-testid="navigation"
+      style={{ marginBottom: noMargin ? undefined : theme.spacing(2), display: 'flex' }}
+    >
+      {elements.map((element, index) => {
         if (element.current) {
           return (
-            <Typography key={element.label} color="text.primary">{truncate(element.label, 26)}</Typography>
+            <span key={element.label} style={{ display: 'flex', alignItems: 'center' }}>
+              <Typography
+                color="text.primary"
+              >
+                {truncate(element.label, 30, false)}
+              </Typography>
+              <SplitDiv show={index === elements.length - 1} />
+              {isSensitive && <DangerZoneChip />}
+            </span>
           );
         }
         if (!element.link) {
           return (
-            <Typography key={element.label} color="inherit">{truncate(element.label, 26)}</Typography>
+            <Fragment key={element.label}>
+              <Typography color="common.lightGrey">{truncate(element.label, 30, false)}</Typography>
+              <SplitDiv show={index === elements.length - 1} />
+            </Fragment>
           );
         }
         return (
-          <Link key={element.label} to={element.link}>{truncate(element.label, 26)}</Link>
+          <Fragment key={element.label}>
+            <Link to={element.link}>{truncate(element.label, 30, false)}</Link>
+            <SplitDiv show={index === elements.length - 1} />
+          </Fragment>
         );
       })}
-    </MUIBreadcrumbs>
+    </div>
   );
 };
 

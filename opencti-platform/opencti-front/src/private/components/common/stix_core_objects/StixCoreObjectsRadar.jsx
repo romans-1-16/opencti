@@ -1,25 +1,12 @@
 import React from 'react';
 import { graphql } from 'react-relay';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import makeStyles from '@mui/styles/makeStyles';
-import { useTheme } from '@mui/styles';
-import Chart from '../charts/Chart';
 import { QueryRenderer } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
-import { radarChartOptions } from '../../../../utils/Charts';
-import { defaultValue } from '../../../../utils/Graph';
 import { buildFiltersAndOptionsForWidgets } from '../../../../utils/filters/filtersUtils';
-
-const useStyles = makeStyles(() => ({
-  paper: {
-    height: '100%',
-    margin: '10px 0 0 0',
-    padding: 0,
-    borderRadius: 4,
-  },
-}));
+import WidgetContainer from '../../../../components/dashboard/WidgetContainer';
+import WidgetNoData from '../../../../components/dashboard/WidgetNoData';
+import WidgetRadar from '../../../../components/dashboard/WidgetRadar';
+import Loader, { LoaderVariant } from '../../../../components/Loader';
 
 const stixCoreObjectsRadarDistributionQuery = graphql`
   query StixCoreObjectsRadarDistributionQuery(
@@ -56,139 +43,41 @@ const stixCoreObjectsRadarDistributionQuery = graphql`
       value
       entity {
         ... on BasicObject {
+          id
           entity_type
         }
         ... on BasicRelationship {
+          id
           entity_type
         }
-        ... on AttackPattern {
-          name
-          description
-          x_mitre_id
+        ... on StixObject {
+          representative {
+            main
+          }
         }
-        ... on Campaign {
-          name
-          description
+        ... on StixRelationship {
+          representative {
+            main
+          }
         }
-        ... on CourseOfAction {
-          name
-          description
-        }
-        ... on Individual {
-          name
-          description
-        }
-        ... on Organization {
-          name
-          description
-        }
-        ... on Sector {
-          name
-          description
-        }
-        ... on System {
-          name
-          description
-        }
-        ... on Indicator {
-          name
-          description
-        }
-        ... on Infrastructure {
-          name
-          description
-        }
-        ... on IntrusionSet {
-          name
-          description
-        }
-        ... on Position {
-          name
-          description
-        }
-        ... on City {
-          name
-          description
-        }
-        ... on AdministrativeArea {
-          name
-          description
-        }
-        ... on Country {
-          name
-          description
-        }
-        ... on Region {
-          name
-          description
-        }
-        ... on Malware {
-          name
-          description
-        }
-        ... on MalwareAnalysis {
-          result_name
-        }
-        ... on ThreatActor {
-          name
-          description
-        }
-        ... on Tool {
-          name
-          description
-        }
-        ... on Vulnerability {
-          name
-          description
-        }
-        ... on Incident {
-          name
-          description
-        }
-        ... on Event {
-          name
-          description
-        }
-        ... on Channel {
-          name
-          description
-        }
-        ... on Narrative {
-          name
-          description
-        }
-        ... on Language {
-          name
-        }
-        ... on DataComponent {
-          name
-        }
-        ... on DataSource {
-          name
-        }
-        ... on Case {
-          name
-        }
-        ... on StixCyberObservable {
-          observable_value
+        # use colors when available
+        ... on Label {
+          color
         }
         ... on MarkingDefinition {
-          definition_type
-          definition
+          x_opencti_color
         }
-        ... on KillChainPhase {
-          kill_chain_name
-          phase_name
-        }
+        # objects without representative
         ... on Creator {
           name
         }
-        ... on Label {
-          value
+        ... on Group {
+          name
         }
         ... on Status {
           template {
             name
+            color
           }
         }
       }
@@ -206,8 +95,6 @@ const StixCoreObjectsRadar = ({
   withExportPopover = false,
   isReadOnly = false,
 }) => {
-  const classes = useStyles();
-  const theme = useTheme();
   const { t_i18n } = useFormatter();
   const renderContent = () => {
     const selection = dataSelection[0];
@@ -237,89 +124,32 @@ const StixCoreObjectsRadar = ({
             && props.stixCoreObjectsDistribution
             && props.stixCoreObjectsDistribution.length > 0
           ) {
-            const data = props.stixCoreObjectsDistribution.map((n) => n.value);
-            const chartData = [
-              {
-                name: selection.label || t_i18n('Number of relationships'),
-                data,
-              },
-            ];
-            const labels = props.stixCoreObjectsDistribution.map(
-              (n) =>
-                // eslint-disable-next-line no-nested-ternary,implicit-arrow-linebreak
-                (selection.attribute.endsWith('_id')
-                  ? defaultValue(n.entity)
-                  : selection.attribute === 'entity_type'
-                    ? t_i18n(`entity_${n.label}`)
-                    : n.label),
-              20,
-            );
             return (
-              <Chart
-                options={radarChartOptions(theme, labels, [], true, true)}
-                series={chartData}
-                type="radar"
-                width="100%"
-                height="100%"
-                withExportPopover={withExportPopover}
-                isReadOnly={isReadOnly}
+              <WidgetRadar
+                data={props.stixCoreObjectsDistribution}
+                label={selection.label}
+                groupBy={selection.attribute}
+                withExport={withExportPopover}
+                readonly={isReadOnly}
               />
             );
           }
           if (props) {
-            return (
-              <div style={{ display: 'table', height: '100%', width: '100%' }}>
-                <span
-                  style={{
-                    display: 'table-cell',
-                    verticalAlign: 'middle',
-                    textAlign: 'center',
-                  }}
-                >
-                  {t_i18n('No entities of this type has been found.')}
-                </span>
-              </div>
-            );
+            return <WidgetNoData />;
           }
-          return (
-            <div style={{ display: 'table', height: '100%', width: '100%' }}>
-              <span
-                style={{
-                  display: 'table-cell',
-                  verticalAlign: 'middle',
-                  textAlign: 'center',
-                }}
-              >
-                <CircularProgress size={40} thickness={2} />
-              </span>
-            </div>
-          );
+          return <Loader variant={LoaderVariant.inElement} />;
         }}
       />
     );
   };
   return (
-    <div style={{ height: height || '100%' }}>
-      <Typography
-        variant="h4"
-        gutterBottom={true}
-        style={{
-          margin: variant !== 'inLine' ? '0 0 10px 0' : '-10px 0 10px -7px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {parameters.title || t_i18n('Distribution of entities')}
-      </Typography>
-      {variant === 'inLine' ? (
-        renderContent()
-      ) : (
-        <Paper classes={{ root: classes.paper }} variant="outlined">
-          {renderContent()}
-        </Paper>
-      )}
-    </div>
+    <WidgetContainer
+      height={height}
+      title={parameters.title ?? t_i18n('Distribution of entities')}
+      variant={variant}
+    >
+      {renderContent()}
+    </WidgetContainer>
   );
 };
 

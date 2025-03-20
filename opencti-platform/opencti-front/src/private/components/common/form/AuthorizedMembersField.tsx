@@ -13,10 +13,11 @@ import { Option } from '@components/common/form/ReferenceField';
 import * as Yup from 'yup';
 import { FormikHelpers } from 'formik/dist/types';
 import AuthorizedMembersFieldListItem from '@components/common/form/AuthorizedMembersFieldListItem';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import { useFormatter } from '../../../../components/i18n';
 import { AccessRight, ALL_MEMBERS_AUTHORIZED_CONFIG, AuthorizedMemberOption, Creator, CREATOR_AUTHORIZED_CONFIG } from '../../../../utils/authorizedMembers';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import useAuth from '../../../../utils/hooks/useAuth';
 
 /**
  * Returns true if the authorized member option is generic.
@@ -41,6 +42,7 @@ interface AuthorizedMembersFieldProps
   showAllMembersLine?: boolean;
   showCreatorLine?: boolean;
   canDeactivate?: boolean;
+  addMeUserWithAdminRights?: boolean;
 }
 
 // Type of data for internal form, not exposed to others.
@@ -57,12 +59,12 @@ const formikSchema = Yup.object().shape({
   applyAccesses: Yup.boolean(),
   newAccessMember: Yup.object()
     .shape({
-      value: Yup.string().required(),
-      label: Yup.string().required(),
-      type: Yup.string().required(),
+      value: Yup.string().trim().required(),
+      label: Yup.string().trim().required(),
+      type: Yup.string().trim().required(),
     })
     .required(''),
-  newAccessRight: Yup.string().required(''),
+  newAccessRight: Yup.string().trim().required(''),
 });
 
 const AuthorizedMembersField = ({
@@ -72,22 +74,27 @@ const AuthorizedMembersField = ({
   showAllMembersLine = false,
   showCreatorLine = false,
   canDeactivate = false,
+  addMeUserWithAdminRights = false,
 }: AuthorizedMembersFieldProps) => {
   const { t_i18n } = useFormatter();
   const { setFieldValue } = form;
   const { name, value } = field;
+  const { me } = useAuth();
+
   // Value in sync with internal Formik field 'applyAccesses'.
   // Require to use a state in addition to the Formik field because
   // we use the value outside the scope of the internal Formik form.
   const [applyAccesses, setApplyAccesses] = useState(
-    value !== null && value.length > 0,
+    value && Array.isArray(value) && value.length > 0,
   );
+
   const accessForAllMembers = (value ?? []).find(
     (o) => o.value === ALL_MEMBERS_AUTHORIZED_CONFIG.id,
   );
   const accessForCreator = (value ?? []).find(
     (o) => o.value === CREATOR_AUTHORIZED_CONFIG.id,
   );
+
   const allMembersOption: Option = {
     label: t_i18n(ALL_MEMBERS_AUTHORIZED_CONFIG.labelKey),
     type: ALL_MEMBERS_AUTHORIZED_CONFIG.type,
@@ -98,11 +105,13 @@ const AuthorizedMembersField = ({
     type: CREATOR_AUTHORIZED_CONFIG.type,
     value: CREATOR_AUTHORIZED_CONFIG.id,
   };
+
   const accessRights = [
     { label: t_i18n('can view'), value: 'view' },
     { label: t_i18n('can edit'), value: 'edit' },
     { label: t_i18n('can manage'), value: 'admin' },
   ];
+
   /**
    * Add a new authorized member in the value of the field,
    * called when submitting internal Formik form.
@@ -126,6 +135,7 @@ const AuthorizedMembersField = ({
       helpers.setFieldValue('newAccessRight', 'view');
     }
   };
+
   /**
    * Keep the state applyAccesses in sync with the field of internal
    * Formik form and reset field values. Called when changing the
@@ -152,27 +162,35 @@ const AuthorizedMembersField = ({
           creatorAccessRight: 'none',
         },
       });
-    } else if (showCreatorLine) {
-      setFieldValue(name, [
-        {
+    } else {
+      const values: AuthorizedMemberOption[] = [];
+      if (showCreatorLine) {
+        values.push({
           ...creatorOption,
           accessRight: 'admin',
-        },
-      ]);
-      setField('creatorAccessRight', 'admin');
-    } else if (owner) {
-      setFieldValue(name, [
-        {
+        });
+        setField('creatorAccessRight', 'admin');
+      }
+      if (owner) {
+        values.push({
           label: owner.name,
           type: owner.entity_type,
           value: owner.id,
           accessRight: 'admin',
-        },
-      ]);
-    } else {
-      setFieldValue(name, []);
+        });
+      }
+      if (addMeUserWithAdminRights && me.id !== owner?.id) {
+        values.push({
+          label: me.name,
+          type: 'User',
+          value: me.id,
+          accessRight: 'admin',
+        });
+      }
+      setFieldValue(name, values);
     }
   };
+
   /**
    * Change the access level of a member in the field value.
    * If the member does not already exist in the field, then add it.
@@ -214,20 +232,24 @@ const AuthorizedMembersField = ({
       ]);
     }
   };
+
   // To change the access of all members in the platform.
   const changeAllMembersAccess = (accessRight: AccessRight) => {
     changeMemberAccess(ALL_MEMBERS_AUTHORIZED_CONFIG.id, accessRight);
   };
+
   // To change the access of the creator of the entity.
   const changeCreatorAccess = (accessRight: AccessRight) => {
     changeMemberAccess(CREATOR_AUTHORIZED_CONFIG.id, accessRight);
   };
+
   let accessInfoMessage = t_i18n('info_authorizedmembers_workspace');
   if (canDeactivate) {
     accessInfoMessage = applyAccesses
       ? t_i18n('info_authorizedmembers_knowledge_off')
       : t_i18n('info_authorizedmembers_knowledge_on');
   }
+
   return (
     <>
       {/* Internal Formik component to be able to use our custom field components */}
@@ -236,7 +258,7 @@ const AuthorizedMembersField = ({
         validateOnChange={false}
         validateOnBlur={false}
         initialValues={{
-          applyAccesses,
+          applyAccesses: applyAccesses ?? false,
           newAccessMember: null,
           newAccessRight: 'view',
           allAccessRight: accessForAllMembers?.accessRight ?? 'none',
@@ -257,7 +279,7 @@ const AuthorizedMembersField = ({
             {canDeactivate && (
               <Field
                 component={SwitchField}
-                containerstyle={{ marginTop: 15 }}
+                containerstyle={{ marginTop: 15, paddingLeft: 10 }}
                 type="checkbox"
                 name="applyAccesses"
                 label={t_i18n('Activate access restriction')}
@@ -318,7 +340,7 @@ const AuthorizedMembersField = ({
                   </Field>
                   <IconButton
                     color="secondary"
-                    aria-tag="More"
+                    aria-label="More"
                     onClick={() => handleSubmit()}
                     disabled={
                       !dirty

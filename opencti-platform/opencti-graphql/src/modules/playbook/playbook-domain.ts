@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -15,18 +15,31 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
 import { v4 as uuidv4 } from 'uuid';
 import { BUS_TOPICS, logApp } from '../../config/conf';
-import { createEntity, deleteElementById, patchAttribute, updateAttribute } from '../../database/middleware';
-import { type EntityOptions, listAllEntities, listEntitiesPaginated, storeLoadById } from '../../database/middleware-loader';
+import { createEntity, deleteElementById, patchAttribute, stixLoadById, updateAttribute } from '../../database/middleware';
+import { type EntityOptions, internalFindByIds, listAllEntities, listEntitiesPaginated, storeLoadById } from '../../database/middleware-loader';
 import { notify } from '../../database/redis';
 import type { DomainFindById } from '../../domain/domainTypes';
 import { ABSTRACT_INTERNAL_OBJECT } from '../../schema/general';
 import type { AuthContext, AuthUser } from '../../types/user';
-import type { EditInput, FilterGroup, PlaybookAddInput, PlaybookAddLinkInput, PlaybookAddNodeInput, PositionInput } from '../../generated/graphql';
+import {
+  type EditInput,
+  type FilterGroup,
+  FilterMode,
+  type PlaybookAddInput,
+  type PlaybookAddLinkInput,
+  type PlaybookAddNodeInput,
+  type PositionInput
+} from '../../generated/graphql';
 import type { BasicStoreEntityPlaybook, ComponentDefinition, LinkDefinition, NodeDefinition } from './playbook-types';
 import { ENTITY_TYPE_PLAYBOOK } from './playbook-types';
-import { PLAYBOOK_COMPONENTS } from './playbook-components';
+import { PLAYBOOK_COMPONENTS, PLAYBOOK_INTERNAL_DATA_CRON, type SharingConfiguration, type StreamConfiguration } from './playbook-components';
 import { UnsupportedError } from '../../config/errors';
-import { validateFilterGroupForStixMatch } from '../../utils/filtering/filtering-stix/stix-filtering';
+import { type BasicStoreEntityOrganization, ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../organization/organization-types';
+import { isStixMatchFilterGroup, validateFilterGroupForStixMatch } from '../../utils/filtering/filtering-stix/stix-filtering';
+import { registerConnectorQueues, unregisterConnector } from '../../database/rabbitmq';
+import { getEntitiesListFromCache } from '../../database/cache';
+import { SYSTEM_USER } from '../../utils/access';
+import { findFiltersFromKey, checkAndConvertFilters } from '../../utils/filtering/filtering-utils';
 
 export const findById: DomainFindById<BasicStoreEntityPlaybook> = (context: AuthContext, user: AuthUser, playbookId: string) => {
   return storeLoadById(context, user, playbookId, ENTITY_TYPE_PLAYBOOK);
@@ -40,29 +53,99 @@ export const findAllPlaybooks = (context: AuthContext, user: AuthUser, opts: Ent
   return listAllEntities<BasicStoreEntityPlaybook>(context, user, [ENTITY_TYPE_PLAYBOOK], opts);
 };
 
+export const findPlaybooksForEntity = async (context: AuthContext, user: AuthUser, id: string) => {
+  const stixEntity = await stixLoadById(context, user, id);
+  const playbooks = await getEntitiesListFromCache<BasicStoreEntityPlaybook>(context, SYSTEM_USER, ENTITY_TYPE_PLAYBOOK);
+  const filteredPlaybooks = [];
+  for (let playbookIndex = 0; playbookIndex < playbooks.length; playbookIndex += 1) {
+    const playbook = playbooks[playbookIndex];
+    if (playbook.playbook_definition) {
+      const def = JSON.parse(playbook.playbook_definition) as ComponentDefinition;
+      const instance = def.nodes.find((n) => n.id === playbook.playbook_start);
+      if (instance && (instance.component_id === 'PLAYBOOK_INTERNAL_DATA_STREAM' || instance.component_id === 'PLAYBOOK_INTERNAL_MANUAL_TRIGGER')) {
+        const { filters } = (JSON.parse(instance.configuration ?? '{}') as StreamConfiguration);
+        const jsonFilters = filters ? JSON.parse(filters) : null;
+        const newFilters = {
+          mode: FilterMode.And,
+          filters: findFiltersFromKey(jsonFilters?.filters ?? [], 'entity_type'),
+          filterGroups: []
+        };
+        const isMatch = await isStixMatchFilterGroup(context, SYSTEM_USER, stixEntity, newFilters);
+        if (isMatch) {
+          filteredPlaybooks.push(playbook);
+        }
+      }
+    }
+  }
+  return filteredPlaybooks;
+};
+
 export const availableComponents = () => {
   return Object.values(PLAYBOOK_COMPONENTS);
 };
 
-export const playbookAddNode = async (context: AuthContext, user: AuthUser, id: string, input: PlaybookAddNodeInput) => {
-  // our stix matching is currently limited, we need to validate the input filters
-  if (input.configuration) {
-    const config = JSON.parse(input.configuration);
-    if (config.filters) {
-      const filterGroup = JSON.parse(config.filters) as FilterGroup;
-      validateFilterGroupForStixMatch(filterGroup);
+export const getPlaybookDefinition = async (context: AuthContext, playbook: BasicStoreEntityPlaybook) => {
+  if (playbook.playbook_definition && playbook.playbook_definition.includes('PLAYBOOK_SHARING_COMPONENT')) {
+    // parse playbook definition in case there is a sharing with organization component, in order to parse organizations to get their label
+    const definition = JSON.parse(playbook.playbook_definition) as ComponentDefinition;
+    const sharingComponent = definition.nodes.find((n) => n.component_id === 'PLAYBOOK_SHARING_COMPONENT');
+    if (sharingComponent && sharingComponent.configuration) {
+      const sharingConfiguration = JSON.parse(sharingComponent.configuration) as SharingConfiguration;
+      const organizationsIds = sharingConfiguration.organizations.filter((o) => typeof o === 'string');
+      if (organizationsIds.length === 0) {
+        return playbook.playbook_definition; // nothing to map, already mapped
+      }
+      const organizationsByIds = await internalFindByIds(context, SYSTEM_USER, organizationsIds, {
+        type: ENTITY_TYPE_IDENTITY_ORGANIZATION,
+        baseData: true,
+        baseFields: ['internal_id', 'name'],
+        toMap: true,
+      }) as unknown as { [k: string]: BasicStoreEntityOrganization };
+      const organizationsWithNames = [];
+      for (let i = 0; i < organizationsIds.length; i += 1) {
+        const orgId = organizationsIds[i];
+        if (organizationsByIds[orgId]) {
+          organizationsWithNames.push({ label: organizationsByIds[orgId].name, value: orgId });
+        }
+      }
+      sharingConfiguration.organizations = organizationsWithNames;
+      sharingComponent.configuration = JSON.stringify(sharingConfiguration);
+      return JSON.stringify(definition);
     }
   }
+  return playbook.playbook_definition;
+};
+
+const checkPlaybookFiltersAndBuildConfigWithCorrectFilters = (input: PlaybookAddNodeInput) => {
+  if (!input.configuration) {
+    return '{}';
+  }
+  let stringifiedFilters;
+  const config = JSON.parse(input.configuration);
+  if (config.filters) {
+    const filterGroup = JSON.parse(config.filters) as FilterGroup;
+    if (input.component_id === PLAYBOOK_INTERNAL_DATA_CRON.id) {
+      stringifiedFilters = JSON.stringify(checkAndConvertFilters(filterGroup));
+    } else { // our stix matching is currently limited, we need to validate the input filters
+      validateFilterGroupForStixMatch(filterGroup);
+      stringifiedFilters = config.filters;
+    }
+  }
+  return JSON.stringify({ ...config, filters: stringifiedFilters });
+};
+
+export const playbookAddNode = async (context: AuthContext, user: AuthUser, id: string, input: PlaybookAddNodeInput) => {
+  const configuration = checkPlaybookFiltersAndBuildConfigWithCorrectFilters(input);
 
   const playbook = await findById(context, user, id);
   const definition = JSON.parse(playbook.playbook_definition ?? '{}') as ComponentDefinition;
   const relatedComponent = PLAYBOOK_COMPONENTS[input.component_id];
   if (!relatedComponent) {
-    throw UnsupportedError('Playbook related component not found');
+    throw UnsupportedError('Playbook related component not found', { input });
   }
   const existingEntryPoint = definition.nodes.find((n) => PLAYBOOK_COMPONENTS[n.component_id]?.is_entry_point);
   if (relatedComponent.is_entry_point && existingEntryPoint) {
-    throw UnsupportedError('Playbook multiple entrypoint is not supported');
+    throw UnsupportedError('Playbook multiple entrypoint is not supported', { input });
   }
   const nodeId = uuidv4();
   definition.nodes.push({
@@ -70,7 +153,7 @@ export const playbookAddNode = async (context: AuthContext, user: AuthUser, id: 
     name: input.name,
     position: input.position,
     component_id: input.component_id,
-    configuration: input.configuration ?? '{}' // TODO Check valid json
+    configuration, // TODO Check valid json
   });
   const patch: any = { playbook_definition: JSON.stringify(definition) };
   if (relatedComponent.is_entry_point) {
@@ -129,14 +212,7 @@ export const playbookUpdatePositions = async (context: AuthContext, user: AuthUs
 };
 
 export const playbookReplaceNode = async (context: AuthContext, user: AuthUser, id: string, nodeId: string, input: PlaybookAddNodeInput) => {
-  // our stix matching is currently limited, we need to validate the input filters
-  if (input.configuration) {
-    const config = JSON.parse(input.configuration);
-    if (config.filters) {
-      const filterGroup = JSON.parse(config.filters) as FilterGroup;
-      validateFilterGroupForStixMatch(filterGroup);
-    }
-  }
+  const configuration = checkPlaybookFiltersAndBuildConfigWithCorrectFilters(input);
 
   const playbook = await findById(context, user, id);
   const definition = JSON.parse(playbook.playbook_definition) as ComponentDefinition;
@@ -172,7 +248,7 @@ export const playbookReplaceNode = async (context: AuthContext, user: AuthUser, 
         name: input.name,
         position: input.position,
         component_id: input.component_id,
-        configuration: input.configuration ?? '{}' // TODO Check valid json
+        configuration, // TODO Check valid json
       };
     }
     return n;
@@ -329,12 +405,15 @@ export const playbookAdd = async (context: AuthContext, user: AuthUser, input: P
   const playbook_definition = JSON.stringify({ nodes: [], links: [] });
   const playbook = { ...input, playbook_definition, playbook_running: false };
   const created = await createEntity(context, user, playbook, ENTITY_TYPE_PLAYBOOK);
+  const playbookId = created.internal_id;
+  await registerConnectorQueues(playbookId, `Playbook ${playbookId} queue`, 'internal', 'playbook');
   return notify(BUS_TOPICS[ABSTRACT_INTERNAL_OBJECT].ADDED_TOPIC, created, user);
 };
 
-export const playbookDelete = async (context: AuthContext, user: AuthUser, id: string) => {
-  const element = await deleteElementById(context, user, id, ENTITY_TYPE_PLAYBOOK);
-  return notify(BUS_TOPICS[ABSTRACT_INTERNAL_OBJECT].DELETE_TOPIC, element, user).then(() => id);
+export const playbookDelete = async (context: AuthContext, user: AuthUser, playbookId: string) => {
+  const element = await deleteElementById(context, user, playbookId, ENTITY_TYPE_PLAYBOOK);
+  await unregisterConnector(playbookId);
+  return notify(BUS_TOPICS[ABSTRACT_INTERNAL_OBJECT].DELETE_TOPIC, element, user).then(() => playbookId);
 };
 
 export const playbookEdit = async (context: AuthContext, user: AuthUser, id: string, input: EditInput[]) => {

@@ -10,6 +10,7 @@ type CaseRft implements BasicObject & StixObject & StixCoreObject & StixDomainOb
   spec_version: String!
   created_at: DateTime!
   updated_at: DateTime!
+  draftVersion: DraftVersion
   # inferences
   x_opencti_inferences: [Inference]
   # Stix Core Object
@@ -84,6 +85,7 @@ type CaseRft implements BasicObject & StixObject & StixCoreObject & StixDomainOb
     search: String
     filters: FilterGroup
   ): [Distribution] @auth(for: [KNOWLEDGE, EXPLORE])
+  opinions_metrics: OpinionsMetrics
   # Stix Domain Object
   revoked: Boolean!
   confidence: Int
@@ -95,6 +97,9 @@ type CaseRft implements BasicObject & StixObject & StixCoreObject & StixDomainOb
   objectParticipant: [Participant!]
   avatar: OpenCtiFile
   # Container
+  authorized_members: [MemberAccess!]
+  authorized_members_activation_date: DateTime
+  currentUserAccessRight: String
   objects(
     first: Int
     after: ID
@@ -118,8 +123,33 @@ type CaseRft implements BasicObject & StixObject & StixCoreObject & StixDomainOb
   # Technical
   creators: [Creator!]
   toStix: String
-  importFiles(first: Int, prefixMimeType: String): FileConnection
-  pendingFiles(first: Int): FileConnection
+  importFiles(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+  pendingFiles(
+    first: Int
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+  filesFromTemplate(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+  fintelTemplates: [FintelTemplate!]
   exportFiles(first: Int): FileConnection
   editContext: [EditUserContext!]
   connectors(onlyAlive: Boolean): [Connector]
@@ -154,6 +184,7 @@ enum CaseRftsOrdering {
   objectMarking
   severity
   priority
+  _score
 }
 
 # Relay connections
@@ -186,7 +217,7 @@ type Query {
 input CaseRftAddInput {
   stix_id: StixId
   x_opencti_stix_ids: [StixId]
-  name: String! @constraint(minLength: 2)
+  name: String! @constraint(minLength: 2, format: "not-blank")
   description: String
   content: String
   content_mapping: String
@@ -211,6 +242,7 @@ input CaseRftAddInput {
   update: Boolean
   takedown_types: [String!]
   caseTemplates: [String!]
+  authorized_members: [MemberAccessInput!]
 }
 
 type Mutation {

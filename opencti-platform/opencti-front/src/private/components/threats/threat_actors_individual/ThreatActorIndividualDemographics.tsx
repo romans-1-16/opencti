@@ -1,15 +1,21 @@
 import React from 'react';
 import { makeStyles } from '@mui/styles';
 import { Chip, Grid, Paper, Typography } from '@mui/material';
+import AddThreatActorIndividualDemographic from '@components/threats/threat_actors_individual/AddThreatActorIndividualDemographic';
 import { useFormatter } from '../../../../components/i18n';
 import { ThreatActorIndividual_ThreatActorIndividual$data } from './__generated__/ThreatActorIndividual_ThreatActorIndividual.graphql';
 import ItemOpenVocab from '../../../../components/ItemOpenVocab';
+import type { Theme } from '../../../../components/Theme';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
+import CardLabel from '../../../../components/CardLabel';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -59,19 +65,30 @@ const ThreatActorIndividualDemographics = ({
     }
   }
   return (
-    <div style={{ height: '100%' }}>
+    <>
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Demographic Information')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel action={(
+              <Security
+                needs={[KNOWLEDGE_KNUPDATE]}
+              >
+                <AddThreatActorIndividualDemographic
+                  threatActorIndividual={threatActorIndividual}
+                  relType='resides-in'
+                  title={t_i18n('Add country of residence')}
+                />
+              </Security>
+            )}
+            >
               {t_i18n('Country of Residence')}
-            </Typography>
+            </CardLabel>
             <div id="country_of_residence_list">
-              {countryRelationship.country_of_residence.length > 0
-                ? countryRelationship.country_of_residence.map(
+              <FieldOrEmpty source={countryRelationship.country_of_residence}>
+                {countryRelationship.country_of_residence.map(
                   (place: string, index: number) => (
                     <Chip
                       key={index}
@@ -79,17 +96,28 @@ const ThreatActorIndividualDemographics = ({
                       style={{ margin: 1 }}
                     />
                   ),
-                )
-                : '-'}
+                )}
+              </FieldOrEmpty>
             </div>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel action={(
+              <Security
+                needs={[KNOWLEDGE_KNUPDATE]}
+              >
+                <AddThreatActorIndividualDemographic
+                  threatActorIndividual={threatActorIndividual}
+                  relType='citizen-of'
+                  title={'Add citizenship'}
+                />
+              </Security>
+            )}
+            >
               {t_i18n('Citizenship')}
-            </Typography>
+            </CardLabel>
             <div id="citizenship_list">
-              {countryRelationship.citizenship.length > 0
-                ? countryRelationship.citizenship.map(
+              <FieldOrEmpty source={countryRelationship.citizenship}>
+                {countryRelationship.citizenship.map(
                   (place: string, index: number) => (
                     <Chip
                       key={index}
@@ -97,36 +125,44 @@ const ThreatActorIndividualDemographics = ({
                       style={{ margin: 1 }}
                     />
                   ),
-                )
-                : '-'}
+                )}
+              </FieldOrEmpty>
             </div>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel >
               {t_i18n('Place of Birth')}
-            </Typography>
+            </CardLabel>
             <div id="place_of_birth">
               {t_i18n(countryRelationship.place_of_birth ?? '-')}
             </div>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel >
               {t_i18n('Date of Birth')}
-            </Typography>
+            </CardLabel>
             <div id="date_of_birth">
               {threatActorIndividual.date_of_birth
                 ? fsd(threatActorIndividual.date_of_birth)
                 : '-'}
             </div>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel action={(
+              <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                <AddThreatActorIndividualDemographic
+                  threatActorIndividual={threatActorIndividual}
+                  relType='national-of'
+                  title={t_i18n('Add nationality')}
+                />
+              </Security>
+            )}
+            >
               {t_i18n('Nationality')}
-            </Typography>
+            </CardLabel>
             <div id="nationality">
-              {countryRelationship.nationality
-              && countryRelationship.nationality.length > 0
-                ? countryRelationship.nationality.map(
+              <FieldOrEmpty source={countryRelationship.nationality}>
+                {countryRelationship.nationality.map(
                   (place: string, index: number) => (
                     <Chip
                       key={index}
@@ -134,45 +170,51 @@ const ThreatActorIndividualDemographics = ({
                       style={{ margin: 1 }}
                     />
                   ),
-                )
-                : '-'}
+                )}
+              </FieldOrEmpty>
             </div>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel >
               {t_i18n('Ethnicity')}
-            </Typography>
+            </CardLabel>
             <div id="ethnicity">{t_i18n(countryRelationship.ethnicity ?? '-')}</div>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel >
               {t_i18n('Gender')}
-            </Typography>
-            <ItemOpenVocab
-              type="gender-ov"
-              value={threatActorIndividual.gender}
-              small
-            />
+            </CardLabel>
+            <FieldOrEmpty source={threatActorIndividual.gender}>
+              <ItemOpenVocab
+                type="gender-ov"
+                value={threatActorIndividual.gender}
+                small
+              />
+            </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel >
               {t_i18n('Marital Status')}
-            </Typography>
-            <ItemOpenVocab
-              type="marital-status-ov"
-              value={threatActorIndividual.marital_status}
-              small
-            />
+            </CardLabel>
+            <FieldOrEmpty source={threatActorIndividual.marital_status}>
+              <ItemOpenVocab
+                type="marital-status-ov"
+                value={threatActorIndividual.marital_status}
+                small
+              />
+            </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography variant="h3" gutterBottom={true}>
+          <Grid item xs={4}>
+            <CardLabel >
               {t_i18n('Job Title')}
-            </Typography>
-            <div id="job_title">{threatActorIndividual.job_title ?? '-'}</div>
+            </CardLabel>
+            <FieldOrEmpty source={threatActorIndividual.job_title}>
+              <div id="job_title">{threatActorIndividual.job_title}</div>
+            </FieldOrEmpty>
           </Grid>
         </Grid>
       </Paper>
-    </div>
+    </>
   );
 };
 

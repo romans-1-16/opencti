@@ -2,6 +2,8 @@ import React, { FunctionComponent } from 'react';
 import Chip from '@mui/material/Chip';
 import makeStyles from '@mui/styles/makeStyles';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   chip: {
     fontSize: 12,
@@ -75,6 +77,24 @@ const TaskScope: FunctionComponent<TaskScopeProps> = ({ label, scope }) => {
         <Chip
           classes={{ root: style }}
           style={inlineStyles.rose}
+          label={label}
+        />
+      );
+    case 'IMPORT':
+      return (
+        <Chip
+          classes={{ root: style }}
+          style={inlineStyles.orange}
+          label={label}
+        />
+      );
+    case 'PUBLIC_DASHBOARD':
+    case 'DASHBOARD':
+    case 'INVESTIGATION':
+      return (
+        <Chip
+          classes={{ root: style }}
+          style={inlineStyles.orange}
           label={label}
         />
       );

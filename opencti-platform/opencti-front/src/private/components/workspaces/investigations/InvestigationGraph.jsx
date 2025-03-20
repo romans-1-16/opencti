@@ -7,28 +7,30 @@ import ForceGraph2D from 'react-force-graph-2d';
 import ForceGraph3D from 'react-force-graph-3d';
 import RectangleSelection from 'react-rectangle-selection';
 import { createFragmentContainer, graphql } from 'react-relay';
-import { withRouter } from 'react-router-dom';
 import { Subject, timer } from 'rxjs';
 import { debounce } from 'rxjs/operators';
 import SpriteText from 'three-spritetext';
+import { getPreExpansionStateList, investigationPreExpansionStateListStorageKey, updatePreExpansionStateList } from './utils/investigationStorage';
+import InvestigationRollBackExpandDialog from './dialog/InvestigationRollBackExpandDialog';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import InvestigationExpandForm from './InvestigationExpandForm';
 import inject18n from '../../../../components/i18n';
 import { commitMutation, fetchQuery, MESSAGING$ } from '../../../../relay/environment';
 import { hexToRGB } from '../../../../utils/Colors';
+import setStackDataInSessionStorage from './utils/setStackDataInSessionStorage/setStackDataInSessionStorage';
 import {
   applyFilters,
   buildGraphData,
   computeTimeRangeInterval,
   computeTimeRangeValues,
   decodeGraphData,
-  defaultSecondaryValue,
-  defaultValue,
   encodeGraphData,
   linkPaint,
   nodeAreaPaint,
   nodePaint,
   nodeThreePaint,
 } from '../../../../utils/Graph';
+import { getSecondaryRepresentative, getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import EntitiesDetailsRightsBar from '../../../../utils/graph/EntitiesDetailsRightBar';
 import LassoSelection from '../../../../utils/graph/LassoSelection';
 import { buildViewParamsFromUrlAndStorage, saveViewParameters } from '../../../../utils/ListParameters';
@@ -58,6 +60,7 @@ const investigationGraphStixCoreObjectQuery = graphql`
       id
       entity_type
       parent_types
+      created_at
       createdBy {
         ... on Identity {
           id
@@ -342,14 +345,10 @@ const investigationGraphCountRelToQuery = graphql`
 
 const investigationGraphStixRelationshipsQuery = graphql`
   query InvestigationGraphStixRelationshipsQuery(
-    $fromOrToId: String!
-    $relationship_type: [String]
-    $elementWithTargetTypes: [String]
+    $filters: FilterGroup
   ) {
     stixRelationships(
-      fromOrToId: $fromOrToId
-      relationship_type: $relationship_type
-      elementWithTargetTypes: $elementWithTargetTypes
+      filters: $filters
     ) {
       edges {
         node {
@@ -565,6 +564,10 @@ const investigationGraphStixRelationshipsQuery = graphql`
             }
             ... on StixFile {
               observableName: name
+              hashes {
+                algorithm
+                hash
+              }
             }
             ... on StixMetaObject {
               created
@@ -770,6 +773,10 @@ const investigationGraphStixRelationshipsQuery = graphql`
             }
             ... on StixFile {
               observableName: name
+              hashes {
+                algorithm
+                hash
+              }
             }
             ... on StixMetaObject {
               created
@@ -874,7 +881,7 @@ class InvestigationGraphComponent extends Component {
     this.selectedNodes = new Set();
     this.selectedLinks = new Set();
     const params = buildViewParamsFromUrlAndStorage(
-      props.history,
+      props.navigate,
       props.location,
       LOCAL_STORAGE_KEY,
     );
@@ -965,6 +972,7 @@ class InvestigationGraphComponent extends Component {
       prevClick: null,
       navOpen: localStorage.getItem('navOpen') === 'true',
       openCreatedRelation: false,
+      isRollBackPreExpandStateDialogOpen: false,
     };
     this.canvas = null;
   }
@@ -1021,7 +1029,7 @@ class InvestigationGraphComponent extends Component {
   saveParameters(refreshGraphData = false) {
     const LOCAL_STORAGE_KEY = `workspace-${this.props.workspace.id}-investigation`;
     saveViewParameters(
-      this.props.history,
+      this.props.navigate,
       this.props.location,
       LOCAL_STORAGE_KEY,
       { zoom: this.zoom, ...this.state },
@@ -1043,14 +1051,20 @@ class InvestigationGraphComponent extends Component {
   savePositions() {
     const initialPositions = R.indexBy(
       R.prop('id'),
-      R.map((n) => ({ id: n.id, x: n.fx, y: n.fy }), this.graphData.nodes),
+      R.map((n) => ({
+        id: n.id,
+        x: n.fx !== null ? n.fx : n.x,
+        y: n.fy !== null ? n.fy : n.y,
+      }), this.graphData.nodes),
     );
+
     const newPositions = R.indexBy(
       R.prop('id'),
-      R.map(
-        (n) => ({ id: n.id, x: n.fx, y: n.fy }),
-        this.state.graphData.nodes,
-      ),
+      R.map((n) => ({
+        id: n.id,
+        x: n.fx !== null ? n.fx : n.x,
+        y: n.fy !== null ? n.fy : n.y,
+      }), this.state.graphData.nodes),
     );
     const positions = R.mergeLeft(newPositions, initialPositions);
     commitMutation({
@@ -1185,11 +1199,16 @@ class InvestigationGraphComponent extends Component {
   }
 
   handleToggleFixedMode() {
-    this.setState({ modeFixed: !this.state.modeFixed }, () => {
+    const { modeFixed } = this.state;
+    this.setState({ modeFixed: !modeFixed }, () => {
       this.saveParameters();
       this.handleDragEnd();
       this.forceUpdate();
-      this.graph.current.d3ReheatSimulation();
+      if (!this.state.modeFixed) {
+        this.handleResetLayout();
+      } else {
+        this.graph.current.d3ReheatSimulation();
+      }
     });
   }
 
@@ -1455,45 +1474,47 @@ class InvestigationGraphComponent extends Component {
     );
   }
 
-  async handleAddRelation(stixCoreRelationship) {
+  async handleAddRelation(stixCoreRelationship, skipReload = false) {
     if (R.map((n) => n.id, this.graphObjects).includes(stixCoreRelationship.id)) return;
-    this.graphObjects = [...this.graphObjects, stixCoreRelationship];
-    this.graphData = buildGraphData(
-      this.graphObjects,
-      decodeGraphData(this.props.workspace.graph_data),
-      this.props.t,
-    );
-    await this.resetAllFilters();
-    const selectedTimeRangeInterval = computeTimeRangeInterval(
-      this.graphObjects,
-    );
-    this.setState(
-      {
-        selectedTimeRangeInterval,
-        graphData: applyFilters(
-          this.graphData,
-          this.state.stixCoreObjectsTypes,
-          this.state.markedBy,
-          this.state.createdBy,
-          [],
-          selectedTimeRangeInterval,
-        ),
+    commitMutation({
+      mutation: investigationGraphRelationsAddMutation,
+      variables: {
+        id: this.props.workspace.id,
+        input: {
+          key: 'investigated_entities_ids',
+          operation: 'add',
+          value: [stixCoreRelationship.id],
+        },
       },
-      () => {
-        commitMutation({
-          mutation: investigationGraphRelationsAddMutation,
-          variables: {
-            id: this.props.workspace.id,
-            input: {
-              key: 'investigated_entities_ids',
-              operation: 'add',
-              value: [stixCoreRelationship.id],
+      onCompleted: async () => {
+        this.graphObjects = [...this.graphObjects, stixCoreRelationship];
+        if (!skipReload) {
+          this.graphData = buildGraphData(
+            this.graphObjects,
+            decodeGraphData(this.props.workspace.graph_data),
+            this.props.t,
+          );
+          await this.resetAllFilters();
+          const selectedTimeRangeInterval = computeTimeRangeInterval(this.graphObjects);
+          this.setState(
+            {
+              selectedTimeRangeInterval,
+              graphData: applyFilters(
+                this.graphData,
+                this.state.stixCoreObjectsTypes,
+                this.state.markedBy,
+                this.state.createdBy,
+                [],
+                selectedTimeRangeInterval,
+              ),
             },
-          },
-        });
-        setTimeout(() => this.handleZoomToFit(), 1500);
+            () => {
+              setTimeout(() => this.handleZoomToFit(), 1500);
+            },
+          );
+        }
       },
-    );
+    });
   }
 
   handleDelete(stixCoreObject) {
@@ -1538,7 +1559,6 @@ class InvestigationGraphComponent extends Component {
 
   async handleDeleteSelected() {
     let idsToRemove = [];
-
     // Retrieve selected links
     const selectedLinks = Array.from(this.selectedLinks);
     const selectedLinksIds = R.filter(
@@ -1803,6 +1823,15 @@ class InvestigationGraphComponent extends Component {
       return;
     }
 
+    setStackDataInSessionStorage(
+      investigationPreExpansionStateListStorageKey,
+      {
+        dateTime: new Date().getTime(),
+        investigatedEntitiesList: this.graphObjects,
+      },
+      10,
+    );
+
     this.handleToggleDisplayProgress();
     const selectedEntities = [...this.selectedLinks, ...this.selectedNodes];
     const selectedEntitiesIds = R.map((n) => n.id, selectedEntities);
@@ -1812,9 +1841,30 @@ class InvestigationGraphComponent extends Component {
       const newElements = await fetchQuery(
         investigationGraphStixRelationshipsQuery,
         {
-          fromOrToId: n,
-          relationship_type: filters.relationship_types.map((o) => o.value),
-          elementWithTargetTypes: filters.entity_types.map((o) => o.value),
+          filters: {
+            mode: 'or',
+            filterGroups: [
+              {
+                mode: 'and',
+                filterGroups: [],
+                filters: [
+                  { key: 'fromId', values: [n] },
+                  { key: 'toTypes', values: filters.entity_types.map((o) => o.value) },
+                  { key: 'relationship_type', values: filters.relationship_types.map((o) => o.value) },
+                ],
+              },
+              {
+                mode: 'and',
+                filterGroups: [],
+                filters: [
+                  { key: 'toId', values: [n] },
+                  { key: 'fromTypes', values: filters.entity_types.map((o) => o.value) },
+                  { key: 'relationship_type', values: filters.relationship_types.map((o) => o.value) },
+                ],
+              },
+            ],
+            filters: [],
+          },
         },
       )
         .toPromise()
@@ -1879,6 +1929,60 @@ class InvestigationGraphComponent extends Component {
     this.handleToggleDisplayProgress();
   }
 
+  handleRollBackToPreExpansionState() {
+    const storedPreExpansion = getPreExpansionStateList();
+    if (storedPreExpansion) {
+      const currentStoredPreExpansion = JSON.parse(storedPreExpansion);
+      const { investigatedEntitiesList } = currentStoredPreExpansion[0];
+
+      const graphObjectsToRestore = this.graphObjects.filter((graphObject) => investigatedEntitiesList.find((investigatedEntity) => investigatedEntity.id === graphObject.id));
+      const graphObjectsToAdd = investigatedEntitiesList.filter((investigatedEntities) => !this.graphObjects.find((graphObject) => graphObject.id === investigatedEntities.id));
+
+      commitMutation({
+        mutation: investigationAddStixCoreObjectsLinesRelationsDeleteMutation,
+        variables: {
+          id: this.props.workspace.id,
+          input: {
+            key: 'investigated_entities_ids',
+            value: [
+              ...graphObjectsToRestore.map((graphObjectToRestore) => graphObjectToRestore.id),
+              ...graphObjectsToAdd.map((graphObjectToAdd) => graphObjectToAdd.id),
+            ],
+            operation: 'replace',
+          },
+        },
+      });
+
+      this.graphObjects = [...graphObjectsToRestore, ...graphObjectsToAdd];
+      this.graphData = buildGraphData(
+        [...graphObjectsToRestore, ...graphObjectsToAdd],
+        decodeGraphData(this.props.workspace.graph_data),
+        this.props.t,
+      );
+
+      this.setState({
+        graphData: applyFilters(
+          this.graphData,
+          this.state.stixCoreObjectsTypes,
+          this.state.markedBy,
+          this.state.createdBy,
+          [],
+          this.state.selectedTimeRangeInterval,
+        ),
+      });
+
+      updatePreExpansionStateList(currentStoredPreExpansion);
+    }
+  }
+
+  handleOpenRollBackToPreExpansionStateDialog() {
+    this.setState({ isRollBackPreExpandStateDialogOpen: true });
+  }
+
+  handleCloseRollBackToPreExpansionStateDialog() {
+    this.setState({ isRollBackPreExpandStateDialogOpen: false });
+  }
+
   handleResetLayout() {
     this.graphData = buildGraphData(this.graphObjects, {}, this.props.t);
     this.setState(
@@ -1920,9 +2024,9 @@ class InvestigationGraphComponent extends Component {
     this.selectedNodes.clear();
     if (isNotEmptyField(keyword)) {
       const filterByKeyword = (n) => keyword === ''
-        || (defaultValue(n) || '').toLowerCase().indexOf(keyword.toLowerCase())
+        || (getMainRepresentative(n) || '').toLowerCase().indexOf(keyword.toLowerCase())
           !== -1
-        || (defaultSecondaryValue(n) || '')
+        || (getSecondaryRepresentative(n) || '')
           .toLowerCase()
           .indexOf(keyword.toLowerCase()) !== -1
         || (n.entity_type || '').toLowerCase().indexOf(keyword.toLowerCase())
@@ -1977,6 +2081,7 @@ class InvestigationGraphComponent extends Component {
       height,
       openExpandElements,
       navOpen,
+      isRollBackPreExpandStateDialogOpen,
     } = this.state;
     const timeRangeInterval = computeTimeRangeInterval(this.graphObjects);
     const timeRangeValues = computeTimeRangeValues(
@@ -2012,9 +2117,17 @@ class InvestigationGraphComponent extends Component {
                   onReset={this.onResetExpandElements.bind(this)}
                 />
               </Dialog>
+
+              <InvestigationRollBackExpandDialog
+                isOpen={isRollBackPreExpandStateDialogOpen}
+                closeDialog={this.handleCloseRollBackToPreExpansionStateDialog.bind(this)}
+                handleRollBackToPreExpansionState={this.handleRollBackToPreExpansionState.bind(this)}
+              />
+
               <InvestigationGraphBar
                 displayProgress={displayProgress}
                 handleToggle3DMode={this.handleToggle3DMode.bind(this)}
+                handleOpenRollBackToPreExpansionStateDialog={this.handleOpenRollBackToPreExpansionStateDialog.bind(this)}
                 currentMode3D={mode3D}
                 handleToggleTreeMode={this.handleToggleTreeMode.bind(this)}
                 currentModeTree={modeTree}
@@ -2283,14 +2396,17 @@ class InvestigationGraphComponent extends Component {
                         this.forceUpdate();
                       }}
                       onNodeDrag={(node, translate) => {
+                        const withForces = !this.state.modeFixed;
                         if (this.selectedNodes.has(node)) {
                           [...this.selectedNodes]
                             .filter((selNode) => selNode !== node)
-                            // eslint-disable-next-line no-shadow
-                            .forEach((selNode) => ['x', 'y'].forEach(
-                              // eslint-disable-next-line no-param-reassign,no-return-assign
-                              (coord) => (selNode[`f${coord}`] = selNode[coord] + translate[coord]),
-                            ));
+                            .forEach((selNode) => {
+                              ['x', 'y'].forEach((coord) => {
+                                const nodeKey = withForces ? `f${coord}` : coord;
+                                // eslint-disable-next-line no-param-reassign
+                                selNode[nodeKey] = selNode[coord] + translate[coord];
+                              });
+                            });
                         }
                       }}
                       onNodeDragEnd={(node) => {
@@ -2298,7 +2414,7 @@ class InvestigationGraphComponent extends Component {
                           // finished moving a selected node
                           [...this.selectedNodes]
                             .filter((selNode) => selNode !== node) // don't touch node being dragged
-                            // eslint-disable-next-line no-shadow
+                          // eslint-disable-next-line no-shadow
                             .forEach((selNode) => {
                               ['x', 'y'].forEach(
                                 // eslint-disable-next-line no-param-reassign,no-return-assign
@@ -2519,6 +2635,11 @@ const InvestigationGraph = createFragmentContainer(
               }
               ... on StixFile {
                 observableName: name
+                x_opencti_additional_names
+                hashes {
+                  algorithm
+                  hash
+                }
               }
               ... on StixMetaObject {
                 created

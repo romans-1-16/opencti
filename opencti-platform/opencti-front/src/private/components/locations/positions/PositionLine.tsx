@@ -7,12 +7,15 @@ import ListItemText from '@mui/material/ListItemText';
 import { KeyboardArrowRightOutlined } from '@mui/icons-material';
 import Skeleton from '@mui/material/Skeleton';
 import makeStyles from '@mui/styles/makeStyles';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import { useFormatter } from '../../../../components/i18n';
 import ItemIcon from '../../../../components/ItemIcon';
 import type { Theme } from '../../../../components/Theme';
 import { DataColumns } from '../../../../components/list_lines';
 import { CountryLine_node$key } from '../countries/__generated__/CountryLine_node.graphql';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -47,6 +50,10 @@ const positionLineFragment = graphql`
     name
     created
     modified
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     objectMarking {
       id
       definition_type
@@ -88,6 +95,7 @@ export const PositionLine: FunctionComponent<PositionLineProps> = ({
               style={{ width: dataColumns.name.width }}
             >
               {data.name}
+              {data.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}

@@ -23,6 +23,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Menu from '@mui/material/Menu';
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import { ListItemButton } from '@mui/material';
+import useAuth from '../../../../utils/hooks/useAuth';
 import FileWork from './FileWork';
 import { useFormatter } from '../../../../components/i18n';
 import { APP_BASE_PATH, commitMutation, MESSAGING$ } from '../../../../relay/environment';
@@ -30,12 +31,17 @@ import type { Theme } from '../../../../components/Theme';
 import { FileLine_file$data } from './__generated__/FileLine_file.graphql';
 import { isNotEmptyField } from '../../../../utils/utils';
 import { truncate } from '../../../../utils/String';
+import ItemMarkings from '../../../../components/ItemMarkings';
+import Security from '../../../../utils/Security';
+import { KNOWLEDGE_KNASKIMPORT } from '../../../../utils/hooks/useGranted';
 
 const Transition = React.forwardRef(({ children, ...otherProps }: SlideProps, ref) => (
   <Slide direction='up' ref={ref} {...otherProps}>{children}</Slide>
 ));
 Transition.displayName = 'TransitionSlide';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     height: 50,
@@ -98,6 +104,7 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
   isArtifact,
 }) => {
   const classes = useStyles();
+  const { me } = useAuth();
   const { t_i18n, fld } = useFormatter();
 
   const [anchorEl, setAnchorEl] = useState<PopoverProps['anchorEl']>(null);
@@ -119,6 +126,9 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
   const isFail = file?.metaData?.errors && file.metaData.errors.length > 0;
   const isProgress = file?.uploadStatus === 'progress' || file?.uploadStatus === 'wait';
   const isOutdated = file?.uploadStatus === 'timeout';
+  const file_markings = file?.metaData?.file_markings;
+  const fileMarkings = me.allowed_marking?.filter(({ id }) => (file_markings ?? []).includes(id)) ?? [];
+
   const isImportActive = () => connectors && connectors.filter((x) => x.data.active).length > 0;
   const history = [];
 
@@ -210,6 +220,7 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
   };
 
   const handleLink = (url: string) => {
+    if (isFail || isOutdated || isProgress) return;
     handleCloseDownload();
     handleClose();
     window.location.pathname = url;
@@ -230,6 +241,15 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
     || encodedFilePath.endsWith('.dll');
   const fileExtension = file?.name.substring(file?.name.lastIndexOf('.')) ?? '';
   const fileNameWithoutExtension = file?.name.substring(0, file?.name.lastIndexOf('.')) ?? '';
+
+  let status = t_i18n('Pending');
+  if (file?.metaData?.mimetype) {
+    status = file.metaData.mimetype;
+  }
+  if (isFail) {
+    status = t_i18n('Failed');
+  }
+
   return (
     <>
       <ListItemButton
@@ -268,13 +288,16 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
             primary={`${truncate(fileNameWithoutExtension, 80)}${fileExtension}`}
             secondary={
               <>
-                {file?.metaData?.mimetype ?? t_i18n('Pending')} (
+                {status} (
                 {fld(file?.lastModified ?? moment())})
               </>
             }
           />
         </Tooltip>
-        <ListItemSecondaryAction>
+        <ListItemSecondaryAction style={{ display: 'flex', alignItems: 'center' }}>
+          {!isProgress && !isFail && !isOutdated && (
+            <ItemMarkings variant="inList" markingDefinitions={fileMarkings} limit={1} />
+          )}
           {!disableImport && (
             <Tooltip title={t_i18n('Launch an import of this file')}>
               <span>
@@ -346,43 +369,45 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
             </>
           )}
           {!isExternalReferenceAttachment && (
-            <>
-              {isFail || isOutdated ? (
-                <Tooltip title={t_i18n('Delete this file')}>
-                  <span>
-                    <IconButton
-                      disabled={isProgress}
-                      color={nested ? 'inherit' : 'primary'}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handleOpenRemove();
-                      }}
-                      size="small"
-                    >
-                      <DeleteOutlined fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              ) : (
-                <Tooltip title={t_i18n('Delete this file')}>
-                  <span>
-                    <IconButton
-                      disabled={isProgress}
-                      color={nested ? 'inherit' : 'primary'}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handleOpenDelete();
-                      }}
-                      size="small"
-                    >
-                      <DeleteOutlined fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              )}
-            </>
+            <Security needs={[KNOWLEDGE_KNASKIMPORT]}>
+              <>
+                {isFail || isOutdated ? (
+                  <Tooltip title={t_i18n('Delete this file')}>
+                    <span>
+                      <IconButton
+                        disabled={isProgress}
+                        color={nested ? 'inherit' : 'primary'}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleOpenRemove();
+                        }}
+                        size="small"
+                      >
+                        <DeleteOutlined fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title={t_i18n('Delete this file')}>
+                    <span>
+                      <IconButton
+                        disabled={isProgress}
+                        color={nested ? 'inherit' : 'primary'}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleOpenDelete();
+                        }}
+                        size="small"
+                      >
+                        <DeleteOutlined fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                )}
+              </>
+            </Security>
           )}
         </ListItemSecondaryAction>
       </ListItemButton>
@@ -458,16 +483,16 @@ const FileLineComponent: FunctionComponent<FileLineComponentProps> = ({
         <DialogContent>
           <DialogContentText>
             {t_i18n('How do you want to download this file?')}
-            <Alert
-              severity="warning"
-              variant="outlined"
-              style={{ position: 'relative', marginTop: 20 }}
-            >
-              {t_i18n(
-                'You are about to download a file related to an Artifact (or a binary). It might be malicious. You can download it as an encrypted archive (password: "infected") in order to protect your workstation and share it safely.',
-              )}
-            </Alert>
           </DialogContentText>
+          <Alert
+            severity="warning"
+            variant="outlined"
+            style={{ position: 'relative', marginTop: 20 }}
+          >
+            {t_i18n(
+              'You are about to download a file related to an Artifact (or a binary). It might be malicious. You can download it as an encrypted archive (password: "infected") in order to protect your workstation and share it safely.',
+            )}
+          </Alert>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDownload} disabled={deleting}>
@@ -507,6 +532,7 @@ const FileLine = createFragmentContainer(FileLineComponent, {
         mimetype
         list_filters
         external_reference_id
+        file_markings
         messages {
           timestamp
           message

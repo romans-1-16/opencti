@@ -19,7 +19,7 @@ import inject18n, { isNone } from '../../../../components/i18n';
 import { itemColor } from '../../../../utils/Colors';
 import { parse } from '../../../../utils/Time';
 import ItemIcon from '../../../../components/ItemIcon';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import { truncate } from '../../../../utils/String';
 import ObjectMarkingField from '../form/ObjectMarkingField';
 import ConfidenceField from '../form/ConfidenceField';
@@ -133,7 +133,7 @@ const styles = (theme) => ({
   },
 });
 
-const stixNestedRefRelationshipCreationResolveQuery = graphql`
+export const stixNestedRefRelationshipCreationResolveQuery = graphql`
   query StixNestedRefRelationshipCreationResolveQuery($id: String!, $toType: String!) {
     stixSchemaRefRelationships(id: $id, toType: $toType) {
       from
@@ -370,7 +370,7 @@ class StixNestedRefRelationshipCreation extends Component {
     this.props.handleClose();
   }
 
-  renderForm(resolveEntityRef) {
+  renderForm(resolveEntityRef, canReverseRelation) {
     const {
       t,
       classes,
@@ -410,7 +410,7 @@ class StixNestedRefRelationshipCreation extends Component {
         validationSchema={stixNestedRefRelationshipValidation(t)}
         onSubmit={this.onSubmit.bind(this)}
       >
-        {({ submitForm, isSubmitting }) => (
+        {({ submitForm, isSubmitting, setFieldValue }) => (
           <Form>
             <div className={classes.header}>
               <IconButton
@@ -472,14 +472,14 @@ class StixNestedRefRelationshipCreation extends Component {
                 <div className={classes.middle} style={{ paddingTop: 25 }}>
                   <ArrowRightAlt fontSize="large" />
                   <br />
-                  <Button
+                  {canReverseRelation && <Button
                     variant="outlined"
                     onClick={this.handleReverseRelation.bind(this)}
                     color="secondary"
                     size="small"
-                  >
-                    {t('Reverse')}
-                  </Button>
+                                         >
+                      {t('Reverse')}
+                    </Button>}
                 </div>
                 <div
                   className={classes.item}
@@ -567,6 +567,7 @@ class StixNestedRefRelationshipCreation extends Component {
               <ObjectMarkingField
                 name="objectMarking"
                 style={fieldSpacingContainerStyle}
+                setFieldValue={setFieldValue}
               />
               <div className={classes.buttons}>
                 <Button
@@ -859,9 +860,13 @@ class StixNestedRefRelationshipCreation extends Component {
           }}
           render={({ props }) => {
             if (props && props.stixSchemaRefRelationships) {
+              if (props.stixSchemaRefRelationships.from.length === 0 && props.stixSchemaRefRelationships.to.length > 0) {
+                this.handleReverseRelation();
+                return this.renderLoader();
+              }
               return (
                 <div>
-                  {this.renderForm(props.stixSchemaRefRelationships)}
+                  {this.renderForm(props.stixSchemaRefRelationships, props.stixSchemaRefRelationships.to.length > 0)}
                 </div>
               );
             }

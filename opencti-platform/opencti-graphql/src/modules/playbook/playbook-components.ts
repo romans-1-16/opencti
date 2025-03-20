@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -16,46 +16,49 @@ import * as R from 'ramda';
 import { v4 as uuidv4 } from 'uuid';
 import type { JSONSchemaType } from 'ajv';
 import * as jsonpatch from 'fast-json-patch';
-import { type BasicStoreEntityPlaybook, ENTITY_TYPE_PLAYBOOK, type PlaybookComponent, type PlaybookComponentConfiguration } from './playbook-types';
+import { type BasicStoreEntityPlaybook, ENTITY_TYPE_PLAYBOOK, type PlaybookComponent } from './playbook-types';
 import { AUTOMATION_MANAGER_USER, AUTOMATION_MANAGER_USER_UUID, executionContext, INTERNAL_USERS, isUserCanAccessStixElement, SYSTEM_USER } from '../../utils/access';
-import { pushToConnector, pushToPlaybook } from '../../database/rabbitmq';
+import { pushToConnector, pushToWorkerForConnector } from '../../database/rabbitmq';
 import {
   ABSTRACT_STIX_CORE_OBJECT,
   ABSTRACT_STIX_CORE_RELATIONSHIP,
   ABSTRACT_STIX_CYBER_OBSERVABLE,
   ABSTRACT_STIX_DOMAIN_OBJECT,
   ABSTRACT_STIX_RELATIONSHIP,
-  ENTITY_TYPE_CONTAINER,
+  ENTITY_TYPE_THREAT_ACTOR,
+  INPUT_ASSIGNEE,
   INPUT_CREATED_BY,
   INPUT_LABELS,
   INPUT_MARKINGS,
+  INPUT_PARTICIPANT
 } from '../../schema/general';
 import { convertStoreToStix } from '../../database/stix-converter';
-import type { BasicStoreRelation, StoreCommon, StoreRelation } from '../../types/store';
-import { generateInternalId, generateStandardId } from '../../schema/identifier';
+import type { BasicStoreCommon, BasicStoreRelation, StoreCommon, StoreRelation } from '../../types/store';
+import { generateInternalId, generateStandardId, idGenFromData } from '../../schema/identifier';
 import { now, observableValue, utcDate } from '../../utils/format';
 import type { StixCampaign, StixContainer, StixIncident, StixInfrastructure, StixMalware, StixReport, StixThreatActor } from '../../types/stix-sdo';
-import { getParentTypes } from '../../schema/schemaUtils';
-import { ENTITY_TYPE_CONTAINER_REPORT, isStixDomainObjectContainer } from '../../schema/stixDomainObject';
-import type { StixBundle, StixCoreObject, StixCyberObject, StixDomainObject, StixObject } from '../../types/stix-common';
+import { convertStixToInternalTypes, generateInternalType, getParentTypes } from '../../schema/schemaUtils';
+import {
+  ENTITY_TYPE_ATTACK_PATTERN,
+  ENTITY_TYPE_CAMPAIGN,
+  ENTITY_TYPE_CONTAINER_REPORT,
+  ENTITY_TYPE_INCIDENT,
+  ENTITY_TYPE_INTRUSION_SET,
+  ENTITY_TYPE_MALWARE,
+  ENTITY_TYPE_TOOL,
+  isStixDomainObjectContainer
+} from '../../schema/stixDomainObject';
+import type { CyberObjectExtension, StixBundle, StixCoreObject, StixCyberObject, StixDomainObject, StixObject, StixOpenctiExtension } from '../../types/stix-common';
 import { STIX_EXT_OCTI, STIX_EXT_OCTI_SCO } from '../../types/stix-extensions';
 import { connectorsForPlaybook } from '../../database/repository';
-import { schemaTypesDefinition } from '../../schema/schema-types';
-import { listAllEntities, listAllRelations, storeLoadById } from '../../database/middleware-loader';
-import type { BasicStoreEntityOrganization } from '../organization/organization-types';
+import { internalFindByIds, listAllRelations, storeLoadById } from '../../database/middleware-loader';
 import { ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../organization/organization-types';
-import { getEntitiesListFromCache } from '../../database/cache';
+import { getEntitiesListFromCache, getEntitiesMapFromCache } from '../../database/cache';
 import { createdBy, objectLabel, objectMarking } from '../../schema/stixRefRelationship';
 import { logApp } from '../../config/conf';
 import { FunctionalError } from '../../config/errors';
 import { extractStixRepresentative } from '../../database/stix-representative';
-import {
-  isEmptyField,
-  isNotEmptyField,
-  READ_ENTITIES_INDICES_WITHOUT_INFERRED,
-  READ_RELATIONSHIPS_INDICES,
-  READ_RELATIONSHIPS_INDICES_WITHOUT_INFERRED
-} from '../../database/utils';
+import { isEmptyField, isNotEmptyField, READ_RELATIONSHIPS_INDICES, READ_RELATIONSHIPS_INDICES_WITHOUT_INFERRED } from '../../database/utils';
 import { schemaAttributesDefinition } from '../../schema/schema-attributes';
 import { schemaRelationsRefDefinition } from '../../schema/schema-relationsRef';
 import { stixLoadByIds } from '../../database/middleware';
@@ -67,12 +70,22 @@ import type { AuthUser } from '../../types/user';
 import { isStixCyberObservable } from '../../schema/stixCyberObservable';
 import { createStixPattern } from '../../python/pythonBridge';
 import { generateKeyValueForIndicator } from '../../domain/stixCyberObservable';
-import { RELATION_BASED_ON } from '../../schema/stixCoreRelationship';
+import { RELATION_BASED_ON, RELATION_INDICATES } from '../../schema/stixCoreRelationship';
 import type { StixRelation } from '../../types/stix-sro';
-import { extractObservablesFromIndicatorPattern, STIX_PATTERN_TYPE } from '../../utils/syntax';
+import { extractValidObservablesFromIndicatorPattern, STIX_PATTERN_TYPE } from '../../utils/syntax';
 import { ENTITY_TYPE_CONTAINER_CASE_INCIDENT, type StixCaseIncident } from '../case/case-incident/case-incident-types';
 import { isStixMatchFilterGroup } from '../../utils/filtering/filtering-stix/stix-filtering';
 import { ENTITY_TYPE_INDICATOR, type StixIndicator } from '../indicator/indicator-types';
+import { ENTITY_TYPE_CONTAINER_CASE_RFI } from '../case/case-rfi/case-rfi-types';
+import { ENTITY_TYPE_CONTAINER_CASE_RFT } from '../case/case-rft/case-rft-types';
+import { ENTITY_TYPE_CONTAINER_FEEDBACK } from '../case/feedback/feedback-types';
+import { ENTITY_TYPE_CONTAINER_TASK } from '../task/task-types';
+import { EditOperation } from '../../generated/graphql';
+import { ENTITY_TYPE_MARKING_DEFINITION } from '../../schema/stixMetaObject';
+import { schemaTypesDefinition } from '../../schema/schema-types';
+import { ENTITY_TYPE_CONTAINER_GROUPING } from '../grouping/grouping-types';
+import { generateCreateMessage } from '../../database/generate-message';
+import { ENTITY_TYPE_CONTAINER_CASE } from '../case/case-types';
 
 const extractBundleBaseElement = (instanceId: string, bundle: StixBundle): StixObject => {
   const baseData = bundle.objects.find((o) => o.id === instanceId);
@@ -81,7 +94,7 @@ const extractBundleBaseElement = (instanceId: string, bundle: StixBundle): StixO
 };
 
 // region built in playbook components
-interface LoggerConfiguration extends PlaybookComponentConfiguration {
+interface LoggerConfiguration {
   level: string
 }
 const PLAYBOOK_LOGGER_COMPONENT_SCHEMA: JSONSchemaType<LoggerConfiguration> = {
@@ -94,7 +107,7 @@ const PLAYBOOK_LOGGER_COMPONENT_SCHEMA: JSONSchemaType<LoggerConfiguration> = {
       oneOf: [
         { const: 'debug', title: 'debug' },
         { const: 'info', title: 'info' },
-        { const: 'warning', title: 'warning' },
+        { const: 'warn', title: 'warn' },
         { const: 'error', title: 'error' }
       ]
     },
@@ -119,7 +132,7 @@ const PLAYBOOK_LOGGER_COMPONENT: PlaybookComponent<LoggerConfiguration> = {
   }
 };
 
-export interface StreamConfiguration extends PlaybookComponentConfiguration {
+export interface StreamConfiguration {
   create: boolean,
   update: boolean,
   delete: boolean,
@@ -150,7 +163,63 @@ const PLAYBOOK_INTERNAL_DATA_STREAM: PlaybookComponent<StreamConfiguration> = {
   }
 };
 
-interface IngestionConfiguration extends PlaybookComponentConfiguration {}
+export interface ManualTriggerConfiguration {
+  filters: string
+}
+const PLAYBOOK_INTERNAL_MANUAL_TRIGGER_SCHEMA: JSONSchemaType<ManualTriggerConfiguration> = {
+  type: 'object',
+  properties: {
+    filters: { type: 'string' },
+  },
+  required: [],
+};
+const PLAYBOOK_INTERNAL_MANUAL_TRIGGER: PlaybookComponent<ManualTriggerConfiguration> = {
+  id: 'PLAYBOOK_INTERNAL_MANUAL_TRIGGER',
+  name: 'Available for manual enrollment / trigger',
+  description: 'To be used in manual enrollment / trigger',
+  icon: 'manual',
+  is_entry_point: true,
+  is_internal: true,
+  ports: [{ id: 'out', type: 'out' }],
+  configuration_schema: PLAYBOOK_INTERNAL_MANUAL_TRIGGER_SCHEMA,
+  schema: async () => PLAYBOOK_INTERNAL_MANUAL_TRIGGER_SCHEMA,
+  executor: async ({ bundle }) => {
+    return ({ output_port: 'out', bundle, forceBundleTracking: true });
+  }
+};
+
+export interface CronConfiguration {
+  period: 'day' | 'hour' | 'minute' | 'month' | 'week',
+  triggerTime: string
+  onlyLast: boolean
+  filters: string
+}
+const PLAYBOOK_INTERNAL_DATA_CRON_SCHEMA: JSONSchemaType<CronConfiguration> = {
+  type: 'object',
+  properties: {
+    period: { type: 'string', default: 'hour' },
+    triggerTime: { type: 'string' },
+    onlyLast: { type: 'boolean', $ref: 'Only last modified entities after the last run', default: false },
+    filters: { type: 'string' },
+  },
+  required: ['period', 'triggerTime', 'onlyLast', 'filters'],
+};
+export const PLAYBOOK_INTERNAL_DATA_CRON: PlaybookComponent<CronConfiguration> = {
+  id: 'PLAYBOOK_INTERNAL_DATA_CRON',
+  name: 'Query knowledge on a regular basis',
+  description: 'Query knowledge on the platform',
+  icon: 'cron',
+  is_entry_point: true,
+  is_internal: true,
+  ports: [{ id: 'out', type: 'out' }],
+  configuration_schema: PLAYBOOK_INTERNAL_DATA_CRON_SCHEMA,
+  schema: async () => PLAYBOOK_INTERNAL_DATA_CRON_SCHEMA,
+  executor: async ({ bundle }) => {
+    return ({ output_port: 'out', bundle, forceBundleTracking: true });
+  }
+};
+
+interface IngestionConfiguration {}
 const PLAYBOOK_INGESTION_COMPONENT: PlaybookComponent<IngestionConfiguration> = {
   id: 'PLAYBOOK_INGESTION_COMPONENT',
   name: 'Send for ingestion',
@@ -161,35 +230,42 @@ const PLAYBOOK_INGESTION_COMPONENT: PlaybookComponent<IngestionConfiguration> = 
   ports: [],
   configuration_schema: undefined,
   schema: async () => undefined,
-  executor: async ({ bundle }) => {
+  executor: async ({ eventId, bundle, playbookId }) => {
     const content = Buffer.from(JSON.stringify(bundle), 'utf-8').toString('base64');
-    await pushToPlaybook({ type: 'bundle', applicant_id: AUTOMATION_MANAGER_USER_UUID, content, update: true });
+    await pushToWorkerForConnector(playbookId, {
+      type: 'bundle',
+      event_id: eventId,
+      playbook_id: playbookId,
+      applicant_id: AUTOMATION_MANAGER_USER_UUID,
+      content,
+      update: false,
+    });
     return { output_port: undefined, bundle, forceBundleTracking: true };
   }
 };
 
-interface FilterConfiguration extends PlaybookComponentConfiguration {
+interface MatchConfiguration {
   all: boolean
   filters: string
 }
-const PLAYBOOK_FILTERING_COMPONENT_SCHEMA: JSONSchemaType<FilterConfiguration> = {
+const PLAYBOOK_MATCHING_COMPONENT_SCHEMA: JSONSchemaType<MatchConfiguration> = {
   type: 'object',
   properties: {
-    all: { type: 'boolean', $ref: 'Filter on elements included in the bundle', default: false },
+    all: { type: 'boolean', $ref: 'Match on any elements included in the bundle', default: false },
     filters: { type: 'string' },
   },
   required: ['filters'],
 };
-const PLAYBOOK_FILTERING_COMPONENT: PlaybookComponent<FilterConfiguration> = {
+export const PLAYBOOK_MATCHING_COMPONENT: PlaybookComponent<MatchConfiguration> = {
   id: 'PLAYBOOK_FILTERING_COMPONENT',
-  name: 'Filter knowledge',
-  description: 'Filter STIX data',
+  name: 'Match knowledge',
+  description: 'Match STIX data according to filter (pass if match)',
   icon: 'filter',
   is_entry_point: false,
   is_internal: true,
   ports: [{ id: 'out', type: 'out' }, { id: 'no-match', type: 'out' }],
-  configuration_schema: PLAYBOOK_FILTERING_COMPONENT_SCHEMA,
-  schema: async () => PLAYBOOK_FILTERING_COMPONENT_SCHEMA,
+  configuration_schema: PLAYBOOK_MATCHING_COMPONENT_SCHEMA,
+  schema: async () => PLAYBOOK_MATCHING_COMPONENT_SCHEMA,
   executor: async ({ playbookNode, dataInstanceId, bundle }) => {
     const context = executionContext('playbook_components');
     const { filters, all } = playbookNode.configuration;
@@ -211,7 +287,7 @@ const PLAYBOOK_FILTERING_COMPONENT: PlaybookComponent<FilterConfiguration> = {
   }
 };
 
-interface ReduceConfiguration extends PlaybookComponentConfiguration {
+interface ReduceConfiguration {
   filters: string
 }
 const PLAYBOOK_REDUCING_COMPONENT_SCHEMA: JSONSchemaType<ReduceConfiguration> = {
@@ -247,7 +323,7 @@ const PLAYBOOK_REDUCING_COMPONENT: PlaybookComponent<ReduceConfiguration> = {
   }
 };
 
-interface ConnectorConfiguration extends PlaybookComponentConfiguration {
+interface ConnectorConfiguration {
   connector: string
 }
 const PLAYBOOK_CONNECTOR_COMPONENT_SCHEMA: JSONSchemaType<ConnectorConfiguration> = {
@@ -256,6 +332,27 @@ const PLAYBOOK_CONNECTOR_COMPONENT_SCHEMA: JSONSchemaType<ConnectorConfiguration
     connector: { type: 'string', $ref: 'Enrichment connector', oneOf: [] },
   },
   required: ['connector'],
+};
+const extendsBundleElementsWithExtensions = (bundle: StixBundle): StixBundle => {
+  const newBundle = structuredClone(bundle);
+  newBundle.objects = newBundle.objects.map((element) => {
+    const data = structuredClone(element);
+    const openctiType = generateInternalType(data); // convert from stix type
+    // eslint-disable-next-line
+    // @ts-ignore
+    data.extensions = isEmptyField(element.extensions) ? {} : element.extensions;
+    if (isEmptyField(data.extensions[STIX_EXT_OCTI])) {
+      data.extensions[STIX_EXT_OCTI] = { extension_type: 'property-extension', type: openctiType } as StixOpenctiExtension;
+    }
+    if (isStixCyberObservable(openctiType)) {
+      const cyberObject = (data as StixCyberObject);
+      if (isEmptyField(cyberObject.extensions[STIX_EXT_OCTI_SCO])) {
+        cyberObject.extensions[STIX_EXT_OCTI_SCO] = { extension_type: 'property-extension' } as CyberObjectExtension;
+      }
+    }
+    return data;
+  });
+  return newBundle;
 };
 const PLAYBOOK_CONNECTOR_COMPONENT: PlaybookComponent<ConnectorConfiguration> = {
   id: 'PLAYBOOK_CONNECTOR_COMPONENT',
@@ -274,17 +371,19 @@ const PLAYBOOK_CONNECTOR_COMPONENT: PlaybookComponent<ConnectorConfiguration> = 
     const schemaElement = { properties: { connector: { oneOf: elements } } };
     return R.mergeDeepRight<JSONSchemaType<ConnectorConfiguration>, any>(PLAYBOOK_CONNECTOR_COMPONENT_SCHEMA, schemaElement);
   },
-  notify: async ({ executionId, playbookId, playbookNode, previousPlaybookNode, dataInstanceId, bundle }) => {
+  notify: async ({ executionId, eventId, playbookId, playbookNode,
+    previousPlaybookNodeId, dataInstanceId, bundle }) => {
     if (playbookNode.configuration.connector) {
       const message = {
         internal: {
           work_id: null, // No work id associated
           playbook: {
+            event_id: eventId,
             execution_id: executionId,
             playbook_id: playbookId,
             data_instance_id: dataInstanceId,
             step_id: playbookNode.id,
-            previous_step_id: previousPlaybookNode?.id,
+            previous_step_id: previousPlaybookNodeId,
           },
           applicant_id: AUTOMATION_MANAGER_USER.id, // System user is responsible for the automation
         },
@@ -297,6 +396,9 @@ const PLAYBOOK_CONNECTOR_COMPONENT: PlaybookComponent<ConnectorConfiguration> = 
     }
   },
   executor: async ({ bundle }) => {
+    // Add extensions if needed
+    // This is needed as the rest of playbook expecting STIX2.1 format with extensions
+    const stixBundle = extendsBundleElementsWithExtensions(bundle);
     // TODO Could be reactivated after improvement of enrichment connectors
     // if (previousStepBundle) {
     //   const diffOperations = jsonpatch.compare(previousStepBundle.objects, bundle.objects);
@@ -304,22 +406,37 @@ const PLAYBOOK_CONNECTOR_COMPONENT: PlaybookComponent<ConnectorConfiguration> = 
     //     return { output_port: 'unmodified', bundle };
     //   }
     // }
-    return { output_port: 'out', bundle };
+    return { output_port: 'out', bundle: stixBundle };
   }
 };
 
-interface ContainerWrapperConfiguration extends PlaybookComponentConfiguration {
+interface ContainerWrapperConfiguration {
   container_type: string
   all: boolean
+  newContainer: boolean
 }
 const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT_SCHEMA: JSONSchemaType<ContainerWrapperConfiguration> = {
   type: 'object',
   properties: {
     container_type: { type: 'string', $ref: 'Container type', default: '', oneOf: [] },
-    all: { type: 'boolean', $ref: 'Wrap all elements included in the bundle', default: false }
+    all: { type: 'boolean', $ref: 'Wrap all elements included in the bundle', default: false },
+    newContainer: { type: 'boolean', $ref: 'Create a new container at each run', default: false }
   },
   required: ['container_type'],
 };
+
+// For now, only a fixed list of containers are compatible
+// these are the containers that can be created with a name and no specific mandatory fields
+const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT_AVAILABLE_CONTAINERS = [
+  ENTITY_TYPE_CONTAINER_REPORT,
+  ENTITY_TYPE_CONTAINER_GROUPING,
+  ENTITY_TYPE_CONTAINER_CASE_INCIDENT,
+  ENTITY_TYPE_CONTAINER_CASE_RFI,
+  ENTITY_TYPE_CONTAINER_CASE_RFT,
+  ENTITY_TYPE_CONTAINER_FEEDBACK,
+  ENTITY_TYPE_CONTAINER_TASK,
+];
+
 const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT: PlaybookComponent<ContainerWrapperConfiguration> = {
   id: 'PLAYBOOK_CONTAINER_WRAPPER_COMPONENT',
   name: 'Container wrapper',
@@ -330,21 +447,35 @@ const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT: PlaybookComponent<ContainerWrapperCo
   ports: [{ id: 'out', type: 'out' }],
   configuration_schema: PLAYBOOK_CONTAINER_WRAPPER_COMPONENT_SCHEMA,
   schema: async () => {
-    const entityTypes = schemaTypesDefinition.get(ENTITY_TYPE_CONTAINER);
-    const elements = entityTypes.map((c) => ({ const: c, title: c }));
+    const elements = PLAYBOOK_CONTAINER_WRAPPER_COMPONENT_AVAILABLE_CONTAINERS.map((t) => ({ const: t, title: t }));
     const schemaElement = { properties: { container_type: { oneOf: elements } } };
     return R.mergeDeepRight<JSONSchemaType<ContainerWrapperConfiguration>, any>(PLAYBOOK_CONTAINER_WRAPPER_COMPONENT_SCHEMA, schemaElement);
   },
   executor: async ({ dataInstanceId, playbookNode, bundle }) => {
-    const { container_type, all } = playbookNode.configuration;
-    if (container_type && isStixDomainObjectContainer(container_type)) {
+    const { container_type, all, newContainer } = playbookNode.configuration;
+    if (!PLAYBOOK_CONTAINER_WRAPPER_COMPONENT_AVAILABLE_CONTAINERS.includes(container_type)) {
+      throw FunctionalError('this container type is incompatible with the Container Wrapper playbook component', { container_type });
+    }
+    if (container_type) {
       const baseData = extractBundleBaseElement(dataInstanceId, bundle);
-      const created = baseData.extensions[STIX_EXT_OCTI].created_at;
-      const containerData = {
-        name: extractStixRepresentative(baseData) ?? `Generated container wrapper from playbook at ${created}`,
+      const created = newContainer ? now() : baseData.extensions[STIX_EXT_OCTI].created_at;
+      const representative = extractStixRepresentative(baseData);
+      let name = `Generated container wrapper from playbook at ${created}`;
+      if (representative && newContainer) {
+        name = `${representative} - ${created}`;
+      } else if (representative) {
+        name = representative;
+      }
+      const containerData: Record<string, unknown> = {
+        name,
         created,
-        published: created,
       };
+      if (container_type === ENTITY_TYPE_CONTAINER_REPORT) {
+        containerData.published = created;
+      }
+      if (container_type === ENTITY_TYPE_CONTAINER_GROUPING) {
+        containerData.context = 'playbook';
+      }
       const standardId = generateStandardId(container_type, containerData);
       const storeContainer = {
         internal_id: uuidv4(),
@@ -354,12 +485,14 @@ const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT: PlaybookComponent<ContainerWrapperCo
         ...containerData
       } as StoreCommon;
       const container = convertStoreToStix(storeContainer) as StixContainer;
+      // add all objects in the container if requested in the playbook confif
       if (all) {
         container.object_refs = bundle.objects.map((o: StixObject) => o.id);
       } else {
         container.object_refs = [baseData.id];
       }
       // Specific remapping of some attributes, waiting for a complete binding solution in the UI
+      // Following attributes are the same as the base instance: markings, labels, created_by, assignees, partcipants
       if (baseData.object_marking_refs) {
         container.object_marking_refs = baseData.object_marking_refs;
       }
@@ -369,14 +502,15 @@ const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT: PlaybookComponent<ContainerWrapperCo
       if ((<StixDomainObject>baseData).created_by_ref) {
         container.created_by_ref = (<StixDomainObject>baseData).created_by_ref;
       }
-      if ((<StixIncident>baseData).severity && container_type === ENTITY_TYPE_CONTAINER_CASE_INCIDENT) {
-        (<StixCaseIncident>container).severity = (<StixIncident>baseData).severity;
-      }
       if (baseData.extensions[STIX_EXT_OCTI].participant_ids) {
         container.extensions[STIX_EXT_OCTI].participant_ids = baseData.extensions[STIX_EXT_OCTI].participant_ids;
       }
       if (baseData.extensions[STIX_EXT_OCTI].assignee_ids) {
         container.extensions[STIX_EXT_OCTI].assignee_ids = baseData.extensions[STIX_EXT_OCTI].assignee_ids;
+      }
+      // if the base instance is an incident and we wrap into an Incident Case, we set the same severity
+      if ((<StixIncident>baseData).severity && container_type === ENTITY_TYPE_CONTAINER_CASE_INCIDENT) {
+        (<StixCaseIncident>container).severity = (<StixIncident>baseData).severity;
       }
       bundle.objects.push(container);
     }
@@ -384,8 +518,8 @@ const PLAYBOOK_CONTAINER_WRAPPER_COMPONENT: PlaybookComponent<ContainerWrapperCo
   }
 };
 
-interface SharingConfiguration extends PlaybookComponentConfiguration {
-  organizations: string[]
+export interface SharingConfiguration {
+  organizations: string[] | { label: string, value: string }[]
 }
 const PLAYBOOK_SHARING_COMPONENT_SCHEMA: JSONSchemaType<SharingConfiguration> = {
   type: 'object',
@@ -409,25 +543,20 @@ const PLAYBOOK_SHARING_COMPONENT: PlaybookComponent<SharingConfiguration> = {
   is_internal: true,
   ports: [{ id: 'out', type: 'out' }],
   configuration_schema: PLAYBOOK_SHARING_COMPONENT_SCHEMA,
-  schema: async () => {
-    const context = executionContext('playbook_components');
-    const organizations = await listAllEntities(
-      context,
-      SYSTEM_USER,
-      [ENTITY_TYPE_IDENTITY_ORGANIZATION],
-      { connectionFormat: false, indices: READ_ENTITIES_INDICES_WITHOUT_INFERRED }
-    );
-    const elements = organizations.map((c) => ({ const: c.id, title: c.name }));
-    const schemaElement = { properties: { organizations: { items: { oneOf: elements } } } };
-    return R.mergeDeepRight<JSONSchemaType<SharingConfiguration>, any>(PLAYBOOK_SHARING_COMPONENT_SCHEMA, schemaElement);
-  },
+  schema: async () => PLAYBOOK_SHARING_COMPONENT_SCHEMA,
   executor: async ({ dataInstanceId, playbookNode, bundle }) => {
     const context = executionContext('playbook_components');
-    const allOrganizations = await getEntitiesListFromCache<BasicStoreEntityOrganization>(context, SYSTEM_USER, ENTITY_TYPE_IDENTITY_ORGANIZATION);
     const { organizations } = playbookNode.configuration;
-    const organizationIds = allOrganizations
-      .filter((o) => (organizations ?? []).includes(o.internal_id))
-      .map((o) => o.standard_id);
+    const organizationsValues = organizations.map((o) => (typeof o !== 'string' ? o.value : o));
+    const organizationsByIds = await internalFindByIds(context, SYSTEM_USER, organizationsValues, {
+      type: ENTITY_TYPE_IDENTITY_ORGANIZATION,
+      baseData: true,
+      baseFields: ['standard_id']
+    });
+    if (organizationsByIds.length === 0) {
+      return { output_port: 'out', bundle }; // nothing to do since organizations are empty
+    }
+    const organizationIds = organizationsByIds.map((o) => o.standard_id);
     const baseData = bundle.objects.find((o) => o.id === dataInstanceId) as StixCoreObject;
     baseData.extensions[STIX_EXT_OCTI].granted_refs = [...(baseData.extensions[STIX_EXT_OCTI].granted_refs ?? []), ...organizationIds];
     return { output_port: 'out', bundle };
@@ -440,14 +569,18 @@ const attributePathMapping: any = {
     [ABSTRACT_STIX_RELATIONSHIP]: `/${objectMarking.stixName}`,
   },
   [INPUT_LABELS]: {
-    [ABSTRACT_STIX_DOMAIN_OBJECT]: `/${objectLabel.stixName}`,
-    [ABSTRACT_STIX_CYBER_OBSERVABLE]: `/extensions/${STIX_EXT_OCTI_SCO}/${objectLabel.stixName}`,
+    [ABSTRACT_STIX_CORE_OBJECT]: `/${objectLabel.stixName}`,
     [ABSTRACT_STIX_RELATIONSHIP]: `/${objectLabel.stixName}`,
   },
   [INPUT_CREATED_BY]: {
-    [ABSTRACT_STIX_DOMAIN_OBJECT]: `/${createdBy.stixName}`,
-    [ABSTRACT_STIX_CYBER_OBSERVABLE]: `/extensions/${STIX_EXT_OCTI_SCO}/${createdBy.stixName}`,
+    [ABSTRACT_STIX_CORE_OBJECT]: `/${createdBy.stixName}`,
     [ABSTRACT_STIX_RELATIONSHIP]: `/${createdBy.stixName}`,
+  },
+  [INPUT_ASSIGNEE]: {
+    [ABSTRACT_STIX_DOMAIN_OBJECT]: `/extensions/${STIX_EXT_OCTI}/assignee_ids`,
+  },
+  [INPUT_PARTICIPANT]: {
+    [ABSTRACT_STIX_DOMAIN_OBJECT]: `/extensions/${STIX_EXT_OCTI}/participant_ids`,
   },
   confidence: {
     [ABSTRACT_STIX_DOMAIN_OBJECT]: '/confidence',
@@ -463,14 +596,21 @@ const attributePathMapping: any = {
   x_opencti_workflow_id: {
     [ABSTRACT_STIX_DOMAIN_OBJECT]: `/extensions/${STIX_EXT_OCTI}/workflow_id`,
     [ABSTRACT_STIX_CYBER_OBSERVABLE]: `/extensions/${STIX_EXT_OCTI}/workflow_id`,
-  }
+    [ABSTRACT_STIX_RELATIONSHIP]: `/extensions/${STIX_EXT_OCTI}/workflow_id`,
+  },
+  severity: {
+    [ENTITY_TYPE_CONTAINER_CASE]: '/severity',
+  },
+  priority: {
+    [ENTITY_TYPE_CONTAINER_CASE]: '/priority',
+  },
 };
 interface UpdateValueConfiguration {
   label: string
   value: string
   patch_value: string
 }
-interface UpdateConfiguration extends PlaybookComponentConfiguration {
+interface UpdateConfiguration {
   actions: { op: 'add' | 'replace' | 'remove', attribute: string, value: UpdateValueConfiguration[] }[]
   all: boolean
 }
@@ -515,6 +655,8 @@ const PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT: PlaybookComponent<UpdateConfiguration
   configuration_schema: PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT_SCHEMA,
   schema: async () => PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT_SCHEMA,
   executor: async ({ dataInstanceId, playbookNode, bundle }) => {
+    const context = executionContext('playbook_components');
+    const cacheIds = await getEntitiesMapFromCache(context, AUTOMATION_MANAGER_USER, ENTITY_TYPE_MARKING_DEFINITION);
     const { actions, all } = playbookNode.configuration;
     // Compute if the attribute is defined as multiple in schema definition
     const isAttributeMultiple = (entityType:string, attribute: string) => {
@@ -524,11 +666,9 @@ const PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT: PlaybookComponent<UpdateConfiguration
       if (relationRef) return relationRef.multiple;
       return undefined;
     };
-    // Compute if attribute is defined as numeric
-    const isAttributeNumeric = (entityType:string, attribute: string) => {
+    const getAttributeType = (entityType:string, attribute: string) => {
       const baseAttribute = schemaAttributesDefinition.getAttribute(entityType, attribute);
-      if (baseAttribute) return baseAttribute.type === 'numeric';
-      return false;
+      return baseAttribute?.type ?? 'string';
     };
     // Compute the access path for the attribute in the static matrix
     const computeAttributePath = (entityType:string, attribute: string) => {
@@ -543,6 +683,11 @@ const PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT: PlaybookComponent<UpdateConfiguration
       }
       return undefined;
     };
+    const convertValue = (attributeType: string, value: any) => {
+      if (attributeType === 'numeric') return Number(value);
+      if (attributeType === 'boolean') return Boolean(value);
+      return value;
+    };
     const patchOperations = [];
     for (let index = 0; index < bundle.objects.length; index += 1) {
       const element = bundle.objects[index];
@@ -552,26 +697,42 @@ const PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT: PlaybookComponent<UpdateConfiguration
           .map((action) => {
             const attrPath = computeAttributePath(type, action.attribute);
             const multiple = isAttributeMultiple(type, action.attribute);
-            const numeric = isAttributeNumeric(type, action.attribute);
-            return ({ action, multiple, numeric, attrPath, path: `/objects/${index}${attrPath}` });
+            const attributeType = getAttributeType(type, action.attribute);
+            return ({ action, multiple, attributeType, attrPath, path: `/objects/${index}${attrPath}` });
           })
           // Unrecognized attributes must be filtered
           .filter(({ attrPath, multiple }) => isNotEmptyField(multiple) && isNotEmptyField(attrPath))
           // Map actions to data patches
-          .map(({ action, path, multiple, numeric }) => ({
-            op: action.op,
-            path,
-            // eslint-disable-next-line no-nested-ternary,max-len
-            value: multiple ? action.value.map((o) => (numeric ? Number(o.patch_value) : o.patch_value)) : numeric ? Number(R.head(action.value)?.patch_value) : R.head(action.value)?.patch_value
-          }));
+          .map(({ action, path, multiple, attributeType }) => {
+            if (multiple) {
+              const currentValues = jsonpatch.getValueByPointer(bundle, path) ?? [];
+              const actionValues = action.value.map((o) => {
+                // If value is an id, must be converted to standard_id has we work on stix bundle
+                if (cacheIds.has(o.patch_value)) return (cacheIds.get(o.patch_value) as BasicStoreCommon).standard_id;
+                // Else, just return the value
+                return convertValue(attributeType, o.patch_value);
+              });
+              if (action.op === EditOperation.Add) {
+                return { op: EditOperation.Replace, path, value: R.uniq([...currentValues, ...actionValues]) };
+              }
+              if (action.op === EditOperation.Replace) {
+                return { op: EditOperation.Replace, path, value: actionValues };
+              }
+              if (action.op === EditOperation.Remove) {
+                return { op: EditOperation.Replace, path, value: currentValues.filter((c: any) => !actionValues.includes(c)) };
+              }
+            }
+            const currentValue = R.head(action.value)?.patch_value;
+            return { op: action.op, path, value: convertValue(attributeType, currentValue) };
+          });
         // Enlist operations to execute
         patchOperations.push(...elementOperations);
       }
     }
     // Apply operations if needed
     if (patchOperations.length > 0) {
-      jsonpatch.applyPatch(bundle, patchOperations);
-      return { output_port: 'out', bundle };
+      const patchedBundle = jsonpatch.applyPatch(structuredClone(bundle), patchOperations).newDocument;
+      return { output_port: 'out', bundle: patchedBundle };
     }
     return { output_port: 'unmodified', bundle };
   }
@@ -585,7 +746,7 @@ const RESOLVE_OBSERVABLES = 'resolve_observables';
 type StixWithSeenDates = StixThreatActor | StixCampaign | StixIncident | StixInfrastructure | StixMalware;
 const ENTITIES_DATE_SEEN_PREFIX = ['threat-actor--', 'campaign--', 'incident--', 'infrastructure--', 'malware--'];
 type SeenFilter = { element: StixWithSeenDates, isImpactedBefore: boolean, isImpactedAfter: boolean };
-interface RuleConfiguration extends PlaybookComponentConfiguration {
+interface RuleConfiguration {
   rule: string
   inferences: boolean
 }
@@ -638,7 +799,7 @@ const PLAYBOOK_RULE_COMPONENT: PlaybookComponent<RuleConfiguration> = {
     }
     if (rule === RESOLVE_OBSERVABLES) {
       // RESOLVE_OBSERVABLES is for now only triggered on indicator creation / update
-      if (type === ENTITY_TYPE_INDICATOR) {
+      if (type === ENTITY_TYPE_INDICATOR && isNotEmptyField(id)) {
         // Indicator (based on) --> Observable
         // eslint-disable-next-line max-len
         const relationOpts = { fromId: id, toTypes: [ABSTRACT_STIX_CYBER_OBSERVABLE], indices: inferences ? READ_RELATIONSHIPS_INDICES : READ_RELATIONSHIPS_INDICES_WITHOUT_INFERRED };
@@ -746,7 +907,7 @@ const convertAuthorizedMemberToUsers = async (authorized_members: { value: strin
     .filter((u) => INTERNAL_USERS[u.id] === undefined);
   return R.uniqBy(R.prop('id'), withoutInternalUsers);
 };
-export interface NotifierConfiguration extends PlaybookComponentConfiguration {
+export interface NotifierConfiguration {
   notifiers: string[]
   authorized_members: object
 }
@@ -799,7 +960,7 @@ const PLAYBOOK_NOTIFIER_COMPONENT: PlaybookComponent<NotifierConfiguration> = {
           notification_id: playbookNode.id,
           instance: stixObject,
           type: 'create', // TODO Improve that with type event follow up
-          message: `\`${playbookNode.name}\``
+          message: generateCreateMessage({ ...stixObject, entity_type: convertStixToInternalTypes(stixObject.type) }) === '-' ? playbookNode.name : generateCreateMessage({ ...stixObject, entity_type: convertStixToInternalTypes(stixObject.type) }),
         }))
       };
       notificationsCall.push(storeNotificationEvent(context, notificationEvent));
@@ -810,13 +971,20 @@ const PLAYBOOK_NOTIFIER_COMPONENT: PlaybookComponent<NotifierConfiguration> = {
     return { output_port: undefined, bundle };
   }
 };
-interface CreateIndicatorConfiguration extends PlaybookComponentConfiguration {
+interface CreateIndicatorConfiguration {
   all: boolean
   wrap_in_container: boolean
+  types: string[]
 }
 const PLAYBOOK_CREATE_INDICATOR_COMPONENT_SCHEMA: JSONSchemaType<CreateIndicatorConfiguration> = {
   type: 'object',
   properties: {
+    types: {
+      type: 'array',
+      default: [],
+      $ref: 'Types',
+      items: { type: 'string', oneOf: [] }
+    },
     all: { type: 'boolean', $ref: 'Create indicators from all observables in the bundle', default: false },
     wrap_in_container: { type: 'boolean', $ref: 'If main entity is a container, wrap indicators in container', default: false },
   },
@@ -831,29 +999,35 @@ const PLAYBOOK_CREATE_INDICATOR_COMPONENT: PlaybookComponent<CreateIndicatorConf
   is_internal: true,
   ports: [{ id: 'out', type: 'out' }, { id: 'unmodified', type: 'out' }],
   configuration_schema: PLAYBOOK_CREATE_INDICATOR_COMPONENT_SCHEMA,
-  schema: async () => PLAYBOOK_CREATE_INDICATOR_COMPONENT_SCHEMA,
+  schema: async () => {
+    const types = schemaTypesDefinition.get(ABSTRACT_STIX_CYBER_OBSERVABLE);
+    const elements = types.map((t) => ({ const: t, title: t }))
+      .sort((a, b) => (a.title.toLowerCase() > b.title.toLowerCase() ? 1 : -1));
+    const schemaElement = { properties: { types: { items: { oneOf: elements } } } };
+    return R.mergeDeepRight<JSONSchemaType<CreateIndicatorConfiguration>, any>(PLAYBOOK_CREATE_INDICATOR_COMPONENT_SCHEMA, schemaElement);
+  },
   executor: async ({ playbookNode, dataInstanceId, bundle }) => {
-    const { all, wrap_in_container } = playbookNode.configuration;
+    const { all, wrap_in_container, types } = playbookNode.configuration;
     const context = executionContext('playbook_components');
     const baseData = extractBundleBaseElement(dataInstanceId, bundle);
     const observables = [baseData];
     if (all) {
       observables.push(...bundle.objects);
     }
-    const { type: baseDataType } = baseData.extensions[STIX_EXT_OCTI];
+    const { type: baseDataType, id } = baseData.extensions[STIX_EXT_OCTI];
     const isBaseDataAContainer = isStixDomainObjectContainer(baseDataType);
     const objectsToPush: StixObject[] = [];
     for (let index = 0; index < observables.length; index += 1) {
       const observable = observables[index] as StixCyberObject;
       let { type } = observable.extensions[STIX_EXT_OCTI];
-      if (isStixCyberObservable(type)) {
+      if (isStixCyberObservable(type) && (isEmptyField(types) || types.includes(type))) {
         const indicatorName = observableValue({ ...observable, entity_type: type });
         const { key, value } = generateKeyValueForIndicator(type, indicatorName, observable);
         if (key.includes('Artifact')) {
           type = 'StixFile';
         }
         const pattern = await createStixPattern(context, AUTOMATION_MANAGER_USER, key, value);
-        const { score } = observable.extensions[STIX_EXT_OCTI_SCO];
+        const score = observable.x_opencti_score ?? observable.extensions[STIX_EXT_OCTI_SCO]?.score;
         const { granted_refs } = observable.extensions[STIX_EXT_OCTI];
         if (pattern) {
           const indicatorData = {
@@ -864,6 +1038,8 @@ const PLAYBOOK_CREATE_INDICATOR_COMPONENT: PlaybookComponent<CreateIndicatorConf
             pattern_type: STIX_PATTERN_TYPE,
             extensions: {
               [STIX_EXT_OCTI]: {
+                extension_type: 'property-extension',
+                type: ENTITY_TYPE_INDICATOR,
                 main_observable_type: type,
                 score,
               }
@@ -881,13 +1057,13 @@ const PLAYBOOK_CREATE_INDICATOR_COMPONENT: PlaybookComponent<CreateIndicatorConf
           if (observable.object_marking_refs) {
             indicator.object_marking_refs = observable.object_marking_refs;
           }
-          if (observable.extensions[STIX_EXT_OCTI_SCO].labels) {
+          if (observable.extensions[STIX_EXT_OCTI_SCO]?.labels) {
             indicator.labels = observable.extensions[STIX_EXT_OCTI_SCO].labels;
           }
-          if (observable.extensions[STIX_EXT_OCTI_SCO].created_by_ref) {
+          if (observable.extensions[STIX_EXT_OCTI_SCO]?.created_by_ref) {
             indicator.created_by_ref = observable.extensions[STIX_EXT_OCTI_SCO].created_by_ref;
           }
-          if (observable.extensions[STIX_EXT_OCTI_SCO].external_references) {
+          if (observable.extensions[STIX_EXT_OCTI_SCO]?.external_references) {
             indicator.external_references = observable.extensions[STIX_EXT_OCTI_SCO].external_references;
           }
           if (granted_refs) {
@@ -897,23 +1073,122 @@ const PLAYBOOK_CREATE_INDICATOR_COMPONENT: PlaybookComponent<CreateIndicatorConf
           if (wrap_in_container && isBaseDataAContainer) {
             (baseData as StixContainer).object_refs.push(indicator.id);
           }
-          const relationship = {
-            id: `relationship--${generateInternalId()}`,
-            type: 'relationship',
+          const relationBaseData = {
             source_ref: indicator.id,
             target_ref: observable.id,
             relationship_type: RELATION_BASED_ON,
+          };
+          const relationStandardId = idGenFromData('relationship', relationBaseData);
+          const relationship = {
+            id: relationStandardId,
+            type: 'relationship',
+            ...relationBaseData,
             object_marking_refs: observable.object_marking_refs ?? [],
             created: now(),
             modified: now(),
             extensions: {
-              [STIX_EXT_OCTI]: {}
+              [STIX_EXT_OCTI]: {
+                extension_type: 'property-extension',
+                type: RELATION_BASED_ON
+              }
             }
           } as StixRelation;
           if (granted_refs) {
             relationship.extensions[STIX_EXT_OCTI].granted_refs = granted_refs;
           }
           objectsToPush.push(relationship);
+
+          // Resolve relationships in the bundle
+          const stixRelationshipsInBundle = bundle.objects.filter((r) => r.type === 'relationship') as StixRelation[];
+          const stixRelationships = stixRelationshipsInBundle.filter((r) => r.relationship_type === 'related-to'
+              && r.source_ref === baseData.id
+              && (
+                r.target_ref.startsWith('threat-actor')
+                  || r.target_ref.startsWith('intrusion-set')
+                  || r.target_ref.startsWith('campaign')
+                  || r.target_ref.startsWith('malware')
+                  || r.target_ref.startsWith('incident')
+                  || r.target_ref.startsWith('tool')
+                  || r.target_ref.startsWith('attack-pattern')
+              ));
+          for (let indexStixRelationships = 0; indexStixRelationships < stixRelationships.length; indexStixRelationships += 1) {
+            const stixRelationship = stixRelationships[indexStixRelationships] as StixRelation;
+            const relationIndicatesBaseData = {
+              source_ref: indicator.id,
+              target_ref: stixRelationship.target_ref,
+              relationship_type: RELATION_INDICATES,
+            };
+            const relationIndicatesStandardId = idGenFromData('relationship', relationIndicatesBaseData);
+            const relationshipIndicates = {
+              id: relationIndicatesStandardId,
+              type: 'relationship',
+              ...relationIndicatesBaseData,
+              object_marking_refs: observable.object_marking_refs ?? [],
+              created: now(),
+              modified: now(),
+              extensions: {
+                [STIX_EXT_OCTI]: {
+                  extension_type: 'property-extension',
+                  type: RELATION_INDICATES
+                }
+              }
+            } as StixRelation;
+            if (granted_refs) {
+              relationshipIndicates.extensions[STIX_EXT_OCTI].granted_refs = granted_refs;
+            }
+            objectsToPush.push(relationshipIndicates);
+          }
+          // Resolve relationships in database
+          if (isNotEmptyField(id)) {
+            const relationsOfObservables = await listAllRelations(
+              context,
+              AUTOMATION_MANAGER_USER,
+              ABSTRACT_STIX_CORE_RELATIONSHIP,
+              {
+                fromOrToId: id,
+                toTypes: [
+                  ENTITY_TYPE_THREAT_ACTOR,
+                  ENTITY_TYPE_INTRUSION_SET,
+                  ENTITY_TYPE_CAMPAIGN,
+                  ENTITY_TYPE_MALWARE,
+                  ENTITY_TYPE_INCIDENT,
+                  ENTITY_TYPE_TOOL,
+                  ENTITY_TYPE_ATTACK_PATTERN
+                ],
+                baseData: true,
+                indices: READ_RELATIONSHIPS_INDICES
+              }
+            ) as StoreRelation[];
+            const idsToResolve = R.uniq(relationsOfObservables.map((r) => r.toId));
+            const elements = await stixLoadByIds(context, AUTOMATION_MANAGER_USER, idsToResolve);
+            for (let indexElements = 0; indexElements < elements.length; indexElements += 1) {
+              const element = elements[indexElements] as StixCoreObject;
+              const relationIndicatesBaseData = {
+                source_ref: indicator.id,
+                target_ref: element.id,
+                relationship_type: RELATION_INDICATES,
+              };
+              const relationIndicatesStandardId = idGenFromData('relationship', relationIndicatesBaseData);
+              const relationshipIndicates = {
+                id: relationIndicatesStandardId,
+                type: 'relationship',
+                ...relationIndicatesBaseData,
+                object_marking_refs: observable.object_marking_refs ?? [],
+                created: now(),
+                modified: now(),
+                extensions: {
+                  [STIX_EXT_OCTI]: {
+                    extension_type: 'property-extension',
+                    type: RELATION_INDICATES
+                  }
+                }
+              } as StixRelation;
+              if (granted_refs) {
+                relationshipIndicates.extensions[STIX_EXT_OCTI].granted_refs = granted_refs;
+              }
+              objectsToPush.push(relationshipIndicates);
+            }
+          }
           if (wrap_in_container && isBaseDataAContainer) {
             (baseData as StixContainer).object_refs.push(relationship.id);
           }
@@ -927,7 +1202,7 @@ const PLAYBOOK_CREATE_INDICATOR_COMPONENT: PlaybookComponent<CreateIndicatorConf
     return { output_port: 'unmodified', bundle };
   }
 };
-interface CreateObservableConfiguration extends PlaybookComponentConfiguration {
+interface CreateObservableConfiguration {
   all: boolean
   wrap_in_container: boolean
 }
@@ -962,7 +1237,7 @@ const PLAYBOOK_CREATE_OBSERVABLE_COMPONENT: PlaybookComponent<CreateObservableCo
     for (let indexIndicator = 0; indexIndicator < indicators.length; indexIndicator += 1) {
       const indicator = indicators[indexIndicator] as StixIndicator;
       if (indicator.type === 'indicator') {
-        const observables = extractObservablesFromIndicatorPattern(indicator.pattern);
+        const observables = extractValidObservablesFromIndicatorPattern(indicator.pattern);
         for (let indexObservable = 0; indexObservable < observables.length; indexObservable += 1) {
           const observable = observables[indexObservable];
           const description = indicator.description ?? `Simple observable of indicator {${indicator.name || indicator.pattern}}`;
@@ -972,8 +1247,12 @@ const PLAYBOOK_CREATE_OBSERVABLE_COMPONENT: PlaybookComponent<CreateObservableCo
             x_opencti_score: score,
             x_opencti_description: description,
             extensions: {
-              [STIX_EXT_OCTI]: {},
+              [STIX_EXT_OCTI]: {
+                extension_type: 'property-extension',
+                type: observable.type,
+              },
               [STIX_EXT_OCTI_SCO]: {
+                extension_type: 'property-extension',
                 score,
                 description,
               }
@@ -991,13 +1270,13 @@ const PLAYBOOK_CREATE_OBSERVABLE_COMPONENT: PlaybookComponent<CreateObservableCo
           if (indicator.object_marking_refs) {
             stixObservable.object_marking_refs = indicator.object_marking_refs;
           }
-          if (indicator.created_by_ref) {
+          if (indicator.created_by_ref && stixObservable.extensions[STIX_EXT_OCTI_SCO]) {
             stixObservable.extensions[STIX_EXT_OCTI_SCO].created_by_ref = indicator.created_by_ref;
           }
-          if (indicator.labels) {
+          if (indicator.labels && stixObservable.extensions[STIX_EXT_OCTI_SCO]) {
             stixObservable.extensions[STIX_EXT_OCTI_SCO].labels = indicator.labels;
           }
-          if (indicator.external_references) {
+          if (indicator.external_references && stixObservable.extensions[STIX_EXT_OCTI_SCO]) {
             stixObservable.extensions[STIX_EXT_OCTI_SCO].external_references = indicator.external_references;
           }
           if (granted_refs) {
@@ -1007,17 +1286,24 @@ const PLAYBOOK_CREATE_OBSERVABLE_COMPONENT: PlaybookComponent<CreateObservableCo
           if (wrap_in_container && isBaseDataAContainer) {
             (baseData as StixContainer).object_refs.push(stixObservable.id);
           }
-          const relationship = {
-            id: `relationship--${generateInternalId()}`,
-            type: 'relationship',
+          const relationBaseData = {
             source_ref: indicator.id,
             target_ref: stixObservable.id,
             relationship_type: RELATION_BASED_ON,
+          };
+          const relationStandardId = idGenFromData('relationship', relationBaseData);
+          const relationship = {
+            id: relationStandardId,
+            type: 'relationship',
+            ...relationBaseData,
             object_marking_refs: indicator.object_marking_refs ?? [],
             created: now(),
             modified: now(),
             extensions: {
-              [STIX_EXT_OCTI]: {}
+              [STIX_EXT_OCTI]: {
+                extension_type: 'property-extension',
+                type: RELATION_BASED_ON
+              }
             }
           } as StixRelation;
           if (granted_refs) {
@@ -1032,10 +1318,6 @@ const PLAYBOOK_CREATE_OBSERVABLE_COMPONENT: PlaybookComponent<CreateObservableCo
     }
     if (objectsToPush.length > 0) {
       bundle.objects.push(...objectsToPush);
-      return { output_port: 'out', bundle };
-    }
-    if (objectsToPush.length > 0) {
-      bundle.objects.push(...objectsToPush);
       return { output_port: 'out', bundle: { ...bundle, objects: bundle.objects.map((n) => (n.id === baseData.id ? baseData : n)) } };
     }
     return { output_port: 'unmodified', bundle };
@@ -1043,14 +1325,16 @@ const PLAYBOOK_CREATE_OBSERVABLE_COMPONENT: PlaybookComponent<CreateObservableCo
 };
 // endregion
 
-export const PLAYBOOK_COMPONENTS: { [k: string]: PlaybookComponent<any> } = {
+// @ts-expect-error TODO improve playbook types to avoid this
+export const PLAYBOOK_COMPONENTS: { [k: string]: PlaybookComponent<object> } = {
+  [PLAYBOOK_INTERNAL_MANUAL_TRIGGER.id]: PLAYBOOK_INTERNAL_MANUAL_TRIGGER,
   [PLAYBOOK_INTERNAL_DATA_STREAM.id]: PLAYBOOK_INTERNAL_DATA_STREAM,
+  [PLAYBOOK_INTERNAL_DATA_CRON.id]: PLAYBOOK_INTERNAL_DATA_CRON,
   [PLAYBOOK_LOGGER_COMPONENT.id]: PLAYBOOK_LOGGER_COMPONENT,
   [PLAYBOOK_INGESTION_COMPONENT.id]: PLAYBOOK_INGESTION_COMPONENT,
-  [PLAYBOOK_FILTERING_COMPONENT.id]: PLAYBOOK_FILTERING_COMPONENT,
+  [PLAYBOOK_MATCHING_COMPONENT.id]: PLAYBOOK_MATCHING_COMPONENT,
   [PLAYBOOK_CONNECTOR_COMPONENT.id]: PLAYBOOK_CONNECTOR_COMPONENT,
   [PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT.id]: PLAYBOOK_UPDATE_KNOWLEDGE_COMPONENT,
-  [PLAYBOOK_CONNECTOR_COMPONENT.id]: PLAYBOOK_CONNECTOR_COMPONENT,
   [PLAYBOOK_CONTAINER_WRAPPER_COMPONENT.id]: PLAYBOOK_CONTAINER_WRAPPER_COMPONENT,
   [PLAYBOOK_SHARING_COMPONENT.id]: PLAYBOOK_SHARING_COMPONENT,
   [PLAYBOOK_RULE_COMPONENT.id]: PLAYBOOK_RULE_COMPONENT,

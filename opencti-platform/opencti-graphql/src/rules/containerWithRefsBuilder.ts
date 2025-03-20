@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 import * as jsonpatch from 'fast-json-patch';
 import * as R from 'ramda';
-import { createInferredRelation, deleteInferredRuleElement, stixLoadById, } from '../database/middleware';
+import { createInferredRelation, deleteInferredRuleElement, stixLoadById, generateUpdateMessage } from '../database/middleware';
 import { RELATION_OBJECT } from '../schema/stixRefRelationship';
 import { createRuleContent } from './rules-utils';
 import { convertStixToInternalTypes, generateInternalType } from '../schema/schemaUtils';
@@ -18,8 +18,8 @@ import type { AuthContext } from '../types/user';
 import { executionContext, RULE_MANAGER_USER } from '../utils/access';
 import { buildStixUpdateEvent, publishStixToStream } from '../database/redis';
 import { INPUT_DOMAIN_TO, INPUT_OBJECTS, RULE_PREFIX } from '../schema/general';
-import { generateUpdateMessage } from '../database/generate-message';
 import { FilterMode, FilterOperator } from '../generated/graphql';
+import { asyncFilter } from '../utils/data-processing';
 
 const buildContainerRefsRule = (ruleDefinition: RuleDefinition, containerType: string, relationTypes: RelationTypes): RuleRuntime => {
   const { id } = ruleDefinition;
@@ -204,9 +204,9 @@ const buildContainerRefsRule = (ruleDefinition: RuleDefinition, containerType: s
       const previousRefIds = [...(previousData.extensions[STIX_EXT_OCTI].object_refs_inferred ?? []), ...(previousData.object_refs ?? [])];
       const newRefIds = [...(report.extensions[STIX_EXT_OCTI].object_refs_inferred ?? []), ...(report.object_refs ?? [])];
       // AddedRefs are ids not includes in previous data
-      const addedRefs: Array<StixId> = newRefIds.filter((newId) => !previousRefIds.includes(newId));
+      const addedRefs: Array<StixId> = await asyncFilter(newRefIds, (newId) => !previousRefIds.includes(newId));
       // RemovedRefs are ids not includes in current data
-      const removedRefs: Array<StixId> = previousRefIds.filter((newId) => !newRefIds.includes(newId));
+      const removedRefs: Array<StixId> = await asyncFilter(previousRefIds, (newId) => !newRefIds.includes(newId));
       // Apply operations
       // For added identities
       const leftAddedRefs = addedRefs.filter(typeRefFilter);

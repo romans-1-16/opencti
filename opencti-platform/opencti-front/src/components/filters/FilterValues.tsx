@@ -5,14 +5,19 @@ import Tooltip from '@mui/material/Tooltip';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import { ChipOwnProps } from '@mui/material/Chip/Chip';
+import { WarningOutlined } from '@mui/icons-material';
+import { Link } from 'react-router-dom';
 import { useFormatter } from '../i18n';
 import type { Theme } from '../Theme';
-import { Filter, RestrictedFiltersConfig, useFilterDefinition } from '../../utils/filters/filtersUtils';
-import { handleFilterHelpers } from '../../utils/hooks/useLocalStorage';
+import { FiltersRestrictions, isFilterEditable, isRegardingOfFilterWarning, useFilterDefinition } from '../../utils/filters/filtersUtils';
 import { truncate } from '../../utils/String';
 import FilterValuesContent from '../FilterValuesContent';
 import { FilterRepresentative } from './FiltersModel';
+import { Filter } from '../../utils/filters/filtersHelpers-types';
+import useSchema from '../../utils/hooks/useSchema';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   inlineOperator: {
     display: 'inline-block',
@@ -53,12 +58,11 @@ interface FilterValuesProps {
   redirection?: boolean;
   handleSwitchLocalMode?: (filter: Filter) => void;
   onClickLabel?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  helpers?: handleFilterHelpers;
   isReadWriteFilter?: boolean;
   chipColor?: ChipOwnProps['color'];
   noLabelDisplay?: boolean;
   entityTypes?: string[];
-  restrictedFiltersConfig?: RestrictedFiltersConfig;
+  filtersRestrictions?: FiltersRestrictions;
 }
 
 const FilterValues: FunctionComponent<FilterValuesProps> = ({
@@ -69,26 +73,28 @@ const FilterValues: FunctionComponent<FilterValuesProps> = ({
   redirection,
   handleSwitchLocalMode,
   onClickLabel,
-  helpers,
   isReadWriteFilter,
   chipColor,
   noLabelDisplay,
   entityTypes,
-  restrictedFiltersConfig, // restricted filters can't be removed and their local mode can't be modified
+  filtersRestrictions,
 }) => {
   const { t_i18n } = useFormatter();
+  const classes = useStyles();
+  const { schema: { scos } } = useSchema();
+
   const filterKey = currentFilter.key;
   const filterOperator = currentFilter.operator;
   const filterValues = currentFilter.values;
   const isOperatorNil = ['nil', 'not_nil'].includes(filterOperator ?? 'eq');
-  const classes = useStyles();
-  const deactivatePopoverMenu = !helpers || restrictedFiltersConfig?.valuesEdition?.includes(filterKey);
+  const deactivatePopoverMenu = !isFilterEditable(filtersRestrictions, filterKey, filterValues) || !isReadWriteFilter;
   const onCLick = deactivatePopoverMenu ? () => {} : onClickLabel;
+  const menuClassName = deactivatePopoverMenu ? '' : classes.label;
   if (isOperatorNil) {
     return (
       <>
         <strong
-          className={deactivatePopoverMenu ? '' : classes.label}
+          className={menuClassName}
           onClick={onCLick}
         >
           {label}
@@ -101,9 +107,13 @@ const FilterValues: FunctionComponent<FilterValuesProps> = ({
   }
   const filterDefinition = useFilterDefinition(filterKey, entityTypes);
   const values = filterValues.map((id) => {
-    const isLocalModeSwitchable = isReadWriteFilter && handleSwitchLocalMode && !restrictedFiltersConfig?.localModeSwitching?.includes(filterKey);
+    const isLocalModeSwitchable = isReadWriteFilter
+      && handleSwitchLocalMode
+      && !filtersRestrictions?.preventLocalModeSwitchingFor?.includes(filterKey)
+      && isFilterEditable(filtersRestrictions, filterKey, filterValues);
     const operatorClassName = isLocalModeSwitchable ? classes.inlineOperator : classes.inlineOperatorReadOnly;
     const operatorOnClick = isLocalModeSwitchable ? () => handleSwitchLocalMode(currentFilter) : undefined;
+    const value = filtersRepresentativesMap.get(id) ? filtersRepresentativesMap.get(id)?.value : id;
     return (
       <Fragment key={id}>
         <FilterValuesContent
@@ -111,8 +121,9 @@ const FilterValues: FunctionComponent<FilterValuesProps> = ({
           isFilterTooltip={!!tooltip}
           filterKey={filterKey}
           id={id}
-          value={filtersRepresentativesMap.get(id) ? filtersRepresentativesMap.get(id)?.value : id}
+          value={value}
           filterDefinition={filterDefinition}
+          filterOperator={filterOperator}
         />
         {filterKey !== 'regardingOf' && last(filterValues) !== id && (
           <div
@@ -129,10 +140,31 @@ const FilterValues: FunctionComponent<FilterValuesProps> = ({
   if (filterKey === 'regardingOf') {
     const sortedFilterValues = [...filterValues].sort((a, b) => -a.key.localeCompare(b.key)); // display type first, then id
 
+    // add warning for (relationship type / ids) combinations that may not display all the results because of denormalization
+    const isWarning = isRegardingOfFilterWarning(currentFilter, scos.map((n) => n.id), filtersRepresentativesMap);
+
     return (
       <>
+        {isWarning && (
+          <Tooltip title={
+            t_i18n('', {
+              id: 'All the results may not be displayed for these filter values, read documentation for more information.',
+              values: {
+                link: <Link target="_blank" to="https://docs.opencti.io/latest/reference/filters/?h=regarding#the-regardingof-filter-key">
+                  {t_i18n('read documentation')}
+                </Link>,
+              },
+            })
+          }
+          >
+            <WarningOutlined
+              color={'inherit'}
+              style={{ fontSize: 20, color: '#f44336', marginRight: 4 }}
+            />
+          </Tooltip>
+        )}
         <strong
-          className={deactivatePopoverMenu ? '' : classes.label}
+          className={menuClassName}
           onClick={onCLick}
         >
           {label}
@@ -196,7 +228,7 @@ const FilterValues: FunctionComponent<FilterValuesProps> = ({
   return (
     <>
       <strong
-        className={deactivatePopoverMenu ? '' : classes.label}
+        className={menuClassName}
         onClick={onCLick}
       >
         {label}

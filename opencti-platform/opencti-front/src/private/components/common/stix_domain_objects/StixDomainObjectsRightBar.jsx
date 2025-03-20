@@ -17,6 +17,8 @@ import { stixDomainObjectsLinesSubTypesQuery } from './StixDomainObjectsLines';
 import useAuth from '../../../../utils/hooks/useAuth';
 import { useSettingsMessagesBannerHeight } from '../../settings/settings_messages/SettingsMessagesBanner';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   drawerPaper: {
     minHeight: '100vh',
@@ -31,7 +33,7 @@ const useStyles = makeStyles((theme) => ({
   toolbar: theme.mixins.toolbar,
 }));
 
-const StixDomainObjectsRightBar = ({ types = [], handleToggle, handleClear }) => {
+const StixDomainObjectsRightBar = ({ types, handleToggle, handleClear }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
   const { bannerSettings } = useAuth();
@@ -103,7 +105,7 @@ const StixDomainObjectsRightBar = ({ types = [], handleToggle, handleClear }) =>
 };
 
 StixDomainObjectsRightBar.propTypes = {
-  types: PropTypes.array,
+  types: PropTypes.arrayOf(PropTypes.string),
   handleToggle: PropTypes.func,
   handleClear: PropTypes.func,
   openExports: PropTypes.bool,

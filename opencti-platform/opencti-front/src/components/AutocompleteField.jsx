@@ -7,8 +7,15 @@ import { fieldToAutocomplete } from 'formik-mui';
 import { useField } from 'formik';
 import { isNil } from 'ramda';
 import { truncate } from '../utils/String';
+import { useFormatter } from './i18n';
 
 const AutocompleteField = (props) => {
+  // Separate props used only for this component
+  // and props to be passed to MUI Autocomplete.
+  const {
+    optionLength = 40,
+    ...otherProps
+  } = props;
   const {
     form: { setFieldValue, setFieldTouched },
     field: { name },
@@ -16,14 +23,16 @@ const AutocompleteField = (props) => {
     onFocus,
     noOptionsText,
     renderOption,
+    required = false,
     isOptionEqualToValue,
     textfieldprops,
     openCreate,
     getOptionLabel,
     onInternalChange,
     endAdornment,
-  } = props;
+  } = otherProps;
   const [, meta] = useField(name);
+  const { t_i18n } = useFormatter();
   const internalOnChange = React.useCallback(
     (_, value) => {
       if (typeof onInternalChange === 'function') {
@@ -45,7 +54,7 @@ const AutocompleteField = (props) => {
   const internalOnBlur = React.useCallback(() => {
     setFieldTouched(name, true);
   }, [setFieldTouched]);
-  const fieldProps = fieldToAutocomplete(props);
+  const fieldProps = fieldToAutocomplete(otherProps);
   delete fieldProps.helperText;
   delete fieldProps.openCreate;
   // Properly handle no selected option
@@ -53,18 +62,18 @@ const AutocompleteField = (props) => {
     fieldProps.value = null;
   }
   const defaultOptionToValue = (option, value) => option.value === value.value;
+  const defaultGetOptionLabel = ((option) => (
+    typeof option === 'object' ? truncate(option.label, optionLength) : truncate(option, optionLength)
+  ));
   return (
     <div style={{ position: 'relative' }}>
       <MUIAutocomplete
         size="small"
+        required={required}
         selectOnFocus={true}
         autoHighlight={true}
         handleHomeEndKeys={true}
-        getOptionLabel={
-          getOptionLabel || ((option) => (typeof option === 'object'
-            ? truncate(option.label, 40)
-            : truncate(option, 40)))
-        }
+        getOptionLabel={ getOptionLabel || defaultGetOptionLabel }
         noOptionsText={noOptionsText}
         {...fieldProps}
         renderOption={renderOption}
@@ -78,9 +87,10 @@ const AutocompleteField = (props) => {
             }}
             value={value}
             name={name}
+            required={required}
             fullWidth={true}
-            error={!isNil(meta.error) && meta.touched}
-            helperText={meta.error || textfieldprops.helperText}
+            error={!isNil(meta.error)}
+            helperText={meta.error ?? textfieldprops?.helperText ?? ''}
           />
         )}
         onChange={internalOnChange}
@@ -100,6 +110,7 @@ const AutocompleteField = (props) => {
           edge="end"
           style={{ position: 'absolute', top: 5, right: 35 }}
           size="large"
+          title={t_i18n('Add')}
         >
           <Add />
         </IconButton>

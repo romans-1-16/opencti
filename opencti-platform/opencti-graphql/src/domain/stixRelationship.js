@@ -1,15 +1,16 @@
 import * as R from 'ramda';
+import { GraphQLError } from 'graphql/index';
+import { ApolloServerErrorCode } from '@apollo/server/errors';
 import { deleteElementById, distributionRelations, timeSeriesRelations } from '../database/middleware';
-import { ABSTRACT_STIX_CORE_RELATIONSHIP, ABSTRACT_STIX_OBJECT, ABSTRACT_STIX_RELATIONSHIP } from '../schema/general';
-import { buildRelationsFilter, listEntities, listRelations, storeLoadById } from '../database/middleware-loader';
+import { ABSTRACT_STIX_OBJECT, ABSTRACT_STIX_RELATIONSHIP } from '../schema/general';
+import { buildRelationsFilter, listEntities, listRelationsPaginated, storeLoadById } from '../database/middleware-loader';
 import { fillTimeSeries, isEmptyField, READ_INDEX_INFERRED_RELATIONSHIPS, READ_RELATIONSHIPS_INDICES } from '../database/utils';
 import { elCount, MAX_RUNTIME_RESOLUTION_SIZE } from '../database/engine';
 import { STIX_SPEC_VERSION, stixCoreRelationshipsMapping } from '../database/stix';
 import { UnsupportedError } from '../config/errors';
 import { schemaTypesDefinition } from '../schema/schema-types';
 import { isFilterGroupNotEmpty } from '../utils/filtering/filtering-utils';
-import { STIX_SIGHTING_RELATIONSHIP } from '../schema/stixSightingRelationship';
-import { RELATION_OBJECT } from '../schema/stixRefRelationship';
+import { isStixRelationship } from '../schema/stixRelationship';
 
 export const buildArgsFromDynamicFilters = async (context, user, args) => {
   const { dynamicFrom, dynamicTo } = args;
@@ -50,7 +51,7 @@ export const findAll = async (context, user, args) => {
     return { edges: [] };
   }
   const type = isEmptyField(dynamicArgs.relationship_type) ? ABSTRACT_STIX_RELATIONSHIP : dynamicArgs.relationship_type;
-  return listRelations(context, user, type, R.dissoc('relationship_type', dynamicArgs));
+  return listRelationsPaginated(context, user, type, R.dissoc('relationship_type', dynamicArgs));
 };
 
 export const findById = (context, user, stixRelationshipId) => {
@@ -62,16 +63,30 @@ export const stixRelationshipDelete = async (context, user, stixRelationshipId) 
   return stixRelationshipId;
 };
 
+const buildRelationshipTypes = (relationshipTypes) => {
+  if (isEmptyField(relationshipTypes)) {
+    return [ABSTRACT_STIX_RELATIONSHIP];
+  }
+
+  const isValidRelationshipTypes = relationshipTypes.every((type) => isStixRelationship(type));
+
+  if (!isValidRelationshipTypes) {
+    throw new GraphQLError('Invalid argument: relationship_type is not a stix-relationship', { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
+  }
+  return relationshipTypes;
+};
+
 // region stats
 export const stixRelationshipsDistribution = async (context, user, args) => {
-  const { dynamicArgs, isEmptyDynamic } = await buildArgsFromDynamicFilters(context, user, args);
+  const relationship_type = buildRelationshipTypes(args.relationship_type);
+  const { dynamicArgs, isEmptyDynamic } = await buildArgsFromDynamicFilters(context, user, { ...args, relationship_type });
   if (isEmptyDynamic) {
     return [];
   }
   return distributionRelations(context, context.user, dynamicArgs);
 };
 export const stixRelationshipsNumber = async (context, user, args) => {
-  const relationship_type = args.relationship_type ?? [ABSTRACT_STIX_CORE_RELATIONSHIP, STIX_SIGHTING_RELATIONSHIP, RELATION_OBJECT];
+  const relationship_type = buildRelationshipTypes(args.relationship_type);
   const { dynamicArgs, isEmptyDynamic } = await buildArgsFromDynamicFilters(context, user, args);
   if (isEmptyDynamic) {
     return { count: 0, total: 0 };

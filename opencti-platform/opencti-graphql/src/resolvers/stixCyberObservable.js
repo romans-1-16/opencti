@@ -1,4 +1,3 @@
-import { withFilter } from 'graphql-subscriptions';
 import { BUS_TOPICS } from '../config/conf';
 import {
   addStixCyberObservable,
@@ -23,8 +22,7 @@ import {
   stixFileObsArtifact,
   vulnerabilitiesPaginated
 } from '../domain/stixCyberObservable';
-import { pubSubAsyncIterator } from '../database/redis';
-import withCancel from '../graphql/subscriptionWrapper';
+import { subscribeToInstanceEvents } from '../graphql/subscriptionWrapper';
 import { stixCoreObjectExportPush, stixCoreObjectImportPush, stixCoreObjectsExportPush, stixCoreRelationships } from '../domain/stixCoreObject';
 import { ABSTRACT_STIX_CYBER_OBSERVABLE } from '../schema/general';
 import { stixHashesToInput } from '../schema/fieldDataAdapter';
@@ -112,13 +110,13 @@ const stixCyberObservableResolvers = {
       exportAsk: (args) => stixCyberObservableExportAsk(context, context.user, id, args),
       exportPush: ({ file }) => stixCoreObjectExportPush(context, context.user, id, file),
       importPush: (args) => stixCoreObjectImportPush(context, context.user, id, args.file, args),
-      promote: () => promoteObservableToIndicator(context, context.user, id),
+      promoteToIndicator: () => promoteObservableToIndicator(context, context.user, id)
     }),
     stixCyberObservableAdd: (_, args, context) => addStixCyberObservable(context, context.user, args),
-    stixCyberObservablesExportAsk: (_, args, context) => stixCyberObservablesExportAsk(context, context.user, args),
-    stixCyberObservablesExportPush: (_, { entity_id, entity_type, file, listFilters }, context) => {
+    stixCyberObservablesExportAsk: (_, { input }, context) => stixCyberObservablesExportAsk(context, context.user, input),
+    stixCyberObservablesExportPush: (_, { entity_id, entity_type, file, file_markings, listFilters }, context) => {
       const entityType = entity_type ?? 'Stix-Cyber-Observable';
-      return stixCoreObjectsExportPush(context, context.user, entity_id, entityType, file, listFilters);
+      return stixCoreObjectsExportPush(context, context.user, entity_id, entityType, file, file_markings, listFilters);
     },
     artifactImport: (_, args, context) => artifactImport(context, context.user, args),
   },
@@ -126,17 +124,10 @@ const stixCyberObservableResolvers = {
     stixCyberObservable: {
       resolve: /* v8 ignore next */ (payload) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        stixCyberObservableEditContext(context, context.user, id);
-        const filtering = withFilter(
-          () => pubSubAsyncIterator(BUS_TOPICS[ABSTRACT_STIX_CYBER_OBSERVABLE].EDIT_TOPIC),
-          (payload) => {
-            if (!payload) return false; // When disconnect, an empty payload is dispatched.
-            return payload.user.id !== context.user.id && payload.instance.id === id;
-          }
-        )(_, { id }, context);
-        return withCancel(filtering, () => {
-          stixCyberObservableCleanContext(context, context.user, id);
-        });
+        const preFn = () => stixCyberObservableEditContext(context, context.user, id);
+        const cleanFn = () => stixCyberObservableCleanContext(context, context.user, id);
+        const bus = BUS_TOPICS[ABSTRACT_STIX_CYBER_OBSERVABLE];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ABSTRACT_STIX_CYBER_OBSERVABLE, preFn, cleanFn });
       },
     },
   },

@@ -16,8 +16,8 @@ import MenuItem from '@mui/material/MenuItem';
 import inject18n from '../../../../components/i18n';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
-import SelectField from '../../../../components/SelectField';
-import MarkdownField from '../../../../components/MarkdownField';
+import SelectField from '../../../../components/fields/SelectField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ObjectLabelField from '../form/ObjectLabelField';
 import ObjectMarkingField from '../form/ObjectMarkingField';
 import { ExternalReferencesField } from '../form/ExternalReferencesField';
@@ -78,8 +78,8 @@ const identityMutation = graphql`
 `;
 
 const identityValidation = (t) => Yup.object().shape({
-  name: Yup.string().required(t('This field is required')),
-  type: Yup.string().required(t('This field is required')),
+  name: Yup.string().trim().required(t('This field is required')),
+  type: Yup.string().trim().required(t('This field is required')),
 });
 
 class IdentityCreation extends Component {
@@ -159,7 +159,7 @@ class IdentityCreation extends Component {
             setFieldValue,
             values,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Dialog
                 PaperProps={{ elevation: 1 }}
                 open={open}
@@ -210,6 +210,7 @@ class IdentityCreation extends Component {
                     <ObjectMarkingField
                       name="objectMarking"
                       style={fieldSpacingContainerStyle}
+                      setFieldValue={setFieldValue}
                     />
                   )}
                   {!dryrun && (

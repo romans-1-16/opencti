@@ -3,8 +3,9 @@ import * as R from 'ramda';
 import { clearIntervalAsync, setIntervalAsync, type SetIntervalAsyncTimer } from 'set-interval-async/fixed';
 import conf, { booleanConf, getBaseUrl, logApp } from '../config/conf';
 import { TYPE_LOCK_ERROR } from '../config/errors';
-import { getEntitiesListFromCache, getEntityFromCache } from '../database/cache';
-import { createStreamProcessor, lockResource, NOTIFICATION_STREAM_NAME, type StreamProcessor } from '../database/redis';
+import { getEntitiesListFromCache, getEntitiesMapFromCache, getEntityFromCache } from '../database/cache';
+import { createStreamProcessor, NOTIFICATION_STREAM_NAME, type StreamProcessor } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import { sendMail, smtpIsAlive } from '../database/smtp';
 import type { NotifierTestInput } from '../generated/graphql';
 import { addNotification } from '../modules/notification/notification-domain';
@@ -17,18 +18,19 @@ import {
   NOTIFIER_CONNECTOR_UI,
   NOTIFIER_CONNECTOR_WEBHOOK,
   type NOTIFIER_CONNECTOR_WEBHOOK_INTERFACE,
-  SIMPLIFIED_EMAIL_TEMPLATE,
+  SIMPLIFIED_EMAIL_TEMPLATE
 } from '../modules/notifier/notifier-statics';
 import { type BasicStoreEntityNotifier, ENTITY_TYPE_NOTIFIER } from '../modules/notifier/notifier-types';
-import { ENTITY_TYPE_SETTINGS } from '../schema/internalObject';
+import { ENTITY_TYPE_SETTINGS, ENTITY_TYPE_USER } from '../schema/internalObject';
 import type { SseEvent, StreamNotifEvent } from '../types/event';
 import type { BasicStoreSettings } from '../types/settings';
-import type { AuthContext } from '../types/user';
+import type { AuthContext, AuthUser } from '../types/user';
 import { executionContext, SYSTEM_USER } from '../utils/access';
 import { now } from '../utils/format';
 import type { NotificationData } from '../utils/publisher-mock';
 import { type ActivityNotificationEvent, type DigestEvent, getNotifications, type KnowledgeNotificationEvent, type NotificationUser } from './notificationManager';
-import { getHttpClient } from '../utils/http-client';
+import { type GetHttpClient, getHttpClient } from '../utils/http-client';
+import { extractRepresentative } from '../database/entity-representative';
 
 const DOC_URI = 'https://docs.opencti.io';
 const PUBLISHER_ENGINE_KEY = conf.get('publisher_manager:lock_key');
@@ -45,7 +47,7 @@ export const internalProcessNotification = async (
   // eslint-disable-next-line consistent-return
 ): Promise<{ error: string } | void> => {
   try {
-    const { name: notification_name, trigger_type } = notification;
+    const { name: notification_name, id: trigger_id, trigger_type } = notification;
     const { notifier_connector_id, notifier_configuration: configuration } = notifier;
     const generatedContent: Record<string, Array<NotificationContentEvent>> = {};
     for (let index = 0; index < data.length; index += 1) {
@@ -53,7 +55,8 @@ export const internalProcessNotification = async (
       const event = { operation: type, message, instance_id: instance.id };
       const eventNotification = notificationMap.get(notification_id);
       if (eventNotification) {
-        const notificationName = eventNotification.name;
+        const { main } = extractRepresentative(instance);
+        const notificationName = main;
         if (generatedContent[notificationName]) {
           generatedContent[notificationName] = [...generatedContent[notificationName], event];
         } else {
@@ -70,6 +73,7 @@ export const internalProcessNotification = async (
     if (notifier_connector_id === NOTIFIER_CONNECTOR_UI) {
       const createNotification = {
         name: notification_name,
+        trigger_id,
         notification_type: trigger_type,
         user_id: user.user_id,
         notification_content: content,
@@ -79,16 +83,16 @@ export const internalProcessNotification = async (
         is_read: false
       };
       addNotification(context, SYSTEM_USER, createNotification).catch((err) => {
-        logApp.error(err, { manager: 'PUBLISHER_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Publisher manager add notification error', { cause: err, manager: 'PUBLISHER_MANAGER' });
         return { error: err };
       });
     } else if (notifier_connector_id === NOTIFIER_CONNECTOR_EMAIL) {
-      const { title, template } = JSON.parse(configuration ?? '{}') as NOTIFIER_CONNECTOR_EMAIL_INTERFACE;
+      const { title, template, url_suffix: urlSuffix } = JSON.parse(configuration ?? '{}') as NOTIFIER_CONNECTOR_EMAIL_INTERFACE;
       const generatedTitle = ejs.render(title, templateData);
-      const generatedEmail = ejs.render(template, templateData);
+      const generatedEmail = ejs.render(template, { ...templateData, url_suffix: urlSuffix });
       const mail = { from: settings.platform_email, to: user.user_email, subject: generatedTitle, html: generatedEmail };
       await sendMail(mail).catch((err) => {
-        logApp.error(err, { manager: 'PUBLISHER_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Publisher manager send email error', { cause: err, manager: 'PUBLISHER_MANAGER' });
         return { error: err };
       });
     } else if (notifier_connector_id === NOTIFIER_CONNECTOR_SIMPLIFIED_EMAIL) {
@@ -98,6 +102,7 @@ export const internalProcessNotification = async (
         logo,
         footer,
         background_color: bgColor,
+        url_suffix: urlSuffix,
       } = JSON.parse(configuration ?? '{}') as NOTIFIER_CONNECTOR_SIMPLIFIED_EMAIL_INTERFACE;
 
       const finalTemplateData = {
@@ -106,13 +111,14 @@ export const internalProcessNotification = async (
         logo,
         footer,
         background_color: bgColor,
+        url_suffix: urlSuffix,
       };
 
       const generatedTitle = ejs.render(title, finalTemplateData);
       const generatedEmail = ejs.render(SIMPLIFIED_EMAIL_TEMPLATE, finalTemplateData);
       const mail = { from: settings.platform_email, to: user.user_email, subject: generatedTitle, html: generatedEmail };
       await sendMail(mail).catch((err) => {
-        logApp.error(err, { manager: 'PUBLISHER_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Publisher manager send email error', { cause: err, manager: 'PUBLISHER_MANAGER' });
         return { error: err };
       });
     } else if (notifier_connector_id === NOTIFIER_CONNECTOR_WEBHOOK) {
@@ -121,9 +127,10 @@ export const internalProcessNotification = async (
       const dataJson = JSON.parse(generatedWebhook);
       const dataHeaders = R.fromPairs((headers ?? []).map((h) => [h.attribute, h.value]));
       const dataParameters = R.fromPairs((params ?? []).map((h) => [h.attribute, h.value]));
-      const httpClient = getHttpClient({ responseType: 'json', headers: dataHeaders });
-      await httpClient({ url, method: verb, params: dataParameters, data: dataJson }).catch((err) => {
-        logApp.error(err, { manager: 'PUBLISHER_MANAGER' });
+      const httpClientOptions: GetHttpClient = { responseType: 'json', headers: dataHeaders };
+      const httpClient = getHttpClient(httpClientOptions);
+      await httpClient.call({ url, method: verb, params: dataParameters, data: dataJson }).catch((err) => {
+        logApp.error('[OPENCTI-MODULE] Publisher manager webhook error', { cause: err, manager: 'PUBLISHER_MANAGER' });
         return { error: err };
       });
     } else {
@@ -152,7 +159,9 @@ const processNotificationEvent = async (
   const notifierMap = new Map(notifiers.map((n) => [n.internal_id, n]));
   for (let notifierIndex = 0; notifierIndex < userNotifiers.length; notifierIndex += 1) {
     const notifier = userNotifiers[notifierIndex];
-    internalProcessNotification(context, settings, notificationMap, user, notifierMap.get(notifier) ?? {} as BasicStoreEntityNotifier, data, notification);
+
+    // There is no await in purpose, the goal is to send notification and continue without waiting result.
+    internalProcessNotification(context, settings, notificationMap, user, notifierMap.get(notifier) ?? {} as BasicStoreEntityNotifier, data, notification).catch((reason) => logApp.error('[OPENCTI-MODULE] Publisher manager unknown error.', { cause: reason }));
   }
 };
 
@@ -161,10 +170,19 @@ const processLiveNotificationEvent = async (
   notificationMap: Map<string, BasicStoreEntityTrigger>,
   event: KnowledgeNotificationEvent | ActivityNotificationEvent
 ) => {
-  const { targets, data: instance } = event;
+  const { targets, data: instance, origin: { user_id } } = event;
+  const streamUser = (await getEntitiesMapFromCache(context, SYSTEM_USER, ENTITY_TYPE_USER)).get(user_id as string) as AuthUser;
   for (let index = 0; index < targets.length; index += 1) {
     const { user, type, message } = targets[index];
-    const data = [{ notification_id: event.notification_id, instance, type, message }];
+    let notificationMessage = message;
+    if (streamUser && (event as KnowledgeNotificationEvent).streamMessage) {
+      const { streamMessage } = event as KnowledgeNotificationEvent;
+      const streamBuiltMessage = `\`${streamUser.name}\` ${streamMessage}`;
+      if (streamBuiltMessage !== notificationMessage) {
+        notificationMessage = `${message} - ${streamBuiltMessage}`;
+      }
+    }
+    const data = [{ notification_id: event.notification_id, instance, type, message: notificationMessage }];
     await processNotificationEvent(context, notificationMap, event.notification_id, user, data);
   }
 };
@@ -196,7 +214,7 @@ const publisherStreamHandler = async (streamEvents: Array<SseEvent<StreamNotifEv
       }
     }
   } catch (e) {
-    logApp.error(e, { manager: 'PUBLISHER_MANAGER' });
+    logApp.error('[OPENCTI-MODULE] Publisher manager stream error', { cause: e, manager: 'PUBLISHER_MANAGER' });
   }
 };
 
@@ -216,7 +234,7 @@ const initPublisherManager = () => {
     let lock;
     try {
       // Lock the manager
-      lock = await lockResource([PUBLISHER_ENGINE_KEY], { retryCount: 0 });
+      lock = await lockResources([PUBLISHER_ENGINE_KEY], { retryCount: 0 });
       running = true;
       logApp.info('[OPENCTI-PUBLISHER] Running publisher manager');
       const opts = { withInternal: false, streamName: NOTIFICATION_STREAM_NAME };
@@ -231,7 +249,7 @@ const initPublisherManager = () => {
       if (e.name === TYPE_LOCK_ERROR) {
         logApp.debug('[OPENCTI-PUBLISHER] Publisher manager already started by another API');
       } else {
-        logApp.error(e, { manager: 'PUBLISHER_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Publisher manager error', { cause: e, manager: 'PUBLISHER_MANAGER' });
       }
     } finally {
       if (streamProcessor) await streamProcessor.shutdown();

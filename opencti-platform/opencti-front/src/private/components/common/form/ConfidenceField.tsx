@@ -7,6 +7,8 @@ import { useFormatter } from '../../../../components/i18n';
 import { GenericContext } from '../model/GenericContextModel';
 import useConfidenceLevel from '../../../../utils/hooks/useConfidenceLevel';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   alert: {
     width: '100%',
@@ -46,7 +48,8 @@ const ConfidenceField: FunctionComponent<ConfidenceFieldProps> = ({
   const { t_i18n } = useFormatter();
   const finalLabel = label || t_i18n('Confidence level');
   const classes = useStyles();
-  const { effectiveConfidenceLevel } = useConfidenceLevel();
+  const { getEffectiveConfidenceLevel } = useConfidenceLevel();
+  const userEffectiveMaxConfidence = getEffectiveConfidenceLevel(entityType);
   return (
     <Alert
       classes={{ root: classes.alert, message: classes.message }}
@@ -54,6 +57,7 @@ const ConfidenceField: FunctionComponent<ConfidenceFieldProps> = ({
       icon={false}
       variant="outlined"
       style={{ position: 'relative' }}
+      aria-label={finalLabel}
     >
       <Field
         component={InputSliderField}
@@ -68,7 +72,7 @@ const ConfidenceField: FunctionComponent<ConfidenceFieldProps> = ({
         onSubmit={onSubmit}
         editContext={editContext}
         disabled={disabled}
-        maxLimit={effectiveConfidenceLevel?.max_confidence ?? 0}
+        maxLimit={userEffectiveMaxConfidence}
       />
     </Alert>
   );

@@ -2,7 +2,7 @@ import React, { FunctionComponent } from 'react';
 import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik, FormikConfig } from 'formik';
 import Button from '@mui/material/Button';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import * as Yup from 'yup';
 import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
 import TextField from '../../../../components/TextField';
@@ -14,12 +14,15 @@ import { VocabulariesLines_DataQuery$variables } from './__generated__/Vocabular
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { Option } from '../../common/form/ReferenceField';
 import AutocompleteFreeSoloField from '../../../../components/AutocompleteFreeSoloField';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 interface VocabularyCreationProps {
   paginationOptions: VocabulariesLines_DataQuery$variables;
   category: VocabularyCategory;
 }
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -55,7 +58,7 @@ const VocabularyCreation: FunctionComponent<VocabularyCreationProps> = ({
   const classes = useStyles();
   const { t_i18n } = useFormatter();
 
-  const [addVocab] = useMutation<VocabularyCreationMutation>(vocabularyAdd);
+  const [addVocab] = useApiMutation<VocabularyCreationMutation>(vocabularyAdd);
 
   interface FormInterface {
     name: string;
@@ -112,7 +115,7 @@ const VocabularyCreation: FunctionComponent<VocabularyCreationProps> = ({
           onReset={onClose}
         >
           {({ submitForm, handleReset, isSubmitting, isValid, dirty }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"

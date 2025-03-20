@@ -16,7 +16,6 @@ import {
   INPUT_ENCAPSULATED_BY,
   INPUT_ENCAPSULATES,
   INPUT_IMAGE,
-  INPUT_LINKED,
   INPUT_OPENED_CONNECTION,
   INPUT_OPERATING_SYSTEM,
   INPUT_PARENT,
@@ -81,6 +80,16 @@ interface StoreFile {
   description: string;
   order?: number;
   inCarousel?: boolean;
+  file_markings?: string[];
+  [INPUT_MARKINGS]?: Array<StoreMarkingDefinition>;
+}
+
+interface StoreFileWithRefs extends StoreFile {
+  [INPUT_MARKINGS]?: Array<StoreMarkingDefinition>;
+}
+
+interface DraftChange {
+  draft_operation: string
 }
 
 interface BasicStoreIdentifier {
@@ -105,6 +114,8 @@ interface BasicStoreBase extends BasicStoreIdentifier {
   x_opencti_workflow_id?: string;
   creator_id?: string | string[];
   type?: string;
+  draft_ids?: string[];
+  draft_change?: DraftChange;
   // representative
   representative: Representative
 }
@@ -182,7 +193,6 @@ interface StoreCommon {
   entity_type: string
   parent_types: string[];
   // inputs
-  [INPUT_LINKED]?: Array<BasicStoreObject>;
   [INPUT_MARKINGS]?: Array<StoreMarkingDefinition>;
   [INPUT_ASSIGNEE]?: Array<BasicStoreObject>;
   [INPUT_PARTICIPANT]?: Array<BasicStoreObject>;
@@ -211,6 +221,7 @@ interface StoreRawRelation extends StoreProxyRelation {
   // boolean
   revoked: boolean;
   x_opencti_negative: boolean;
+  is_inferred: boolean;
   // number
   confidence: number;
   attribute_count: number;
@@ -243,6 +254,12 @@ interface BasicStoreEntityEdge<T extends BasicStoreEntity> {
   node: T;
 }
 
+interface BasicStoreRelationshipEdge<T extends BasicStoreRelation> {
+  cursor: string
+  types?: string[]
+  node: T;
+}
+
 interface BasicStoreCommonEdge<T extends BasicStoreCommon> {
   cursor: string
   types?: string[]
@@ -251,6 +268,11 @@ interface BasicStoreCommonEdge<T extends BasicStoreCommon> {
 
 interface StoreEntityConnection<T extends BasicStoreEntity> {
   edges: Array<BasicStoreEntityEdge<T>>;
+  pageInfo: PageInfo;
+}
+
+interface StoreRelationConnection<T extends BasicStoreRelation> {
+  edges: Array<BasicStoreRelationshipEdge<T>>;
   pageInfo: PageInfo;
 }
 
@@ -306,7 +328,6 @@ interface BasicStoreEntity extends BasicStoreCommon {
   source: string;
   severity: string;
   incident_type: string;
-
   x_opencti_location_type: string;
   x_opencti_reliability: string;
   x_opencti_organization_type: string;
@@ -315,6 +336,9 @@ interface BasicStoreEntity extends BasicStoreCommon {
   x_opencti_cvss_base_severity: string;
   x_opencti_cvss_confidentiality_impact: string;
   x_opencti_cvss_integrity_impact: string;
+  x_opencti_cisa_kev: boolean;
+  x_opencti_epss_score: number;
+  x_opencti_epss_percentile: number;
   x_opencti_main_observable_type: string;
   x_opencti_lastname: string;
   x_opencti_firstname: string;
@@ -478,6 +502,8 @@ interface BasicStoreCyberObservable extends BasicStoreCommon {
   priority: string;
   owner_sid: string;
   window_title: string;
+  persona_name: string;
+  persona_type: string;
   // date
   attribute_date: Date;
   ctime: Date;

@@ -13,13 +13,12 @@ import { DataSourceDataComponents_dataSource$data } from './__generated__/DataSo
 import { AddDataComponentsLinesToDataSourceQuery } from './__generated__/AddDataComponentsLinesToDataSourceQuery.graphql';
 import DataComponentCreation from '../data_components/DataComponentCreation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   createButton: {
     float: 'left',
     marginTop: -15,
-  },
-  search: {
-    float: 'right',
   },
 }));
 
@@ -51,7 +50,7 @@ const AddDataComponents: FunctionComponent<{
   return (
     <div>
       <IconButton
-        color="secondary"
+        color="primary"
         aria-label="Add"
         onClick={handleOpen}
         classes={{ root: classes.createButton }}
@@ -64,10 +63,23 @@ const AddDataComponents: FunctionComponent<{
         onClose={handleClose}
         title={t_i18n('Add data components')}
         header={(
-          <div className={classes.search}>
+          <div style={{
+            marginLeft: 'auto',
+            marginRight: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+          }}
+          >
             <SearchInput
               variant="inDrawer"
               onSubmit={handleSearch}
+            />
+            <DataComponentCreation
+              display={open}
+              contextual={true}
+              inputValue={search}
+              paginationOptions={paginationOptions}
             />
           </div>
         )}
@@ -83,12 +95,6 @@ const AddDataComponents: FunctionComponent<{
         </React.Suspense>
         )}
       </Drawer>
-      <DataComponentCreation
-        display={open}
-        contextual={true}
-        inputValue={search}
-        paginationOptions={paginationOptions}
-      />
     </div>
   );
 };

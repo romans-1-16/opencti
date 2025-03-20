@@ -1,55 +1,15 @@
-import React from 'react';
-import * as R from 'ramda';
+import React, { useRef } from 'react';
 import { graphql } from 'react-relay';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import ListItem from '@mui/material/ListItem';
-import { Link } from 'react-router-dom';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import List from '@mui/material/List';
-import makeStyles from '@mui/styles/makeStyles';
-import StixCoreObjectLabels from './StixCoreObjectLabels';
-import ItemIcon from '../../../../components/ItemIcon';
+import { getDefaultWidgetColumns } from '../../widgets/WidgetListsDefaultColumns';
 import { useFormatter } from '../../../../components/i18n';
 import { QueryRenderer } from '../../../../relay/environment';
-import { resolveLink } from '../../../../utils/Entity';
-import { defaultValue } from '../../../../utils/Graph';
-import ItemMarkings from '../../../../components/ItemMarkings';
-import ItemStatus from '../../../../components/ItemStatus';
 import { buildFiltersAndOptionsForWidgets } from '../../../../utils/filters/filtersUtils';
+import WidgetContainer from '../../../../components/dashboard/WidgetContainer';
+import WidgetNoData from '../../../../components/dashboard/WidgetNoData';
+import WidgetListCoreObjects from '../../../../components/dashboard/WidgetListCoreObjects';
+import Loader, { LoaderVariant } from '../../../../components/Loader';
 
-const useStyles = makeStyles({
-  container: {
-    width: '100%',
-    height: '100%',
-    overflow: 'auto',
-    paddingBottom: 10,
-    marginBottom: 10,
-  },
-  paper: {
-    height: '100%',
-    margin: '10px 0 0 0',
-    padding: 0,
-    borderRadius: 4,
-  },
-  item: {
-    paddingLeft: 10,
-    height: 50,
-  },
-  bodyItem: {
-    height: 20,
-    fontSize: 13,
-    float: 'left',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    paddingRight: 10,
-  },
-});
-
-const stixCoreObjectsListQuery = graphql`
+export const stixCoreObjectsListQuery = graphql`
   query StixCoreObjectsListQuery(
     $types: [String]
     $first: Int
@@ -69,6 +29,20 @@ const stixCoreObjectsListQuery = graphql`
           id
           entity_type
           created_at
+          representative {
+            main
+            secondary
+          }
+          opinions_metrics {
+            mean
+            min
+            max
+            total
+          }
+          creators {
+            id
+            name
+          }
           ... on StixDomainObject {
             created
             modified
@@ -76,135 +50,326 @@ const stixCoreObjectsListQuery = graphql`
           ... on AttackPattern {
             name
             description
+            modified
+            x_mitre_id
+            aliases
+          }
+          ... on Note {
+            note_types
+            modified
           }
           ... on Campaign {
             name
             description
+            modified
+            aliases
           }
           ... on Note {
             attribute_abstract
+            modified
           }
           ... on ObservedData {
+            name
+            modified
             first_observed
             last_observed
           }
           ... on Opinion {
             opinion
+            modified
           }
           ... on Report {
             name
             description
+            modified
             published
+            report_types
+            objectAssignee {
+              entity_type
+              id
+              name
+            }
+            objectParticipant {
+              entity_type
+              id
+              name
+            }
           }
           ... on Grouping {
             name
             description
+            modified
+            x_opencti_aliases
+            context
           }
           ... on CourseOfAction {
             name
             description
+            modified
+            x_opencti_aliases
+            x_mitre_id
           }
           ... on Individual {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on Organization {
             name
             description
+            modified
+            x_opencti_aliases
+            x_opencti_organization_type
           }
           ... on Sector {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on System {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on Indicator {
             name
             description
+            modified
+            indicator_types
+            pattern
+            pattern_type
+            valid_from
+            valid_until
+            x_opencti_score
           }
           ... on Infrastructure {
             name
             description
+            modified
+            aliases
           }
           ... on IntrusionSet {
             name
             description
+            modified
+            aliases
+            resource_level
           }
           ... on Position {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on City {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on AdministrativeArea {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on Country {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on Region {
             name
             description
+            modified
+            x_opencti_aliases
           }
           ... on Malware {
             name
             description
+            modified
+            malware_types
+            aliases
           }
           ... on MalwareAnalysis {
             result_name
+            product
+            modified
+            objectAssignee {
+              entity_type
+              id
+              name
+            }
           }
           ... on ThreatActor {
             name
             description
+            modified
+            aliases
+            threat_actor_types
+          }
+          ... on ThreatActorGroup {
+            threat_actor_types
+            modified
+            aliases
+          }
+          ... on ThreatActorIndividual {
+            threat_actor_types
+            modified
+            aliases
           }
           ... on Tool {
             name
             description
+            modified
+            tool_types
+            aliases
           }
           ... on Vulnerability {
             name
             description
+            modified
+            x_opencti_aliases
+            x_opencti_cvss_base_score
+            x_opencti_cvss_base_severity
+            x_opencti_cisa_kev
+            x_opencti_epss_score
+            x_opencti_epss_percentile
           }
           ... on Incident {
             name
             description
+            modified
+            incident_type
+            severity
+            aliases
           }
           ... on Event {
             name
             description
+            modified
+            event_types
+            aliases
           }
           ... on Channel {
             name
             description
+            modified
+            channel_types
+            aliases
           }
           ... on Narrative {
             name
             description
+            modified
+            aliases
           }
           ... on Language {
             name
+            modified
+            aliases
           }
           ... on DataComponent {
             name
+            modified
+            aliases
           }
           ... on DataSource {
             name
-          }
-          ... on Case {
-            name
+            modified
+            aliases
           }
           ... on Task {
             name
             description
+            modified
+            due_date
+            objectAssignee {
+              id
+              name
+              entity_type
+            }
+            objectParticipant {
+              id
+              name
+              entity_type
+            }
+          }
+          ... on Case {
+            name
+            modified
+            objectAssignee {
+              id
+              name
+              entity_type
+            }
+            objectParticipant {
+              id
+              name
+              entity_type
+            }
+          }
+          ... on CaseIncident {
+            modified
+            priority
+            severity
+            response_types
+            objectAssignee {
+              id
+              name
+              entity_type
+            }
+            objectParticipant {
+              id
+              name
+              entity_type
+            }
+          }
+          ... on CaseRfi {
+            modified
+            priority
+            severity
+            information_types
+            objectAssignee {
+              id
+              name
+              entity_type
+            }
+            objectParticipant {
+              id
+              name
+              entity_type
+            }
+          }
+          ... on CaseRft {
+            modified
+            priority
+            severity
+            takedown_types
+            objectAssignee {
+              id
+              name
+              entity_type
+            }
+            objectParticipant {
+              id
+              name
+              entity_type
+            }
+          }
+          ... on Task {
+            name
+            description
+            modified
+            due_date
           }
           ... on StixCyberObservable {
             observable_value
+            x_opencti_description
           }
           createdBy {
             ... on Identity {
@@ -226,6 +391,7 @@ const stixCoreObjectsListQuery = graphql`
             x_opencti_color
           }
           ... on StixDomainObject {
+            modified
             status {
               id
               order
@@ -249,172 +415,65 @@ const StixCoreObjectsList = ({
   startDate,
   endDate,
   dataSelection,
+  widgetId,
   parameters = {},
 }) => {
-  const classes = useStyles();
-  const { t_i18n, fsd } = useFormatter();
-  const renderContent = () => {
-    const selection = dataSelection[0];
-    const dataSelectionTypes = ['Stix-Core-Object'];
-    const dateAttribute = selection.date_attribute && selection.date_attribute.length > 0
-      ? selection.date_attribute
-      : 'created_at';
-    const { filters } = buildFiltersAndOptionsForWidgets(selection.filters, { startDate, endDate, dateAttribute });
-    return (
-      <QueryRenderer
-        query={stixCoreObjectsListQuery}
-        variables={{
-          types: dataSelectionTypes,
-          first: selection.number ?? 10,
-          orderBy: dateAttribute,
-          orderMode: 'desc',
-          filters,
-        }}
-        render={({ props }) => {
-          if (
-            props
+  const { t_i18n } = useFormatter();
+  const selection = dataSelection[0];
+  const columns = selection.columns ?? getDefaultWidgetColumns('entities');
+  const dataSelectionTypes = ['Stix-Core-Object'];
+
+  const sortBy = selection.sort_by && selection.sort_by.length > 0
+    ? selection.sort_by
+    : 'created_at';
+  const dateAttribute = selection.date_attribute && selection.date_attribute.length > 0
+    ? selection.date_attribute
+    : 'created_at';
+  const { filters } = buildFiltersAndOptionsForWidgets(selection.filters, { startDate, endDate, dateAttribute });
+
+  const rootRef = useRef(null);
+
+  return (
+    <WidgetContainer
+      height={height}
+      title={parameters.title ?? title ?? t_i18n('Entities list')}
+      variant={variant}
+    >
+      <div ref={rootRef} style={{ height: '100%' }}>
+        <QueryRenderer
+          query={stixCoreObjectsListQuery}
+          variables={{
+            types: dataSelectionTypes,
+            first: selection.number ?? 10,
+            orderBy: sortBy,
+            orderMode: selection.sort_mode ?? 'asc',
+            filters,
+          }}
+          render={({ props }) => {
+            if (
+              props
             && props.stixCoreObjects
             && props.stixCoreObjects.edges.length > 0
-          ) {
-            const data = props.stixCoreObjects.edges;
-            return (
-              <div id="container" className={classes.container}>
-                <List style={{ marginTop: -10 }}>
-                  {data.map((stixCoreObjectEdge) => {
-                    const stixCoreObject = stixCoreObjectEdge.node;
-                    return (
-                      <ListItem
-                        key={stixCoreObject.id}
-                        className="noDrag"
-                        classes={{ root: classes.item }}
-                        divider={true}
-                        button={true}
-                        component={Link}
-                        to={`${resolveLink(stixCoreObject.entity_type)}/${
-                          stixCoreObject.id
-                        }`}
-                      >
-                        <ListItemIcon>
-                          <ItemIcon type={stixCoreObject.entity_type} />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={
-                            <>
-                              <div
-                                className={classes.bodyItem}
-                                style={{ width: '30%' }}
-                              >
-                                {defaultValue(stixCoreObject)}
-                              </div>
-                              <div
-                                className={classes.bodyItem}
-                                style={{ width: '10%' }}
-                              >
-                                {fsd(stixCoreObject[dateAttribute])}
-                              </div>
-                              <div
-                                className={classes.bodyItem}
-                                style={{ width: '15%' }}
-                              >
-                                {R.pathOr(
-                                  '',
-                                  ['createdBy', 'name'],
-                                  stixCoreObject,
-                                )}
-                              </div>
-                              <div
-                                className={classes.bodyItem}
-                                style={{ width: '15%' }}
-                              >
-                                <StixCoreObjectLabels
-                                  variant="inList"
-                                  labels={stixCoreObject.objectLabel}
-                                />
-                              </div>
-                              <div
-                                className={classes.bodyItem}
-                                style={{ width: '15%' }}
-                              >
-                                <ItemStatus
-                                  status={stixCoreObject.status}
-                                  variant="inList"
-                                  disabled={!stixCoreObject.workflowEnabled}
-                                />
-                              </div>
-                              <div
-                                className={classes.bodyItem}
-                                style={{ width: '15%' }}
-                              >
-                                <ItemMarkings
-                                  variant="inList"
-                                  markingDefinitions={stixCoreObject.objectMarking ?? []}
-                                  limit={1}
-                                />
-                              </div>
-                            </>
-                          }
-                        />
-                      </ListItem>
-                    );
-                  })}
-                </List>
-              </div>
-            );
-          }
-          if (props) {
-            return (
-              <div style={{ display: 'table', height: '100%', width: '100%' }}>
-                <span
-                  style={{
-                    display: 'table-cell',
-                    verticalAlign: 'middle',
-                    textAlign: 'center',
-                  }}
-                >
-                  {t_i18n('No entities of this type has been found.')}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <div style={{ display: 'table', height: '100%', width: '100%' }}>
-              <span
-                style={{
-                  display: 'table-cell',
-                  verticalAlign: 'middle',
-                  textAlign: 'center',
-                }}
-              >
-                <CircularProgress size={40} thickness={2} />
-              </span>
-            </div>
-          );
-        }}
-      />
-    );
-  };
-  return (
-    <div style={{ height: height || '100%' }}>
-      <Typography
-        variant="h4"
-        gutterBottom={true}
-        style={{
-          margin: variant !== 'inLine' ? '0 0 10px 0' : '-10px 0 10px -7px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {parameters.title || title || t_i18n('Entities list')}
-      </Typography>
-      {variant !== 'inLine' ? (
-        <Paper classes={{ root: classes.paper }} variant="outlined">
-          {renderContent()}
-        </Paper>
-      ) : (
-        renderContent()
-      )}
-    </div>
+            ) {
+              const data = props.stixCoreObjects.edges;
+              return (
+                <WidgetListCoreObjects
+                  data={data}
+                  rootRef={rootRef.current ?? undefined}
+                  widgetId={widgetId}
+                  pageSize={selection.number ?? 10}
+                  columns={columns}
+                />
+              );
+            }
+            if (props) {
+              return <WidgetNoData />;
+            }
+            return <Loader variant={LoaderVariant.inElement} />;
+          }}
+        />
+      </div>
+    </WidgetContainer>
   );
 };
 

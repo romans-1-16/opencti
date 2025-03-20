@@ -1,4 +1,4 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useState } from 'react';
 import useAuth from '../../../../../utils/hooks/useAuth';
 import ListLines from '../../../../../components/list_lines/ListLines';
 import { QueryRenderer } from '../../../../../relay/environment';
@@ -13,7 +13,8 @@ import Security from '../../../../../utils/Security';
 import { computeTargetStixCyberObservableTypes, computeTargetStixDomainObjectTypes, isStixCyberObservables } from '../../../../../utils/stixTypeUtils';
 import { PaginationLocalStorage } from '../../../../../utils/hooks/useLocalStorage';
 import { DataColumns, PaginationOptions } from '../../../../../components/list_lines';
-import { FilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../utils/filters/filtersUtils';
+import { isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../utils/filters/filtersUtils';
+import { FilterGroup } from '../../../../../utils/filters/filtersHelpers-types';
 
 interface EntityStixCoreRelationshipsRelationshipsViewProps {
   entityId: string
@@ -27,6 +28,7 @@ interface EntityStixCoreRelationshipsRelationshipsViewProps {
   allDirections?: boolean
   isRelationReversed?: boolean
   enableContextualView: boolean
+  enableEntitiesView?: boolean
   enableNestedView?: boolean
   paddingRightButtonAdd?: number
   role?: string,
@@ -47,6 +49,7 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
   currentView,
   enableNestedView,
   enableContextualView,
+  enableEntitiesView = true,
   paddingRightButtonAdd = null,
   handleChangeView,
 }) => {
@@ -60,15 +63,6 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
     openExports,
     view,
   } = viewStorage;
-
-  const availableFilterKeys = [
-    'objectMarking',
-    'confidence',
-    'objectLabel',
-    'createdBy',
-    'creator_id',
-    'created',
-  ];
 
   const { platformModuleHelpers } = useAuth();
   const isObservables = isStixCyberObservables(stixCoreObjectTypes);
@@ -152,7 +146,7 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
     orderBy: (sortBy && (sortBy in dataColumns) && dataColumns[sortBy].isSortable) ? sortBy : 'relationship_type',
     orderMode: orderAsc ? 'asc' : 'desc',
     filters: contextFilters,
-  } as object;
+  };
 
   const {
     selectedElements,
@@ -163,6 +157,11 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
     handleToggleSelectAll,
     onToggleEntity,
   } = useEntityToggle(localStorageKey);
+
+  const [reversedRelation, setReversedRelation] = useState(isRelationReversed);
+  const handleReverseRelation = () => {
+    setReversedRelation(!reversedRelation);
+  };
 
   const finalView = currentView || view;
   return (
@@ -186,7 +185,6 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
         selectAll={selectAll}
         numberOfElements={numberOfElements}
         filters={filters}
-        availableFilterKeys={availableFilterKeys}
         availableEntityTypes={stixCoreObjectTypes}
         availableRelationshipTypes={relationshipTypes}
         handleToggleExports={storageHelpers.handleToggleExports}
@@ -198,21 +196,22 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
         enableContextualView={enableContextualView}
         disableCards={true}
         paginationOptions={paginationOptions}
-        enableEntitiesView={true}
+        enableEntitiesView={enableEntitiesView}
         currentView={finalView}
+        entityTypes={['stix-core-relationship']}
       >
         <QueryRenderer
           query={
-                        // eslint-disable-next-line no-nested-ternary
-                        allDirections
-                          ? entityStixCoreRelationshipsLinesAllQuery
-                          : isRelationReversed
-                            ? entityStixCoreRelationshipsLinesToQuery
-                            : entityStixCoreRelationshipsLinesFromQuery
-                    }
+            // eslint-disable-next-line no-nested-ternary
+            allDirections
+              ? entityStixCoreRelationshipsLinesAllQuery
+              : isRelationReversed
+                ? entityStixCoreRelationshipsLinesToQuery
+                : entityStixCoreRelationshipsLinesFromQuery
+          }
           variables={{ count: 25, ...paginationOptions }}
           render={({ props }: { props: unknown }) =>
-          /* eslint-disable-next-line no-nested-ternary,implicit-arrow-linebreak */
+            /* eslint-disable-next-line no-nested-ternary,implicit-arrow-linebreak */
             (allDirections ? (
               <EntityStixCoreRelationshipsLinesAll
                 data={props}
@@ -254,7 +253,7 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
                 selectAll={selectAll}
               />
             ))
-                    }
+          }
         />
       </ListLines>
       <ToolBar
@@ -266,12 +265,15 @@ const EntityStixCoreRelationshipsRelationshipsView: FunctionComponent<EntityStix
         search={searchTerm}
         handleClearSelectedElements={handleClearSelectedElements}
         variant="medium"
+        type={'stix-core-relationship'}
       />
+
       <Security needs={[KNOWLEDGE_KNUPDATE]}>
         <StixCoreRelationshipCreationFromEntity
           entityId={entityId}
           allowedRelationshipTypes={relationshipTypes}
-          isRelationReversed={isRelationReversed}
+          isRelationReversed={reversedRelation}
+          handleReverseRelation={handleReverseRelation}
           targetStixDomainObjectTypes={computeTargetStixDomainObjectTypes(stixCoreObjectTypes)}
           targetStixCyberObservableTypes={computeTargetStixCyberObservableTypes(stixCoreObjectTypes)}
           defaultStartTime={defaultStartTime}

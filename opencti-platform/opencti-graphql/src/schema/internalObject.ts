@@ -2,6 +2,10 @@ import { ABSTRACT_INTERNAL_OBJECT } from './general';
 import { schemaTypesDefinition } from './schema-types';
 import { ENTITY_TYPE_WORKSPACE } from '../modules/workspace/workspace-types';
 import { ENTITY_TYPE_PUBLIC_DASHBOARD } from '../modules/publicDashboard/publicDashboard-types';
+import { ENTITY_TYPE_DELETE_OPERATION } from '../modules/deleteOperation/deleteOperation-types';
+import { ENTITY_TYPE_DRAFT_WORKSPACE } from '../modules/draftWorkspace/draftWorkspace-types';
+import { ENTITY_TYPE_EXCLUSION_LIST } from '../modules/exclusionList/exclusionList-types';
+import { ENTITY_TYPE_FINTEL_TEMPLATE } from '../modules/fintelTemplate/fintelTemplate-types';
 
 export const ENTITY_TYPE_SETTINGS = 'Settings';
 export const ENTITY_TYPE_MIGRATION_STATUS = 'MigrationStatus';
@@ -18,6 +22,9 @@ export const ENTITY_TYPE_ACTIVITY = 'Activity';
 export const ENTITY_TYPE_WORK = 'work';
 export const ENTITY_TYPE_BACKGROUND_TASK = 'BackgroundTask';
 export const ENTITY_TYPE_RETENTION_RULE = 'RetentionRule';
+// FIXME: recommend 'Sync' be changed to 'Synchronizer' or vice versa
+//  this should be done for consistency across baseline.  GraphQL
+//  object is named 'Synchronizer'
 export const ENTITY_TYPE_SYNC = 'Sync';
 export const ENTITY_TYPE_TAXII_COLLECTION = 'TaxiiCollection';
 export const ENTITY_TYPE_INTERNAL_FILE = 'InternalFile';
@@ -35,6 +42,9 @@ const DATED_INTERNAL_OBJECTS = [
   ENTITY_TYPE_WORKSPACE,
   ENTITY_TYPE_SYNC,
   ENTITY_TYPE_PUBLIC_DASHBOARD,
+  ENTITY_TYPE_DELETE_OPERATION,
+  ENTITY_TYPE_DRAFT_WORKSPACE,
+  ENTITY_TYPE_EXCLUSION_LIST,
 ];
 const INTERNAL_OBJECTS = [
   ENTITY_TYPE_SETTINGS,
@@ -60,7 +70,10 @@ const INTERNAL_OBJECTS = [
   ENTITY_TYPE_HISTORY,
   ENTITY_TYPE_ACTIVITY,
   ENTITY_TYPE_INTERNAL_FILE,
-  ENTITY_TYPE_WORK
+  ENTITY_TYPE_WORK,
+  ENTITY_TYPE_DRAFT_WORKSPACE,
+  ENTITY_TYPE_EXCLUSION_LIST,
+  ENTITY_TYPE_FINTEL_TEMPLATE,
 ];
 const HISTORY_OBJECTS = [ENTITY_TYPE_WORK];
 

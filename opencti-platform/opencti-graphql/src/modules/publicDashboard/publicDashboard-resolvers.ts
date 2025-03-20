@@ -1,16 +1,27 @@
 import type { Resolvers } from '../../generated/graphql';
 import {
   addPublicDashboard,
-  findById,
   findAll,
+  findById,
+  getAllowedMarkings,
+  getPublicDashboardByUriKey,
+  publicBookmarks,
   publicDashboardDelete,
   publicDashboardEditField,
-  getPublicDashboardByUriKey,
-  getAllowedMarkings,
+  publicStixCoreObjects,
+  publicStixCoreObjectsDistribution,
+  publicStixCoreObjectsMultiTimeSeries,
   publicStixCoreObjectsNumber,
-  publicStixCoreObjectsMultiTimeSeries
+  publicStixRelationships,
+  publicStixRelationshipsDistribution,
+  publicStixRelationshipsMultiTimeSeries,
+  publicStixRelationshipsNumber,
 } from './publicDashboard-domain';
-import { getAuthorizedMembers } from '../../utils/authorizedMembers';
+import { findById as findWorkspaceById } from '../workspace/workspace-domain';
+import { batchLoader } from '../../database/middleware';
+import { batchCreator } from '../../domain/user';
+
+const creatorLoader = batchLoader(batchCreator);
 
 const publicDashboardResolvers: Resolvers = {
   Query: {
@@ -19,10 +30,18 @@ const publicDashboardResolvers: Resolvers = {
     publicDashboardByUriKey: (_, { uri_key }, context) => getPublicDashboardByUriKey(context, uri_key),
     publicStixCoreObjectsNumber: (_, args, context) => publicStixCoreObjectsNumber(context, args),
     publicStixCoreObjectsMultiTimeSeries: (_, args, context) => publicStixCoreObjectsMultiTimeSeries(context, args),
+    publicStixRelationshipsMultiTimeSeries: (_, args, context) => publicStixRelationshipsMultiTimeSeries(context, args),
+    publicStixRelationshipsNumber: (_, args, context) => publicStixRelationshipsNumber(context, args),
+    publicStixCoreObjectsDistribution: (_, args, context) => publicStixCoreObjectsDistribution(context, args),
+    publicStixRelationshipsDistribution: (_, args, context) => publicStixRelationshipsDistribution(context, args),
+    publicBookmarks: (_, args, context) => publicBookmarks(context, args),
+    publicStixCoreObjects: (_, args, context) => publicStixCoreObjects(context, args),
+    publicStixRelationships: (_, args, context) => publicStixRelationships(context, args),
   },
   PublicDashboard: {
-    authorized_members: (publicDashboard, _, context) => getAuthorizedMembers(context, context.user, publicDashboard),
     allowed_markings: (publicDashboard, _, context) => getAllowedMarkings(context, context.user, publicDashboard),
+    owner: (publicDashboard, _, context) => creatorLoader.load(publicDashboard.user_id, context, context.user),
+    dashboard: (publicDashboard, _, context) => findWorkspaceById(context, context.user, publicDashboard.dashboard_id)
   },
   Mutation: {
     publicDashboardAdd: (_, { input }, context) => {

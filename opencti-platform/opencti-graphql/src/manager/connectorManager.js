@@ -1,20 +1,21 @@
 import { clearIntervalAsync, setIntervalAsync } from 'set-interval-async/fixed';
-import { lockResource, redisDeleteWorks, redisGetConnectorStatus, redisGetWork } from '../database/redis';
+import { redisDeleteWorks, redisGetConnectorStatus, redisGetWork } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import conf, { booleanConf, logApp } from '../config/conf';
 import { TYPE_LOCK_ERROR } from '../config/errors';
 import { connectors } from '../database/repository';
 import { elDeleteInstances, elList, elUpdate } from '../database/engine';
 import { executionContext, SYSTEM_USER } from '../utils/access';
-import { INDEX_HISTORY } from '../database/utils';
+import { READ_INDEX_HISTORY } from '../database/utils';
 import { now, sinceNowInDays } from '../utils/format';
 
-// Expired manager responsible to monitor expired elements
-// In order to change the revoked attribute to true
-// Each API will start is manager.
-// If the lock is free, every API as the right to take it.
-const SCHEDULE_TIME = conf.get('connector_manager:interval');
-const CONNECTOR_MANAGER_KEY = conf.get('connector_manager:lock_key');
-const CONNECTOR_WORK_RANGE = conf.get('connector_manager:works_day_range');
+// Manage work created by connectors
+// Update status to complete when needed
+// Cleanup "batch_size" work in Elastic and Redis when complete "after works_day_range" days
+const SCHEDULE_TIME = conf.get('connector_manager:interval') || 60000;
+const CONNECTOR_MANAGER_KEY = conf.get('connector_manager:lock_key') || 'connector_manager_lock';
+const CONNECTOR_WORK_RANGE = conf.get('connector_manager:works_day_range') || 7;
+const BATCH_SIZE = conf.get('connector_manager:batch_size') || 10000;
 let running = false;
 
 const closeOldWorks = async (context, connector) => {
@@ -27,7 +28,7 @@ const closeOldWorks = async (context, connector) => {
     const filters = {
       mode: 'and',
       filters: [
-        { key: 'event_source_id', values: [connector.internal_id] },
+        { key: 'connector_id', values: [connector.internal_id] },
         { key: 'status', values: ['wait', 'progress'] },
         { key: 'timestamp', values: [timestamp], operator: 'lt' }
       ],
@@ -59,25 +60,29 @@ const closeOldWorks = async (context, connector) => {
           // Delete redis tracking key
           await redisDeleteWorks(element.internal_id);
         } catch (e) {
-          logApp.info('[OPENCTI-MODULE] Connector manager error processing work closing', { error: e });
+          logApp.error('[OPENCTI-MODULE] Connector manager error processing work closing', { cause: e });
         }
       }
     };
-    await elList(context, SYSTEM_USER, [INDEX_HISTORY], {
+    await elList(context, SYSTEM_USER, [READ_INDEX_HISTORY], {
       filters,
       noFiltersChecking: true,
       types: ['Work'],
+      orderBy: 'timestamp',
       connectionFormat: false,
-      callback: queryCallback
+      baseData: true,
+      baseFields: ['internal_id', 'timestamp'],
+      maxSize: BATCH_SIZE,
+      callback: queryCallback,
     });
   }
 };
 
-const deleteCompletedWorks = async (context, connector) => {
+export const deleteCompletedWorks = async (context, connector) => {
   const filters = {
     mode: 'and',
     filters: [
-      { key: 'event_source_id', values: [connector.internal_id] },
+      { key: 'connector_id', values: [connector.internal_id] },
       { key: 'status', values: ['complete'] },
       { key: 'completed_time', values: [`now-${CONNECTOR_WORK_RANGE}d/d`], operator: 'lte' }
     ],
@@ -90,12 +95,16 @@ const deleteCompletedWorks = async (context, connector) => {
     await redisDeleteWorks(ids);
     await elDeleteInstances(elements);
   };
-  await elList(context, SYSTEM_USER, [INDEX_HISTORY], {
+  await elList(context, SYSTEM_USER, [READ_INDEX_HISTORY], {
     filters,
     types: ['Work'],
+    orderBy: 'timestamp',
     noFiltersChecking: true,
     connectionFormat: false,
-    callback: queryCallback
+    baseData: true,
+    baseFields: ['internal_id'],
+    maxSize: BATCH_SIZE,
+    callback: queryCallback,
   });
 };
 
@@ -103,7 +112,7 @@ const connectorHandler = async () => {
   let lock;
   try {
     // Lock the manager
-    lock = await lockResource([CONNECTOR_MANAGER_KEY], { retryCount: 0 });
+    lock = await lockResources([CONNECTOR_MANAGER_KEY], { retryCount: 0 });
     running = true;
     const context = executionContext('connector_manager');
     // Execute the cleaning
@@ -120,7 +129,7 @@ const connectorHandler = async () => {
     if (e.name === TYPE_LOCK_ERROR) {
       logApp.debug('[OPENCTI-MODULE] Connector manager already started by another API');
     } else {
-      logApp.error(e, { manager: 'CONNECTOR_MANAGER' });
+      logApp.error('[OPENCTI-MODULE] Connector manager handling error', { cause: e, manager: 'CONNECTOR_MANAGER' });
     }
   } finally {
     running = false;

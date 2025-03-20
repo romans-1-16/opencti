@@ -6,11 +6,11 @@ import makeStyles from '@mui/styles/makeStyles';
 import Button from '@mui/material/Button';
 import * as Yup from 'yup';
 import * as R from 'ramda';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import ConfidenceField from '../form/ConfidenceField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { hasKillChainPhase } from '../../../../utils/Relation';
 import KillChainPhasesField from '../form/KillChainPhasesField';
 import CreatedByField from '../form/CreatedByField';
@@ -21,8 +21,11 @@ import { itemColor } from '../../../../utils/Colors';
 import ItemIcon from '../../../../components/ItemIcon';
 import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
+import { minutesBefore, now } from '../../../../utils/Time';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   containerRelation: {
     padding: '10px 20px 20px 20px',
@@ -136,13 +139,15 @@ const StixCoreRelationshipCreationForm = ({
       ? 'related-to'
       : '';
 
+  const defaultTime = now();
+
   const initialValues = useDefaultValues(
     STIX_CORE_RELATIONSHIP_TYPE,
     {
       relationship_type: defaultRelationshipType,
       confidence: defaultConfidence,
-      start_time: !isNone(defaultStartTime) ? defaultStartTime : null,
-      stop_time: !isNone(defaultStopTime) ? defaultStopTime : null,
+      start_time: !isNone(defaultStartTime) ? defaultStartTime : minutesBefore(1, defaultTime),
+      stop_time: !isNone(defaultStopTime) ? defaultStopTime : defaultTime,
       description: '',
       killChainPhases: [],
       externalReferences: [],
@@ -193,7 +198,7 @@ const StixCoreRelationshipCreationForm = ({
                   <span className={classes.name}>
                     {isMultipleFrom
                       ? (<em>{t_i18n('Multiple entities selected')}</em>)
-                      : (defaultValue(fromEntity))}
+                      : (getMainRepresentative(fromEntity))}
                   </span>
                 </div>
               </div>
@@ -204,7 +209,7 @@ const StixCoreRelationshipCreationForm = ({
                   <Button
                     variant="outlined"
                     onClick={handleReverseRelation}
-                    color="secondary"
+                    color="primary"
                     size="small"
                   >
                     {t_i18n('Reverse')}
@@ -242,7 +247,7 @@ const StixCoreRelationshipCreationForm = ({
                   <span className={classes.name}>
                     {isMultipleTo
                       ? (<em>{t_i18n('Multiple entities selected')}</em>)
-                      : (defaultValue(toEntity))}
+                      : (getMainRepresentative(toEntity))}
                   </span>
                 </div>
               </div>
@@ -312,6 +317,7 @@ const StixCoreRelationshipCreationForm = ({
             <ObjectMarkingField
               name="objectMarking"
               style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
             />
             <ExternalReferencesField
               name="externalReferences"

@@ -63,7 +63,7 @@ describe('EntitySetting resolver standard behavior', () => {
     const context = executionContext('test');
     await initCreateEntitySettings(context, SYSTEM_USER);
     const queryResult = await queryAsAdmin({ query: LIST_QUERY });
-    expect(queryResult.data.entitySettings.edges.length).toEqual(42);
+    expect(queryResult.data.entitySettings.edges.length).toEqual(43);
 
     const entitySettingNote = queryResult.data.entitySettings.edges.filter((entitySetting) => entitySetting.node.target_type === ENTITY_TYPE_CONTAINER_NOTE)[0];
     expect(entitySettingNote.platform_entity_files_ref).toBeFalsy();
@@ -102,7 +102,7 @@ describe('EntitySetting resolver standard behavior', () => {
       variables: { ids: [entitySettingIdNote], input: { key: 'enforce_reference', value: ['true'] } },
     });
     expect(queryResult.errors.length > 0).toBeTruthy();
-    expect(queryResult.errors[0].originalError.message).toEqual('This setting is not available for this entity');
+    expect(queryResult.errors[0].message).toEqual('This setting is not available for this entity');
   });
   it('should update entity settings by ids - valid mandatory attributes', async () => {
     const attributesConfiguration = JSON.stringify([{ name: 'attribute_abstract', mandatory: true }]);
@@ -125,7 +125,7 @@ describe('EntitySetting resolver standard behavior', () => {
       variables: { ids: [entitySettingIdNote], input: { key: 'attributes_configuration', value: [attributesConfiguration] } },
     });
     expect(queryResult.errors.length > 0).toBeTruthy();
-    expect(queryResult.errors[0].originalError.data.message).toEqual('This attribute is not customizable for this entity');
+    expect(queryResult.errors[0].message).toEqual('This attribute is not customizable for this entity');
   });
   it('should update entity settings by ids - valid default value', async () => {
     const attributesConfiguration = JSON.stringify([{ name: 'createdBy', default_values: ['identity--d37acc64-4a6f-4dc2-879a-a4c138d0a27f'] }]);

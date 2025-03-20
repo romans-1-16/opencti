@@ -20,11 +20,11 @@ import useVocabularyCategory from '../../../../utils/hooks/useVocabularyCategory
 import StixCyberObservableMalwareAnalyses from './StixCyberObservableMalwareAnalyses';
 import useAttributes from '../../../../utils/hooks/useAttributes';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -76,10 +76,10 @@ const StixCyberObservableDetailsComponent = ({ stixCyberObservable }) => {
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3} style={{ marginBottom: 10 }}>
           {file && (
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Typography variant="h3" gutterBottom={true}>
                 {t_i18n('File')}
               </Typography>
@@ -118,7 +118,7 @@ const StixCyberObservableDetailsComponent = ({ stixCyberObservable }) => {
               </Menu>
             </Grid>
           )}
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Description')}
             </Typography>
@@ -129,8 +129,8 @@ const StixCyberObservableDetailsComponent = ({ stixCyberObservable }) => {
           </Grid>
           {observableAttributes.map((observableAttribute) => {
             if (observableAttribute.key === 'hashes') {
-              return observableAttribute.value.map((hash) => (
-                <Grid key={hash.algorithm} item={true} xs={6}>
+              return observableAttribute.value.filter(({ hash }) => hash !== '').map((hash) => (
+                <Grid key={hash.algorithm} item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {hash.algorithm} - hashes
                   </Typography>
@@ -142,7 +142,7 @@ const StixCyberObservableDetailsComponent = ({ stixCyberObservable }) => {
             }
             if (observableAttribute.key === 'startup_info') {
               return observableAttribute.value.map((hash) => (
-                <Grid key={hash.key} item={true} xs={6}>
+                <Grid key={hash.key} item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {hash.key} - startup_info
                   </Typography>
@@ -159,7 +159,7 @@ const StixCyberObservableDetailsComponent = ({ stixCyberObservable }) => {
               )
             ) {
               return (
-                <Grid key={observableAttribute.key} item={true} xs={6}>
+                <Grid key={observableAttribute.key} item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {t_i18n(observableAttribute.key)}
                   </Typography>
@@ -187,7 +187,7 @@ const StixCyberObservableDetailsComponent = ({ stixCyberObservable }) => {
               finalValue = finalValue.join('\n');
             }
             return (
-              <Grid key={observableAttribute.key} item={true} xs={6}>
+              <Grid key={observableAttribute.key} item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n(observableAttribute.key.replace('attribute_', ''))}
                 </Typography>
@@ -224,7 +224,7 @@ const StixCyberObservableDetails = createFragmentContainer(
         observable_value
         ... on AutonomousSystem {
           number
-          name
+          observableName: name
           rir
         }
         ... on Directory {
@@ -277,7 +277,7 @@ const StixCyberObservableDetails = createFragmentContainer(
         ... on StixFile {
           extensions
           size
-          name
+          observableName: name
           name_enc
           magic_number_hex
           mime_type
@@ -336,7 +336,7 @@ const StixCyberObservableDetails = createFragmentContainer(
           value
         }
         ... on Mutex {
-          name
+          observableName: name
         }
         ... on NetworkTraffic {
           extensions
@@ -380,7 +380,7 @@ const StixCyberObservableDetails = createFragmentContainer(
           service_status
         }
         ... on Software {
-          name
+          observableName: name
           cpe
           swid
           languages
@@ -413,7 +413,7 @@ const StixCyberObservableDetails = createFragmentContainer(
           number_of_subkeys
         }
         ... on WindowsRegistryValueType {
-          name
+          observableName: name
           data
           data_type
         }
@@ -437,6 +437,12 @@ const StixCyberObservableDetails = createFragmentContainer(
           bic
           account_number
         }
+        ... on Credential {
+          value
+        }
+        ... on TrackingNumber {
+          value
+        }
         ... on PhoneNumber {
           value
         }
@@ -452,6 +458,10 @@ const StixCyberObservableDetails = createFragmentContainer(
           media_category
           url
           publication_date
+        }
+        ... on Persona {
+          persona_name
+          persona_type
         }
         ...StixCyberObservableIndicators_stixCyberObservable
       }

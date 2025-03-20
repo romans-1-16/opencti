@@ -1,16 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import React, { useState } from 'react';
+import { graphql } from 'react-relay';
 import { Field, Form, Formik, FormikErrors, FormikValues } from 'formik';
 import Button from '@mui/material/Button';
 import * as Yup from 'yup';
 import makeStyles from '@mui/styles/makeStyles';
 import { FormikConfig } from 'formik/dist/types';
 import Drawer from '@components/common/drawer/Drawer';
-import { EntitySettingAttributeEditionMembersQuery$data } from '@components/settings/sub_types/entity_setting/__generated__/EntitySettingAttributeEditionMembersQuery.graphql';
 import DefaultValueField from '@components/common/form/DefaultValueField';
 import { useFormatter } from '../../../../../components/i18n';
 import type { Theme } from '../../../../../components/Theme';
-import SwitchField from '../../../../../components/SwitchField';
+import SwitchField from '../../../../../components/fields/SwitchField';
 import type { Scale, ScaleConfig } from '../scale_configuration/scale';
 import type { AttributeConfiguration } from './entitySetting';
 import { EntitySettingAttributeLine_attribute$data } from './__generated__/EntitySettingAttributeLine_attribute.graphql';
@@ -19,10 +18,12 @@ import ScaleConfiguration from '../scale_configuration/ScaleConfiguration';
 import { isCustomScale } from '../../../../../utils/hooks/useScale';
 import { Option } from '../../../common/form/ReferenceField';
 import { useComputeDefaultValues } from '../../../../../utils/hooks/useDefaultValues';
-import { fetchQuery, handleErrorInForm } from '../../../../../relay/environment';
-import { AccessRight, INPUT_AUTHORIZED_MEMBERS } from '../../../../../utils/authorizedMembers';
+import { handleErrorInForm } from '../../../../../relay/environment';
 import { defaultValuesToStringArray } from '../../../../../utils/defaultValues';
+import useApiMutation from '../../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -40,20 +41,6 @@ const entitySettingAttributeEditionPatch = graphql`
   ) {
     entitySettingsFieldPatch(ids: $ids, input: $input) {
       ...EntitySettingAttributes_entitySetting
-    }
-  }
-`;
-
-const entitySettingAttributeEditionMembersQuery = graphql`
-  query EntitySettingAttributeEditionMembersQuery($filters: FilterGroup) {
-    members(filters: $filters) {
-      edges {
-        node {
-          id
-          entity_type
-          name
-        }
-      }
     }
   }
 `;
@@ -103,35 +90,7 @@ const EntitySettingAttributeEdition = ({
     {},
   );
 
-  const [commit] = useMutation(entitySettingAttributeEditionPatch);
-
-  const [membersData, setMembersData] = useState<EntitySettingAttributeEditionMembersQuery$data>();
-
-  useEffect(() => {
-    if (attribute.name === INPUT_AUTHORIZED_MEMBERS) {
-      const defaultAuthorizedMembers: { id: string, access_right: AccessRight }[] = (attribute.defaultValues ?? [])
-        .map((v) => JSON.parse(v.id))
-        .filter((v) => !!v.id && !!v.access_right);
-
-      const fetchMembers = async () => {
-        // Old way to fetch query here because doing it new way is a bit complicated
-        // due to the fact that this component managed all types of fields and this
-        // query is used only for one particular case.
-        const data = (await fetchQuery(entitySettingAttributeEditionMembersQuery, {
-          filters: {
-            mode: 'and',
-            filters: [{
-              key: 'ids',
-              values: defaultAuthorizedMembers.map((m) => m.id),
-            }],
-            filterGroups: [],
-          },
-        }).toPromise()) as EntitySettingAttributeEditionMembersQuery$data;
-        setMembersData(data);
-      };
-      fetchMembers();
-    }
-  }, [attribute]);
+  const [commit] = useApiMutation(entitySettingAttributeEditionPatch);
 
   const onSubmit: FormikConfig<AttributeFormikValues>['onSubmit'] = (
     values,
@@ -183,14 +142,15 @@ const EntitySettingAttributeEdition = ({
   };
 
   const defaultValues = () => {
-    const values = attribute.defaultValues ? [...attribute.defaultValues] : [];
+    const defaultValueAttribute = entitySetting.defaultValuesAttributes.find((element) => element.name === attribute.name);
+    const attributeDefaultValues = defaultValueAttribute?.defaultValues ?? attribute.defaultValues;
+    const values = attributeDefaultValues ? [...attributeDefaultValues] : [];
     return computeDefaultValues(
       entitySetting.target_type,
       attribute.name,
       attribute.multiple ?? false,
       attribute.type,
       values,
-      attribute.name === INPUT_AUTHORIZED_MEMBERS ? membersData : undefined,
     );
   };
 
@@ -223,7 +183,7 @@ const EntitySettingAttributeEdition = ({
           initialValues,
           isValid,
         }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={SwitchField}
               type="checkbox"

@@ -15,6 +15,8 @@ export const FILE_INDEX_MANAGER = 'FILE_INDEX_MANAGER';
 export const RETENTION_MANAGER = 'RETENTION_MANAGER';
 export const PLAYBOOK_MANAGER = 'PLAYBOOK_MANAGER';
 export const INDICATOR_DECAY_MANAGER = 'INDICATOR_DECAY_MANAGER';
+export const TELEMETRY_MANAGER = 'TELEMETRY_MANAGER';
+export const GARBAGE_COLLECTION_MANAGER = 'GARBAGE_COLLECTION_MANAGER';
 
 export interface ModuleHelper {
   isModuleEnable: (id: string) => boolean;
@@ -29,6 +31,9 @@ export interface ModuleHelper {
   isIngestionManagerEnable: () => boolean;
   isFileIndexManagerEnable: () => boolean;
   isIndicatorDecayManagerEnable: () => boolean;
+  isTelemetryManagerEnable: () => boolean;
+  isTrashEnable: () => boolean;
+  isPlaygroundEnable: () => boolean;
   generateDisableMessage: (manager: string) => string;
 }
 
@@ -37,8 +42,11 @@ const isFeatureEnable = (
   id: string,
 ) => {
   const flags = settings.platform_feature_flags ?? [];
-  const feature = flags.find((f) => f.id === id);
-  return feature === undefined || feature.enable === true;
+  // config can target all FF available with special FF id "*"
+  if (flags.find((f) => f.id === '*' && f.enable)) {
+    return true;
+  }
+  return flags.some((flag) => flag.id === id && flag.enable);
 };
 
 const isModuleEnable = (
@@ -46,8 +54,7 @@ const isModuleEnable = (
   id: string,
 ) => {
   const modules = settings.platform_modules || [];
-  const module = modules.find((f) => f.id === id);
-  return module !== undefined && module.enable === true;
+  return modules.some((module) => module.id === id && module.enable);
 };
 
 const isModuleWarning = (
@@ -55,8 +62,7 @@ const isModuleWarning = (
   id: string,
 ) => {
   const modules = settings.platform_modules || [];
-  const module = modules.find((f) => f.id === id);
-  return module !== undefined && module.warning === true;
+  return modules.some((module) => module.id === id && module.warning);
 };
 
 const platformModuleHelper = (
@@ -74,6 +80,9 @@ const platformModuleHelper = (
   isIngestionManagerEnable: () => isModuleEnable(settings, INGESTION_MANAGER),
   isFileIndexManagerEnable: () => isModuleEnable(settings, FILE_INDEX_MANAGER),
   isIndicatorDecayManagerEnable: () => isModuleEnable(settings, INDICATOR_DECAY_MANAGER),
+  isTelemetryManagerEnable: () => isModuleEnable(settings, TELEMETRY_MANAGER),
+  isTrashEnable: () => settings.platform_trash_enabled,
+  isPlaygroundEnable: () => settings.playground_enabled,
   generateDisableMessage: (id: string) => (!isModuleEnable(settings, id) ? DISABLE_MANAGER_MESSAGE : ''),
 });
 

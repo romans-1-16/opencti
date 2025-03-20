@@ -3,13 +3,14 @@ import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import React, { FunctionComponent } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import * as Yup from 'yup';
 import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import { TasksLinesPaginationQuery$variables } from '@components/cases/__generated__/TasksLinesPaginationQuery.graphql';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
 import { handleErrorInForm } from '../../../../relay/environment';
@@ -20,9 +21,11 @@ import ObjectLabelField from '../../common/form/ObjectLabelField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import { Option } from '../../common/form/ReferenceField';
 import { TaskCreationMutation, TaskCreationMutation$variables } from './__generated__/TaskCreationMutation.graphql';
-import { TasksLinesPaginationQuery$variables } from './__generated__/TasksLinesPaginationQuery.graphql';
 import { insertNode } from '../../../../utils/store';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -36,6 +39,10 @@ const useStyles = makeStyles<Theme>((theme) => ({
 const taskAddMutation = graphql`
   mutation TaskCreationMutation($input: TaskAddInput!) {
     taskAdd(input: $input) {
+      id
+      representative {
+        main
+      }
       ...TasksLine_node
       ... on Task {
         objects {
@@ -65,19 +72,21 @@ interface TaskCreationProps {
     key: string,
   ) => void;
   onClose?: () => void;
-  defaultMarkings?: { value: string, label: string }[]
+  defaultMarkings?: { value: string, label: string }[];
+  inputValue?: string;
 }
 
-const TaskCreationForm: FunctionComponent<TaskCreationProps> = ({
+export const TaskCreationForm: FunctionComponent<TaskCreationProps> = ({
   updater,
   onClose,
   defaultMarkings,
+  inputValue,
 }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable().max(5000, t_i18n('The value is too long')),
     due_date: Yup.date().nullable(),
     objectLabel: Yup.array(),
@@ -87,10 +96,14 @@ const TaskCreationForm: FunctionComponent<TaskCreationProps> = ({
   };
   const taskValidator = useSchemaEditionValidation('Task', basicShape);
 
-  const [commit] = useMutation<TaskCreationMutation>(taskAddMutation);
+  const [commit] = useApiMutation<TaskCreationMutation>(
+    taskAddMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Task')} ${t_i18n('successfully created')}` },
+  );
 
   const initialValues: FormikTaskAddInput = {
-    name: '',
+    name: inputValue ?? '',
     description: '',
     due_date: null,
     objectAssignee: [],
@@ -135,8 +148,8 @@ const TaskCreationForm: FunctionComponent<TaskCreationProps> = ({
       onReset={onClose}
       validationSchema={taskValidator}
     >
-      {({ isSubmitting, handleReset, submitForm }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+      {({ isSubmitting, handleReset, submitForm, setFieldValue }) => (
+        <Form>
           <Field
             style={{ marginBottom: 20 }}
             component={TextField}
@@ -165,6 +178,7 @@ const TaskCreationForm: FunctionComponent<TaskCreationProps> = ({
           <ObjectMarkingField
             name="objectMarking"
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <Field
             component={MarkdownField}

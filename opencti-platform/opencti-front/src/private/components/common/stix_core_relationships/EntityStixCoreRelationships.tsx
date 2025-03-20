@@ -7,13 +7,14 @@ import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStora
 import { PaginationOptions } from '../../../../components/list_lines';
 import { emptyFilterGroup } from '../../../../utils/filters/filtersUtils';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     marginTop: 15,
     paddingBottom: 70,
   },
 }));
-
 interface EntityStixCoreRelationshipsProps {
   entityId: string;
   entityLink: string;
@@ -24,9 +25,10 @@ interface EntityStixCoreRelationshipsProps {
   currentView: string;
   enableNestedView?: boolean;
   enableContextualView: boolean;
+  enableEntitiesView?: boolean;
   isRelationReversed: boolean;
-  allDirections: boolean;
-  role: string;
+  allDirections?: boolean;
+  role?: string;
   paddingRightButtonAdd?: number;
   handleChangeView?: (viewMode: string) => void;
 }
@@ -43,6 +45,7 @@ EntityStixCoreRelationshipsProps
   currentView,
   enableNestedView,
   enableContextualView,
+  enableEntitiesView = true,
   isRelationReversed,
   allDirections,
   role,
@@ -61,11 +64,11 @@ EntityStixCoreRelationshipsProps
       orderAsc: false,
       openExports: false,
       filters: emptyFilterGroup,
-      view: 'entities',
+      view: enableEntitiesView ? 'entities' : 'relationships',
     },
   );
   const { view } = localStorage.viewStorage;
-  const finalView = currentView || view;
+  const finalView = !enableEntitiesView && (currentView === 'entities' || view === 'entities') ? 'relationships' : currentView || view;
   return (
     <ExportContextProvider>
       <div className={classes.container}>
@@ -97,6 +100,7 @@ EntityStixCoreRelationshipsProps
             currentView={currentView}
             enableNestedView={enableNestedView}
             enableContextualView={enableContextualView}
+            enableEntitiesView={enableEntitiesView}
             isRelationReversed={isRelationReversed}
             allDirections={allDirections}
             role={role}

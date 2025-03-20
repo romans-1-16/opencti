@@ -7,8 +7,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { graphql } from 'react-relay';
+import { useNavigate } from 'react-router-dom';
 import { PopoverProps } from '@mui/material/Popover';
 import ToggleButton from '@mui/material/ToggleButton';
 import StixCoreObjectEnrichment from '@components/common/stix_core_objects/StixCoreObjectEnrichment';
@@ -20,6 +20,8 @@ import useDeletion from '../../../../utils/hooks/useDeletion';
 import Transition from '../../../../components/Transition';
 import ThreatActorIndividualEditionContainer, { ThreatActorIndividualEditionQuery } from './ThreatActorIndividualEditionContainer';
 import { ThreatActorIndividualEditionContainerQuery } from './__generated__/ThreatActorIndividualEditionContainerQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const ThreatActorIndividualPopoverDeletionMutation = graphql`
   mutation ThreatActorIndividualPopoverDeletionMutation($id: ID!) {
@@ -32,8 +34,10 @@ const ThreatActorIndividualPopover = ({ id }: { id: string }) => {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<PopoverProps['anchorEl']>(null);
   const [displayEdit, setDisplayEdit] = useState<boolean>(false);
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const [displayEnrichment, setDisplayEnrichment] = useState<boolean>(false);
-  const [commit] = useMutation(ThreatActorIndividualPopoverDeletionMutation);
+  const [commit] = useApiMutation(ThreatActorIndividualPopoverDeletionMutation);
   const queryRef = useQueryLoading<ThreatActorIndividualEditionContainerQuery>(
     ThreatActorIndividualEditionQuery,
     { id },
@@ -85,49 +89,51 @@ const ThreatActorIndividualPopover = ({ id }: { id: string }) => {
       },
     });
   };
-  return (
-    <>
-      <ToggleButton
-        value="popover"
-        size="small"
-        onClick={handleOpen}
-      >
-        <MoreVert fontSize="small" color="primary" />
-      </ToggleButton>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <Security needs={[KNOWLEDGE_KNUPDATE]}>
-          <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
-        </Security>
-        <Security needs={[KNOWLEDGE_KNENRICHMENT]}>
-          <MenuItem onClick={handleOpenEnrichment}>{t_i18n('Enrich')}</MenuItem>
-        </Security>
-        <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
-          <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
-        </Security>
-      </Menu>
-      <StixCoreObjectEnrichment stixCoreObjectId={id} open={displayEnrichment} handleClose={handleCloseEnrichment} />
-      <Dialog
-        open={displayDelete}
-        PaperProps={{ elevation: 1 }}
-        keepMounted={true}
-        TransitionComponent={Transition}
-        onClose={handleCloseDelete}
-      >
-        <DialogContent>
-          <DialogContentText>
-            {t_i18n('Do you want to delete this threat actor individual?')}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDelete} disabled={deleting}>
-            {t_i18n('Cancel')}
-          </Button>
-          <Button color="secondary" onClick={submitDelete} disabled={deleting}>
-            {t_i18n('Delete')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      {queryRef && (
+  return isFABReplaced
+    ? (<></>)
+    : (
+      <>
+        <ToggleButton
+          value="popover"
+          size="small"
+          onClick={handleOpen}
+        >
+          <MoreVert fontSize="small" color="primary" />
+        </ToggleButton>
+        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
+          </Security>
+          <Security needs={[KNOWLEDGE_KNENRICHMENT]}>
+            <MenuItem onClick={handleOpenEnrichment}>{t_i18n('Enrich')}</MenuItem>
+          </Security>
+          <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
+            <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+          </Security>
+        </Menu>
+        <StixCoreObjectEnrichment stixCoreObjectId={id} open={displayEnrichment} handleClose={handleCloseEnrichment} />
+        <Dialog
+          open={displayDelete}
+          PaperProps={{ elevation: 1 }}
+          keepMounted={true}
+          TransitionComponent={Transition}
+          onClose={handleCloseDelete}
+        >
+          <DialogContent>
+            <DialogContentText>
+              {t_i18n('Do you want to delete this threat actor individual?')}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDelete} disabled={deleting}>
+              {t_i18n('Cancel')}
+            </Button>
+            <Button color="secondary" onClick={submitDelete} disabled={deleting}>
+              {t_i18n('Delete')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        {queryRef && (
         <React.Suspense fallback={<div />}>
           <ThreatActorIndividualEditionContainer
             queryRef={queryRef}
@@ -135,9 +141,9 @@ const ThreatActorIndividualPopover = ({ id }: { id: string }) => {
             open={displayEdit}
           />
         </React.Suspense>
-      )}
-    </>
-  );
+        )}
+      </>
+    );
 };
 
 export default ThreatActorIndividualPopover;

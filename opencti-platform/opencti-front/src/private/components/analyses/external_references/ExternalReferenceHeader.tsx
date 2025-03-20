@@ -7,6 +7,8 @@ import Security from '../../../../utils/Security';
 import { ExternalReferenceHeader_externalReference$data } from './__generated__/ExternalReferenceHeader_externalReference.graphql';
 import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   title: {
     float: 'left',
@@ -20,28 +22,36 @@ const useStyles = makeStyles(() => ({
 interface ExternalReferenceHeaderComponentProps {
   externalReference: ExternalReferenceHeader_externalReference$data;
   PopoverComponent: ReactElement<{ id: string }>;
+  EditComponent?: React.JSX.Element | boolean;
 }
 
-const ExternalReferenceHeaderComponent: FunctionComponent<
-ExternalReferenceHeaderComponentProps
-> = ({ externalReference, PopoverComponent }) => {
+const ExternalReferenceHeaderComponent: FunctionComponent<ExternalReferenceHeaderComponentProps> = ({ externalReference, PopoverComponent, EditComponent }) => {
   const classes = useStyles();
 
   return (
-    <div>
-      <Typography
-        variant="h1"
-        gutterBottom={true}
-        classes={{ root: classes.title }}
-      >
-        {truncate(externalReference.source_name, 80)}
-      </Typography>
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <div className={classes.popover}>
-          {React.cloneElement(PopoverComponent, { id: externalReference.id })}
-        </div>
-      </Security>
-      <div className="clearfix" />
+    <div
+      style={{
+        display: 'inline-flex',
+        justifyContent: 'space-between',
+        width: '100%',
+      }}
+    >
+      <div>
+        <Typography
+          variant="h1"
+          gutterBottom={true}
+          classes={{ root: classes.title }}
+        >
+          {truncate(externalReference.source_name, 80)}
+        </Typography>
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <div className={classes.popover}>
+            {React.cloneElement(PopoverComponent, { id: externalReference.id })}
+          </div>
+        </Security>
+        <div className="clearfix" />
+      </div>
+      {EditComponent}
     </div>
   );
 };

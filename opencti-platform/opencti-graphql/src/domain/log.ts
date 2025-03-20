@@ -3,10 +3,12 @@ import { elCount, elPaginate } from '../database/engine';
 import conf, { booleanConf } from '../config/conf';
 import { distributionHistory, timeSeriesHistory } from '../database/middleware';
 import { INDEX_HISTORY, READ_INDEX_HISTORY, } from '../database/utils';
-import { ENTITY_TYPE_HISTORY } from '../schema/internalObject';
+import { ENTITY_TYPE_ACTIVITY, ENTITY_TYPE_HISTORY } from '../schema/internalObject';
 import type { AuthContext, AuthUser } from '../types/user';
 import type { QueryAuditsArgs, QueryLogsArgs } from '../generated/graphql';
 import { addFilter } from '../utils/filtering/filtering-utils';
+import { isUserHasCapability, KNOWLEDGE, SETTINGS_SECURITYACTIVITY } from '../utils/access';
+import { ForbiddenAccess } from '../config/errors';
 
 export const findHistory = (context: AuthContext, user: AuthUser, args: QueryLogsArgs) => {
   const finalArgs = { ...args, orderBy: args.orderBy ?? 'timestamp', orderMode: args.orderMode ?? 'desc', types: [ENTITY_TYPE_HISTORY] };
@@ -14,7 +16,18 @@ export const findHistory = (context: AuthContext, user: AuthUser, args: QueryLog
 };
 
 export const findAudits = (context: AuthContext, user: AuthUser, args: QueryAuditsArgs) => {
-  const finalArgs = { ...args, types: args.types ? args.types : [ENTITY_TYPE_HISTORY] };
+  // eslint-disable-next-line no-nested-ternary
+  let types = args.types ? args.types : isUserHasCapability(user, SETTINGS_SECURITYACTIVITY) ? [ENTITY_TYPE_ACTIVITY] : [ENTITY_TYPE_HISTORY];
+  if (!isUserHasCapability(user, KNOWLEDGE)) {
+    types = types.filter((t) => t !== ENTITY_TYPE_HISTORY);
+  }
+  if (!isUserHasCapability(user, SETTINGS_SECURITYACTIVITY)) {
+    types = types.filter((t) => t !== ENTITY_TYPE_ACTIVITY);
+  }
+  if (types.length === 0) {
+    throw ForbiddenAccess();
+  }
+  const finalArgs = { ...args, types };
   return elPaginate(context, user, READ_INDEX_HISTORY, finalArgs);
 };
 

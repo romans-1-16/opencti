@@ -1,33 +1,29 @@
 import React from 'react';
-import { Redirect, Switch } from 'react-router-dom';
-import { BoundaryRoute } from '../Error';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { boundaryWrapper } from '../Error';
 import Notifications from './Notifications';
 import Profile from './Profile';
 import Triggers from './Triggers';
 
 const Root = () => (
-  <Switch>
-    <BoundaryRoute
-      exact
-      path="/dashboard/profile"
-      render={() => <Redirect to="/dashboard/profile/me" />}
+  <Routes>
+    <Route
+      path="/"
+      element={<Navigate to="/dashboard/profile/me" replace={true} />}
     />
-    <BoundaryRoute
-      exact
-      path="/dashboard/profile/me"
-      render={(routeProps) => <Profile {...routeProps} />}
+    <Route
+      path="/me"
+      element={<Profile />}
     />
-    <BoundaryRoute
-      exact
-      path="/dashboard/profile/notifications"
-      component={Notifications}
+    <Route
+      path="/notifications"
+      element={boundaryWrapper(Notifications)}
     />
-    <BoundaryRoute
-      exact
-      path="/dashboard/profile/triggers"
-      component={Triggers}
+    <Route
+      path="/triggers"
+      element={boundaryWrapper(Triggers)}
     />
-  </Switch>
+  </Routes>
 );
 
 export default Root;

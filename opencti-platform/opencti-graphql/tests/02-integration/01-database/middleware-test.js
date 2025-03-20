@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as R from 'ramda';
+import { GraphQLError } from 'graphql';
 import {
   createEntity,
   createRelation,
@@ -15,8 +16,9 @@ import {
   updateAttribute,
 } from '../../../src/database/middleware';
 import { elFindByIds, elLoadById, elRawSearch } from '../../../src/database/engine';
-import { ADMIN_USER, testContext } from '../../utils/testQuery';
+import { ADMIN_USER, buildStandardUser, TEST_ORGANIZATION, testContext, TESTING_ORGS } from '../../utils/testQuery';
 import {
+  ENTITY_TYPE_ATTACK_PATTERN,
   ENTITY_TYPE_CAMPAIGN,
   ENTITY_TYPE_CONTAINER_OBSERVED_DATA,
   ENTITY_TYPE_CONTAINER_REPORT,
@@ -27,7 +29,7 @@ import {
 } from '../../../src/schema/stixDomainObject';
 import { ABSTRACT_STIX_REF_RELATIONSHIP, buildRefRelationKey } from '../../../src/schema/general';
 import { RELATION_ATTRIBUTED_TO, RELATION_MITIGATES, RELATION_RELATED_TO, RELATION_USES } from '../../../src/schema/stixCoreRelationship';
-import { ENTITY_HASHED_OBSERVABLE_STIX_FILE } from '../../../src/schema/stixCyberObservable';
+import { ENTITY_HASHED_OBSERVABLE_STIX_FILE, STIX_CYBER_OBSERVABLES } from '../../../src/schema/stixCyberObservable';
 import { RELATION_OBJECT_LABEL, RELATION_OBJECT_MARKING } from '../../../src/schema/stixRefRelationship';
 import { addLabel } from '../../../src/domain/label';
 import { ENTITY_TYPE_LABEL } from '../../../src/schema/stixMetaObject';
@@ -47,6 +49,8 @@ import { ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../../../src/modules/organiza
 import { addReport } from '../../../src/domain/report';
 import { addIndividual } from '../../../src/domain/individual';
 import { addOrganization } from '../../../src/modules/organization/organization-domain';
+import { generateInternalId } from '../../../src/schema/identifier';
+import { mapEdgesCountPerEntityType } from '../../utils/domainQueryHelper';
 
 describe('Basic and utils', () => {
   it('should escape according to our needs', () => {
@@ -77,7 +81,7 @@ describe('Loaders', () => {
   it('should load subTypes values', async () => {
     const stixObservableSubTypes = await findAll(testContext, ADMIN_USER, { type: 'Stix-Cyber-Observable' });
     expect(stixObservableSubTypes).not.toBeNull();
-    expect(stixObservableSubTypes.edges.length).toEqual(29);
+    expect(stixObservableSubTypes.edges.length).toEqual(STIX_CYBER_OBSERVABLES.length);
     const subTypeLabels = R.map((e) => e.node.label, stixObservableSubTypes.edges);
     expect(R.includes('IPv4-Addr', subTypeLabels)).toBeTruthy();
     expect(R.includes('IPv6-Addr', subTypeLabels)).toBeTruthy();
@@ -181,7 +185,7 @@ describe('Entities listing', () => {
   it('should list multiple entities', async () => {
     const entities = await listEntities(testContext, ADMIN_USER, ['Malware', 'Organization']);
     expect(entities).not.toBeNull();
-    expect(entities.edges.length).toEqual(9); // 2 malwares + 7 organizations
+    expect(entities.edges.length).toEqual(TESTING_ORGS.length + 6 + 2); // 2 malwares + 6 organizations from data init
     const aggregationMap = new Map(entities.edges.map((i) => [i.node.name, i.node]));
     expect(aggregationMap.get('Paradise Ransomware')).not.toBeUndefined();
     expect(aggregationMap.get('Allied Universal')).not.toBeUndefined();
@@ -252,7 +256,15 @@ describe('Relations listing', () => {
     expect(stixCoreRelationships.edges.length).toEqual(24);
     const stixRefRelationships = await listRelations(testContext, ADMIN_USER, 'stix-ref-relationship');
     expect(stixRefRelationships).not.toBeNull();
-    expect(stixRefRelationships.edges.length).toEqual(124);
+    const entityTypeMap = mapEdgesCountPerEntityType(stixRefRelationships);
+    expect(entityTypeMap.get('created-by')).toBe(22);
+    expect(entityTypeMap.get('kill-chain-phase')).toBe(3);
+    expect(entityTypeMap.get('object-label')).toBe(30);
+    expect(entityTypeMap.get('object')).toBe(38);
+    expect(entityTypeMap.get('external-reference')).toBe(7);
+    expect(entityTypeMap.get('object-marking')).toBe(29);
+    expect(entityTypeMap.get('operating-system')).toBe(1);
+    expect(stixRefRelationships.edges.length).toEqual(130);
   });
   it('should list relations with roles', async () => {
     const stixRelations = await listRelations(testContext, ADMIN_USER, 'uses', {
@@ -711,6 +723,53 @@ describe('Relations distribution', () => {
     const aggregationMap = new Map(distribution.map((i) => [i.label, i.value]));
     expect(aggregationMap.get('Attack-Pattern')).toEqual(2);
   });
+  it('should relation distribution give entity details', async () => {
+    // const { limit = 50, order, inferred = false } = options;
+    // const { startDate, endDate, relationship_type, toTypes, fromId, field, operation } = options;
+    const malware = await elLoadById(testContext, ADMIN_USER, 'malware--faa5b705-cf44-4e50-8472-29e5fec43c3c');
+    const options = {
+      fromOrToId: [malware.internal_id],
+      relationship_type: ['uses'],
+      field: 'internal_id',
+      operation: 'count',
+    };
+    const distribution = await distributionRelations(testContext, ADMIN_USER, options);
+    expect(distribution.length).toEqual(3);
+    expect(distribution[0].entity.representative).toBeUndefined();
+    expect(distribution[1].entity.representative).toBeUndefined();
+    expect(distribution[2].entity.representative).toBeUndefined();
+    expect(distribution[0].entity.name).toBeDefined();
+    expect(distribution[1].entity.name).toBeDefined();
+    expect(distribution[2].entity.name).toBeDefined();
+  });
+  it('should relation distribution give restricted entity data', async () => {
+    // const { limit = 50, order, inferred = false } = options;
+    // const { startDate, endDate, relationship_type, toTypes, fromId, field, operation } = options;
+    const malware = await elLoadById(testContext, ADMIN_USER, 'malware--faa5b705-cf44-4e50-8472-29e5fec43c3c');
+    const options = {
+      fromOrToId: [malware.internal_id],
+      relationship_type: ['uses'],
+      field: 'internal_id',
+      operation: 'count',
+    };
+    const WHITE_TLP = { standard_id: 'marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9', internal_id: null };
+    const WHITE_USER = buildStandardUser([WHITE_TLP]);
+    const distribution = await distributionRelations(testContext, WHITE_USER, options);
+    expect(distribution.length).toEqual(3);
+
+    expect(distribution[0].entity.representative).toEqual({ main: 'Restricted', secondary: 'Restricted' });
+    expect(distribution[1].entity.representative).toEqual({ main: 'Restricted', secondary: 'Restricted' });
+    expect(distribution[2].entity.representative).toEqual({ main: 'Restricted', secondary: 'Restricted' });
+    expect(distribution[0].entity.name).toEqual('Restricted');
+    expect(distribution[1].entity.name).toEqual('Restricted');
+    expect(distribution[2].entity.name).toEqual('Restricted');
+    expect(distribution[0].entity.standard_id).toBeDefined();
+    expect(distribution[1].entity.standard_id).toBeDefined();
+    expect(distribution[2].entity.standard_id).toBeDefined();
+    expect(distribution[0].entity.created_at).toBeDefined();
+    expect(distribution[1].entity.created_at).toBeDefined();
+    expect(distribution[2].entity.created_at).toBeDefined();
+  });
 });
 
 // Some utils
@@ -773,6 +832,51 @@ const MD5 = '0a330361c8475ca475cbb5678643789b';
 const SHA1 = '4e6441ffd23006dc3be69e28ddc1978c3da2e7cd';
 const SHA256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
+describe('Create entities', () => {
+  it('should entity created and deleted', async () => {
+    const input = {
+      name: 'AttackPattern 001',
+      x_mitre_id: 'T001',
+      description: 'AttackPattern 001 description',
+      killChainPhases: ['kill-chain-phase--56330302-292c-5ad4-bece-bacaa99c16e0'],
+    };
+
+    const createdAttackPattern = await createEntity(testContext, ADMIN_USER, input, ENTITY_TYPE_ATTACK_PATTERN);
+    expect(createdAttackPattern).toBeDefined();
+
+    let readAttackPattern = await internalLoadById(testContext, ADMIN_USER, createdAttackPattern.id);
+    expect(readAttackPattern.id).toEqual(createdAttackPattern.id);
+    expect(readAttackPattern.name).toEqual('AttackPattern 001');
+
+    const deleted = await deleteElementById(testContext, ADMIN_USER, createdAttackPattern.id, ENTITY_TYPE_ATTACK_PATTERN);
+    expect(deleted?.id).toEqual(createdAttackPattern.id);
+
+    readAttackPattern = await internalLoadById(testContext, ADMIN_USER, createdAttackPattern.id);
+    expect(readAttackPattern).toBeUndefined();
+  });
+
+  // prerequisite to proper restoration after logical delete: we can createEntity with a fixed internal_id
+  it('should createEntity with given internal_id', async () => {
+    const attackPatternInternalId = generateInternalId();
+    const input = {
+      name: 'AttackPattern 002',
+      x_mitre_id: 'T002',
+      description: 'AttackPattern 002 description',
+      killChainPhases: ['kill-chain-phase--56330302-292c-5ad4-bece-bacaa99c16e0'],
+      internal_id: attackPatternInternalId,
+    };
+
+    const createdAttackPattern = await createEntity(testContext, ADMIN_USER, input, ENTITY_TYPE_ATTACK_PATTERN);
+    expect(createdAttackPattern?.id).toEqual(attackPatternInternalId);
+
+    const readAttackPattern = await internalLoadById(testContext, ADMIN_USER, attackPatternInternalId);
+    expect(readAttackPattern?.id).toEqual(attackPatternInternalId);
+
+    const deleted = await deleteElementById(testContext, ADMIN_USER, attackPatternInternalId, ENTITY_TYPE_ATTACK_PATTERN);
+    expect(deleted?.id).toEqual(attackPatternInternalId);
+  });
+});
+
 describe('Upsert and merge entities', () => {
   const amberMarking = 'marking-definition--f88d31f6-486f-44da-b317-01333bde0b82';
   const testMarking = 'marking-definition--907bb632-e3c2-52fa-b484-cf166a7d377c';
@@ -791,7 +895,8 @@ describe('Upsert and merge entities', () => {
     expect(createdMalware).not.toBeNull();
     expect(createdMalware.name).toEqual('MALWARE_TEST');
     expect(createdMalware.description).toEqual('MALWARE_TEST DESCRIPTION');
-    expect(createdMalware.i_aliases_ids.length).toEqual(1); // We put the name as internal alias id
+    expect(createdMalware.x_opencti_stix_ids.length).toEqual(1);
+    expect(createdMalware.i_aliases_ids.length).toEqual(0);
     let loadMalware = await storeLoadById(testContext, ADMIN_USER, createdMalware.id, ENTITY_TYPE_MALWARE);
     expect(loadMalware).not.toBeNull();
     expect(loadMalware['object-marking'].length).toEqual(2);
@@ -807,6 +912,21 @@ describe('Upsert and merge entities', () => {
     expect(upsertedMalware.name).toEqual('MALWARE_TEST');
     loadMalware = await storeLoadById(testContext, ADMIN_USER, createdMalware.id, ENTITY_TYPE_MALWARE);
     expect(loadMalware['object-marking'].length).toEqual(2);
+    // Upsert with new name but lower confidence
+    upMalware = {
+      name: 'MALWARE_TEST OTHER NAME',
+      aliases: ['MALWARE_TEST'],
+      stix_id: 'malware--600f3c54-c8b2-534a-a718-52a6693ba9de',
+      confidence: 10,
+    };
+    upsertedMalware = await addMalware(testContext, ADMIN_USER, upMalware);
+    expect(upsertedMalware.id).toEqual(createdMalware.id);
+    expect(upsertedMalware.standard_id).toEqual(createdMalware.standard_id);
+    expect(upsertedMalware.x_opencti_stix_ids.length).toEqual(2);
+    expect(upsertedMalware.x_opencti_stix_ids.includes('malware--600f3c54-c8b2-534a-a718-52a6693ba9de')).toBeTruthy();
+    expect(upsertedMalware.name).toEqual('MALWARE_TEST');
+    loadMalware = await storeLoadById(testContext, ADMIN_USER, createdMalware.id, ENTITY_TYPE_MALWARE);
+    expect(loadMalware['object-marking'].length).toEqual(2);
     // Upsert definition per alias
     upMalware = {
       name: 'NEW NAME',
@@ -819,13 +939,17 @@ describe('Upsert and merge entities', () => {
     expect(upsertedMalware.name).toEqual('NEW NAME');
     expect(upsertedMalware.description).toEqual('MALWARE_TEST NEW');
     expect(upsertedMalware.id).toEqual(createdMalware.id);
-    expect(upsertedMalware.x_opencti_stix_ids).toEqual(['malware--907bb632-e3c2-52fa-b484-cf166a7d377e']);
+    expect(upsertedMalware.x_opencti_stix_ids.length).toEqual(2);
+    expect(upsertedMalware.x_opencti_stix_ids.includes('malware--600f3c54-c8b2-534a-a718-52a6693ba9de')).toBeTruthy();
+    expect(upsertedMalware.x_opencti_stix_ids.includes('malware--907bb632-e3c2-52fa-b484-cf166a7d377e')).toBeTruthy();
     expect(upsertedMalware.aliases.sort()).toEqual(['NEW MALWARE ALIAS', 'MALWARE_TEST'].sort());
     loadMalware = await storeLoadById(testContext, ADMIN_USER, createdMalware.id, ENTITY_TYPE_MALWARE);
     expect(loadMalware.name).toEqual('NEW NAME');
     expect(loadMalware.description).toEqual('MALWARE_TEST NEW');
     expect(loadMalware.id).toEqual(loadMalware.id);
-    expect(loadMalware.x_opencti_stix_ids).toEqual(['malware--907bb632-e3c2-52fa-b484-cf166a7d377e']);
+    expect(loadMalware.x_opencti_stix_ids.length).toEqual(2);
+    expect(loadMalware.x_opencti_stix_ids.includes('malware--600f3c54-c8b2-534a-a718-52a6693ba9de')).toBeTruthy();
+    expect(loadMalware.x_opencti_stix_ids.includes('malware--907bb632-e3c2-52fa-b484-cf166a7d377e')).toBeTruthy();
     expect(loadMalware.aliases.sort()).toEqual(['NEW MALWARE ALIAS', 'MALWARE_TEST'].sort());
     // Delete the markings
     const clear = await internalLoadById(testContext, ADMIN_USER, clearMarking);
@@ -857,7 +981,9 @@ describe('Upsert and merge entities', () => {
       start_time: '2021-10-11T22:00:00.000Z',
       stop_time: '2021-10-08T22:00:00.000Z',
     });
-    await expect(createBadRelation()).rejects.toThrow('You cant create a relation with a start_time less than the stop_time');
+    await expect(createBadRelation()).rejects.toEqual(
+      new GraphQLError('You cant create a relation with a stop_time less than the start_time')
+    );
     const rel = await createRelation(testContext, ADMIN_USER, {
       fromId: target.internal_id,
       toId: malware.internal_id,
@@ -867,7 +993,9 @@ describe('Upsert and merge entities', () => {
     });
     const inputUpdate = { key: 'start_time', value: ['2021-10-20T22:00:00.000Z'] };
     const update = () => updateAttribute(testContext, ADMIN_USER, rel.id, RELATION_USES, [inputUpdate]);
-    await expect(update()).rejects.toThrow('You cant update an element with stop_time less than start_time');
+    await expect(update()).rejects.toEqual(
+      new GraphQLError('You cant update an element with stop_time less than start_time')
+    );
     await deleteElementById(testContext, ADMIN_USER, target.id, ENTITY_TYPE_THREAT_ACTOR_GROUP);
     await deleteElementById(testContext, ADMIN_USER, malware.id, ENTITY_TYPE_MALWARE);
   });
@@ -972,7 +1100,7 @@ describe('Upsert and merge entities', () => {
     // Test the merged data
     expect(loadedThreat).not.toBeNull();
     expect(loadedThreat.aliases.length).toEqual(6); // [THREAT_SOURCE_01, THREAT_SOURCE_02, THREAT_SOURCE_03, THREAT_SOURCE_04, THREAT_SOURCE_05, THREAT_SOURCE_06]
-    expect(loadedThreat.i_aliases_ids.length).toEqual(7);
+    expect(loadedThreat.i_aliases_ids.length).toEqual(6);
     expect(loadedThreat.goals).toEqual(['MY GOAL']);
     expect(loadedThreat.createdBy).not.toBeUndefined(); // [organizationThreatTarget]
     expect(loadedThreat.createdBy.name).toEqual('organizationThreatTarget'); // [organizationThreatTarget]
@@ -1184,6 +1312,7 @@ describe('Elements upsert behaviors', () => {
     expect(malware).not.toBeNull();
     expect(malware.name).toEqual('TO_UPSERT');
     expect(malware.confidence).toEqual(10);
+    expect(malware.is_family).toEqual(false);
     expect(malware.description).toEqual(undefined);
     expect(malware.objectMarking).toEqual(undefined);
     // Testing empty value with lower confidence
@@ -1198,7 +1327,7 @@ describe('Elements upsert behaviors', () => {
     });
     expect(malware.confidence).toEqual(10);
     expect(malware.description).toEqual('TO DESC');
-    expect(malware.is_family).toEqual(true);
+    expect(malware.is_family).toEqual(false);
     expect(malware.revoked).toEqual(false);
     expect(malware.first_seen).toEqual('1970-01-01T00:00:00.000Z');
     expect(malware.malware_types).toEqual(['downloader', 'trojan']);
@@ -1269,5 +1398,49 @@ describe('Elements upsert behaviors', () => {
 
     // Cleanup
     await deleteElementById(testContext, ADMIN_USER, stixId, ENTITY_TYPE_MALWARE);
+  });
+});
+describe('Elements deduplication behaviors', () => {
+  it('should prevent update resulting in duplicate entities', async () => {
+    const WHITE_TLP = { standard_id: 'marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9', internal_id: null };
+    const WHITE_USER = buildStandardUser([WHITE_TLP]);
+    const greenMarking = 'marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da';
+    const group1Name = 'THREAT_NAME_1';
+    const group2Name = 'THREAT_NAME_2';
+    // group 1
+    const sourceGroup1 = {
+      name: group1Name,
+      objectMarking: [WHITE_TLP.standard_id],
+    };
+    const group1 = await createThreat(sourceGroup1);
+    // group 2
+    const sourceGroup2 = {
+      name: group2Name,
+      objectMarking: [greenMarking],
+    };
+    const group2 = await createThreat(sourceGroup2);
+
+    // Update should be prevented by deduplication
+    const inputUpdate = { key: 'name', value: [group1Name] };
+    const update = () => updateAttribute(testContext, WHITE_USER, group2.id, ENTITY_TYPE_THREAT_ACTOR_GROUP, [inputUpdate]);
+    await expect(update()).rejects.toEqual(
+      new GraphQLError('This update will produce a duplicate')
+    );
+
+    // Cleanup
+    await deleteElementById(testContext, ADMIN_USER, group1.id, ENTITY_TYPE_THREAT_ACTOR_GROUP);
+    await deleteElementById(testContext, ADMIN_USER, group2.id, ENTITY_TYPE_THREAT_ACTOR_GROUP);
+  });
+});
+
+describe('Delete functional errors behaviors', () => {
+  it('should not be able to delete organization that has members', async () => {
+    await expect(() => deleteElementById(testContext, ADMIN_USER, TEST_ORGANIZATION.id, ENTITY_TYPE_IDENTITY_ORGANIZATION))
+      .rejects.toThrowError('Cannot delete an organization that has members.');
+  });
+  it.skip('should not be able to delete individual associated to user', async () => {
+    const individualUserId = 'identity--cfb1de38-c40a-5f51-81f3-35036a4e3b91'; // admin individual
+    await expect(() => deleteElementById(testContext, ADMIN_USER, individualUserId, ENTITY_TYPE_IDENTITY_INDIVIDUAL))
+      .rejects.toThrowError('Cannot delete an individual corresponding to a user');
   });
 });

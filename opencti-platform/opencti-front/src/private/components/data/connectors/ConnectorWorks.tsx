@@ -1,14 +1,10 @@
 import React, { FunctionComponent, useEffect, useState } from 'react';
-import { graphql, createRefetchContainer, RelayRefetchProp, useMutation } from 'react-relay';
+import { graphql, createRefetchContainer, RelayRefetchProp } from 'react-relay';
 import Grid from '@mui/material/Grid';
 import Typography from '@mui/material/Typography';
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogActions from '@mui/material/DialogActions';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -19,20 +15,28 @@ import Tooltip from '@mui/material/Tooltip';
 import { interval } from 'rxjs';
 import { Delete } from 'mdi-material-ui';
 import makeStyles from '@mui/styles/makeStyles';
-import { ConnectorWorks_data$data } from '@components/data/connectors/__generated__/ConnectorWorks_data.graphql';
-import { ConnectorWorksQuery$variables } from '@components/data/connectors/__generated__/ConnectorWorksQuery.graphql';
+import Drawer from '@components/common/drawer/Drawer';
+import Alert from '@mui/material/Alert';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import parseWorkErrors, { ParsedWorkMessage } from '@components/data/connectors/parseWorkErrors';
+import { ConnectorWorksQuery$variables } from './__generated__/ConnectorWorksQuery.graphql';
+import { ConnectorWorks_data$data } from './__generated__/ConnectorWorks_data.graphql';
 import TaskStatus from '../../../../components/TaskStatus';
 import { useFormatter } from '../../../../components/i18n';
 import { FIVE_SECONDS } from '../../../../utils/Time';
 import { MESSAGING$ } from '../../../../relay/environment';
-import Transition from '../../../../components/Transition';
+import { MODULES_MODMANAGE } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import ConnectorWorksErrorLine from './ConnectorWorksErrorLine';
 
 const interval$ = interval(FIVE_SECONDS);
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '10px 0 20px 0',
     padding: '15px',
     borderRadius: 4,
@@ -69,30 +73,43 @@ export const connectorWorksWorkDeletionMutation = graphql`
   }
 `;
 
-type WorkMessages = NonNullable<NonNullable<NonNullable<ConnectorWorks_data$data['works']>['edges']>[0]>['node']['errors'];
+export type WorkMessages = NonNullable<NonNullable<NonNullable<ConnectorWorks_data$data['works']>['edges']>[0]>['node']['errors'];
 
 interface ConnectorWorksComponentProps {
   data: ConnectorWorks_data$data
   options: ConnectorWorksQuery$variables[]
   relay: RelayRefetchProp
+  inProgress?: boolean
 }
 
-const ConnectorWorksComponent: FunctionComponent<ConnectorWorksComponentProps> = ({ data, options, relay }) => {
+const ConnectorWorksComponent: FunctionComponent<ConnectorWorksComponentProps> = ({
+  data,
+  options,
+  relay,
+  inProgress,
+}) => {
   const works = data.works?.edges ?? [];
   const { t_i18n, nsdt } = useFormatter();
   const classes = useStyles();
-  const [displayErrors, setDisplayErrors] = useState<boolean>(false);
-  const [errors, setErrors] = useState<WorkMessages>([]);
-  const [commit] = useMutation(connectorWorksWorkDeletionMutation);
+  const [commit] = useApiMutation(connectorWorksWorkDeletionMutation);
+  const [openDrawerErrors, setOpenDrawerErrors] = useState<boolean>(false);
+  const [errors, setErrors] = useState<ParsedWorkMessage[]>([]);
+  const [criticals, setCriticals] = useState<ParsedWorkMessage[]>([]);
+  const [warnings, setWarnings] = useState<ParsedWorkMessage[]>([]);
+  const [tabValue, setTabValue] = useState<string>('Critical');
 
-  const handleOpenErrors = (errorsList: WorkMessages) => {
-    if (!errorsList) return;
-    setDisplayErrors(true);
-    setErrors(errorsList);
+  const handleOpenDrawerErrors = async (errorsList: WorkMessages) => {
+    setOpenDrawerErrors(true);
+    const parsedList = await parseWorkErrors(errorsList);
+    setErrors(parsedList);
+    const criticalErrors = parsedList.filter((error) => error.level === 'Critical');
+    setCriticals(criticalErrors);
+    const warningErrors = parsedList.filter((error) => error.level === 'Warning');
+    setWarnings(warningErrors);
   };
 
-  const handleCloseErrors = () => {
-    setDisplayErrors(false);
+  const handleCloseDrawerErrors = () => {
+    setOpenDrawerErrors(false);
     setErrors([]);
   };
 
@@ -115,8 +132,12 @@ const ConnectorWorksComponent: FunctionComponent<ConnectorWorksComponentProps> =
   }, []);
 
   return (
-    <div>
-      {works.length === 0 && (
+    <>
+      <Typography variant="h4" gutterBottom={true}>
+        {inProgress ? t_i18n('In progress works') : t_i18n('Completed works')}{` (${works.length})`}
+      </Typography>
+      <div>
+        {works.length === 0 && (
         <Paper
           classes={{ root: classes.paper }}
           variant="outlined"
@@ -125,156 +146,157 @@ const ConnectorWorksComponent: FunctionComponent<ConnectorWorksComponentProps> =
             {t_i18n('No work')}
           </Typography>
         </Paper>
-      )}
-      {works.map((workEdge) => {
-        const work = workEdge?.node;
-        if (!work) return null;
-        const { tracking } = work;
-        return (
-          <Paper
-            key={work.id}
-            classes={{ root: classes.paper }}
-            variant="outlined"
-          >
-            <Grid container={true} spacing={3}>
-              <Grid item={true} xs={7}>
-                <Grid container={true} spacing={1}>
-                  <Grid item={true} xs={8}>
-                    <Typography variant="h3" gutterBottom={true}>
-                      {t_i18n('Name')}
-                    </Typography>
-                    <Tooltip title={work.name}>
-                      <Typography sx={{ overflowX: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'noWrap' }}>
-                        {work.name}
+        )}
+        {works.map((workEdge) => {
+          const work = workEdge?.node;
+          if (!work) return null;
+          const { tracking } = work;
+          return (
+            <Paper
+              key={work.id}
+              classes={{ root: classes.paper }}
+              variant="outlined"
+            >
+              <Grid container={true} spacing={3}>
+                <Grid item xs={7}>
+                  <Grid container={true} spacing={1}>
+                    <Grid item xs={8}>
+                      <Typography variant="h3" gutterBottom={true}>
+                        {t_i18n('Name')}
                       </Typography>
-                    </Tooltip>
-                  </Grid>
-                  <Grid item={true} xs={4}>
-                    <Typography variant="h3" gutterBottom={true}>
-                      {t_i18n('Status')}
-                    </Typography>
-                    <TaskStatus status={work.status} label={t_i18n(work.status)} />
-                  </Grid>
-                  <Grid item={true} xs={8}>
-                    <Typography
-                      variant="h3"
-                      gutterBottom={true}
-                      classes={{ root: classes.bottomTypo }}
-                    >
-                      {t_i18n('Work start time')}
-                    </Typography>
-                    {nsdt(work.received_time)}
-                  </Grid>
-                  <Grid item={true} xs={4}>
-                    <Typography
-                      variant="h3"
-                      gutterBottom={true}
-                      classes={{ root: classes.bottomTypo }}
-                    >
-                      {t_i18n('Work end time')}
-                    </Typography>
-                    {work.completed_time ? nsdt(work.completed_time) : '-'}
+                      <Tooltip title={work.name}>
+                        <Typography sx={{ overflowX: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'noWrap' }}>
+                          {work.name}
+                        </Typography>
+                      </Tooltip>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Typography variant="h3" gutterBottom={true}>
+                        {t_i18n('Status')}
+                      </Typography>
+                      <TaskStatus status={work.status} label={t_i18n(work.status)} />
+                    </Grid>
+                    <Grid item xs={8}>
+                      <Typography
+                        variant="h3"
+                        gutterBottom={true}
+                        classes={{ root: classes.bottomTypo }}
+                      >
+                        {t_i18n('Work start time')}
+                      </Typography>
+                      {nsdt(work.received_time)}
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Typography
+                        variant="h3"
+                        gutterBottom={true}
+                        classes={{ root: classes.bottomTypo }}
+                      >
+                        {t_i18n('Work end time')}
+                      </Typography>
+                      {work.completed_time ? nsdt(work.completed_time) : '-'}
+                    </Grid>
                   </Grid>
                 </Grid>
-              </Grid>
-              <Grid item={true} xs={4}>
-                <Grid container={true} spacing={3}>
-                  <Grid item={true} xs={6}>
-                    <Typography variant="h3" gutterBottom={true}>
-                      {t_i18n('Operations completed')}
-                    </Typography>
-                    <span className={classes.number}>
-                      {work.status === 'wait'
-                        ? '-'
-                        : tracking?.import_processed_number ?? '-'}
-                    </span>
-                  </Grid>
-                  <Grid item={true} xs={6}>
-                    <Typography variant="h3" gutterBottom={true}>
-                      {t_i18n('Total number of operations')}
-                    </Typography>
-                    <span className={classes.number}>
-                      {work.status === 'wait'
-                        ? '-'
-                        : tracking?.import_expected_number ?? '-'}
-                    </span>
-                  </Grid>
-                  <Grid item={true} xs={11}>
-                    <Typography variant="h3" gutterBottom={true}>
-                      {t_i18n('Progress')}
-                    </Typography>
-                    <LinearProgress
-                      classes={{ root: classes.progress }}
-                      variant="determinate"
-                      value={
+                <Grid item xs={4}>
+                  <Grid container={true} spacing={3}>
+                    <Grid item xs={6}>
+                      <Typography variant="h3" gutterBottom={true}>
+                        {t_i18n('Operations completed')}
+                      </Typography>
+                      <span className={classes.number}>
+                        {work.status === 'wait'
+                          ? '-'
+                          : tracking?.import_processed_number ?? '-'}
+                      </span>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="h3" gutterBottom={true}>
+                        {t_i18n('Total number of operations')}
+                      </Typography>
+                      <span className={classes.number}>
+                        {tracking?.import_expected_number ?? '-'}
+                      </span>
+                    </Grid>
+                    <Grid item xs={11}>
+                      <Typography variant="h3" gutterBottom={true}>
+                        {t_i18n('Progress')}
+                      </Typography>
+                      <LinearProgress
+                        classes={{ root: classes.progress }}
+                        variant="determinate"
+                        value={
                         tracking && !!tracking.import_expected_number && !!tracking.import_processed_number
                           ? Math.round((tracking.import_processed_number / tracking.import_expected_number) * 100)
                           : 0
                       }
-                    />
+                      />
+                    </Grid>
                   </Grid>
                 </Grid>
+                <Button
+                  classes={{ root: classes.errorButton }}
+                  variant="outlined"
+                  color={(work.errors ?? []).length === 0 ? 'success' : 'warning'}
+                  onClick={() => handleOpenDrawerErrors(work.errors ?? [])}
+                  size="small"
+                >
+                  {work.errors?.length} {t_i18n('errors')}
+                </Button>
+                <Security needs={[MODULES_MODMANAGE]}>
+                  <Button
+                    variant="outlined"
+                    classes={{ root: classes.deleteButton }}
+                    onClick={() => handleDeleteWork(work.id)}
+                    size="small"
+                    startIcon={<Delete/>}
+                  >
+                    {t_i18n('Delete')}
+                  </Button>
+                </Security>
               </Grid>
-              <Button
-                classes={{ root: classes.errorButton }}
-                variant="outlined"
-                color={(work.errors ?? []).length === 0 ? 'success' : 'warning'}
-                onClick={() => handleOpenErrors(work.errors ?? [])}
-                size="small"
-              >
-                {work.errors?.length} {t_i18n('errors')}
-              </Button>
-              <Button
-                variant="outlined"
-                classes={{ root: classes.deleteButton }}
-                onClick={() => handleDeleteWork(work.id)}
-                size="small"
-                startIcon={<Delete/>}
-              >
-                {t_i18n('Delete')}
-              </Button>
-            </Grid>
-          </Paper>
-        );
-      })}
-      <Dialog
-        PaperProps={{ elevation: 1 }}
-        open={displayErrors}
-        TransitionComponent={Transition}
-        onClose={handleCloseErrors}
-        fullScreen={true}
-      >
-        <DialogContent>
-          <DialogContentText>
+            </Paper>
+          );
+        })}
+        <Drawer
+          title={t_i18n('Errors')}
+          open={openDrawerErrors}
+          onClose={handleCloseDrawerErrors}
+        >
+          <>
+            <Alert severity="info">{t_i18n('This page lists only the first 100 errors returned by the connector')}</Alert>
+            <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
+              <Tab label={`${t_i18n('Critical')} (${criticals.length})`} value="Critical" />
+              <Tab label={`${t_i18n('Warning')} (${warnings.length})`} value="Warning" />
+              <Tab label={`${t_i18n('All')} (${errors.length})`} value="All" />
+            </Tabs>
             <TableContainer component={Paper}>
-              <Table aria-label="simple table">
+              <Table aria-label="errors table">
                 <TableHead>
                   <TableRow>
                     <TableCell>{t_i18n('Timestamp')}</TableCell>
+                    <TableCell>{t_i18n('Code')}</TableCell>
                     <TableCell>{t_i18n('Message')}</TableCell>
                     <TableCell>{t_i18n('Source')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {errors?.map((error) => error && (
-                    <TableRow key={error.timestamp}>
-                      <TableCell>{nsdt(error.timestamp)}</TableCell>
-                      <TableCell>{error.message}</TableCell>
-                      <TableCell>{error.source}</TableCell>
-                    </TableRow>
+                  {tabValue === 'Critical' && criticals.map((error, i) => (
+                    <ConnectorWorksErrorLine key={error.rawError?.timestamp ?? i} error={error} />
+                  ))}
+                  {tabValue === 'Warning' && warnings.map((error, i) => (
+                    <ConnectorWorksErrorLine key={error.rawError?.timestamp ?? i} error={error} />
+                  ))}
+                  {tabValue === 'All' && errors.map((error, i) => (
+                    <ConnectorWorksErrorLine key={error.rawError?.timestamp ?? i} error={error} />
                   ))}
                 </TableBody>
               </Table>
             </TableContainer>
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseErrors} color="primary">
-            {t_i18n('Close')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </div>
+          </>
+        </Drawer>
+      </div>
+    </>
   );
 };
 

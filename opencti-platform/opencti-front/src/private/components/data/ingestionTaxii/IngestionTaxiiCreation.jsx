@@ -7,6 +7,7 @@ import * as Yup from 'yup';
 import { graphql } from 'react-relay';
 import * as R from 'ramda';
 import MenuItem from '@mui/material/MenuItem';
+import { BASIC_AUTH, BEARER_AUTH, CERT_AUTH, getAuthenticationValue } from '../../../../utils/ingestionAuthentificationUtils';
 import Drawer, { DrawerVariant } from '../../common/drawer/Drawer';
 import inject18n from '../../../../components/i18n';
 import { commitMutation } from '../../../../relay/environment';
@@ -14,8 +15,10 @@ import TextField from '../../../../components/TextField';
 import CreatorField from '../../common/form/CreatorField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { insertNode } from '../../../../utils/store';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import PasswordTextField from '../../../../components/PasswordTextField';
 
 const styles = (theme) => ({
   buttons: {
@@ -52,17 +55,14 @@ const ingestionTaxiiCreationValidation = (t) => Yup.object().shape({
   added_after_start: Yup.date()
     .typeError(t('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)'))
     .nullable(),
+  confidence_to_score: Yup.bool().nullable(),
 });
 
 const IngestionTaxiiCreation = (props) => {
   const { t, classes } = props;
   const onSubmit = (values, { setSubmitting, resetForm }) => {
-    let authentifcationValue = values.authentication_value;
-    if (values.authentication_type === 'basic') {
-      authentifcationValue = `${values.username}:${values.password}`;
-    } else if (values.authentication_type === 'certificate') {
-      authentifcationValue = `${values.cert}:${values.key}:${values.ca}`;
-    }
+    const authentifcationValueResolved = getAuthenticationValue(values);
+
     const input = {
       name: values.name,
       description: values.description,
@@ -70,9 +70,10 @@ const IngestionTaxiiCreation = (props) => {
       version: values.version,
       collection: values.collection,
       authentication_type: values.authentication_type,
-      authentication_value: authentifcationValue,
+      authentication_value: authentifcationValueResolved,
       added_after_start: values.added_after_start,
       user_id: values.user_id?.value,
+      confidence_to_score: values.confidence_to_score,
     };
     commitMutation({
       mutation: IngestionTaxiiCreationMutation,
@@ -94,6 +95,7 @@ const IngestionTaxiiCreation = (props) => {
       },
     });
   };
+
   return (
     <Drawer
       title={t('Create a TAXII ingester')}
@@ -116,13 +118,14 @@ const IngestionTaxiiCreation = (props) => {
             cert: '',
             key: '',
             ca: '',
+            confidence_to_score: false,
           }}
           validationSchema={ingestionTaxiiCreationValidation(t)}
           onSubmit={onSubmit}
           onReset={onClose}
         >
           {({ submitForm, handleReset, isSubmitting, values }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"
@@ -157,12 +160,6 @@ const IngestionTaxiiCreation = (props) => {
                   marginTop: 20,
                 }}
               >
-                <MenuItem value="v1" disabled={true}>
-                  {t('TAXII 1.0')}
-                </MenuItem>
-                <MenuItem value="v2" disabled={true}>
-                  {t('TAXII 2.0')}
-                </MenuItem>
                 <MenuItem value="v21">{t('TAXII 2.1')}</MenuItem>
               </Field>
               <Field
@@ -193,70 +190,57 @@ const IngestionTaxiiCreation = (props) => {
                   {t('Client certificate')}
                 </MenuItem>
               </Field>
-              {values.authentication_type === 'basic' && (
-                <>
-                  <Field
-                    component={TextField}
-                    variant="standard"
-                    name="username"
-                    label={t('Username')}
-                    fullWidth={true}
-                    style={fieldSpacingContainerStyle}
-                  />
-                  <Field
-                    component={TextField}
-                    variant="standard"
-                    name="password"
-                    label={t('Password')}
-                    fullWidth={true}
-                    style={fieldSpacingContainerStyle}
-                  />
-                </>
-              )}
-              {values.authentication_type === 'bearer' && (
+              {values.authentication_type === BASIC_AUTH && (
+              <>
                 <Field
                   component={TextField}
                   variant="standard"
-                  name="authentication_value"
-                  label={t('Token')}
+                  name="username"
+                  label={t('Username')}
                   fullWidth={true}
                   style={fieldSpacingContainerStyle}
                 />
+                <PasswordTextField
+                  name="password"
+                  label={t('Password')}
+                />
+              </>
               )}
-              {values.authentication_type === 'certificate' && (
-                <>
-                  <Field
-                    component={TextField}
-                    variant="standard"
-                    name="cert"
-                    label={t('Certificate (base64)')}
-                    fullWidth={true}
-                    style={fieldSpacingContainerStyle}
-                  />
-                  <Field
-                    component={TextField}
-                    variant="standard"
-                    name="key"
-                    label={t('Key (base64)')}
-                    fullWidth={true}
-                    style={fieldSpacingContainerStyle}
-                  />
-                  <Field
-                    component={TextField}
-                    variant="standard"
-                    name="ca"
-                    label={t('CA certificate (base64)')}
-                    fullWidth={true}
-                    style={fieldSpacingContainerStyle}
-                  />
-                </>
+              {values.authentication_type === BEARER_AUTH && (
+              <PasswordTextField
+                name="authentication_value"
+                label={t('Token')}
+              />
+              )}
+              {values.authentication_type === CERT_AUTH && (
+              <>
+                <Field
+                  component={TextField}
+                  variant="standard"
+                  name="cert"
+                  label={t('Certificate (base64)')}
+                  fullWidth={true}
+                  style={fieldSpacingContainerStyle}
+                />
+                <PasswordTextField
+                  name="key"
+                  label={t('Key (base64)')}
+                />
+                <Field
+                  component={TextField}
+                  variant="standard"
+                  name="ca"
+                  label={t('CA certificate (base64)')}
+                  fullWidth={true}
+                  style={fieldSpacingContainerStyle}
+                />
+              </>
               )}
               <CreatorField
                 name="user_id"
-                label={t(
-                  'User responsible for data creation (empty = System)',
-                )}
+                label={t('User responsible for data creation (empty = System)')}
                 containerStyle={fieldSpacingContainerStyle}
+                showConfidence
               />
               <Field
                 component={DateTimePickerField}
@@ -269,6 +253,13 @@ const IngestionTaxiiCreation = (props) => {
                   fullWidth: true,
                   style: { marginTop: 20 },
                 }}
+              />
+              <Field
+                component={SwitchField}
+                type="checkbox"
+                name="confidence_to_score"
+                label={t('Copy confidence level to OpenCTI scores for indicators')}
+                containerstyle={fieldSpacingContainerStyle}
               />
               <div className={classes.buttons}>
                 <Button

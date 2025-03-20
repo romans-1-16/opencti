@@ -6,14 +6,14 @@ import withTheme from '@mui/styles/withTheme';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import ForceGraph2D from 'react-force-graph-2d';
-import { withRouter } from 'react-router-dom';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import inject18n from '../../../../components/i18n';
 import { buildGraphData, linkPaint, nodeAreaPaint, nodePaint } from '../../../../utils/Graph';
 import { resolveLink } from '../../../../utils/Entity';
 import { isEmptyField } from '../../../../utils/utils';
 import MarkdownDisplay from '../../../../components/MarkdownDisplay';
 
-const styles = () => ({
+const styles = (theme) => ({
   container: {
     position: 'relative',
   },
@@ -22,7 +22,7 @@ const styles = () => ({
     position: 'relative',
     height: 500,
     minHeight: 500,
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
     textAlign: 'center',
@@ -64,7 +64,7 @@ class StixCoreRelationshipInference extends Component {
         ? 'sightings'
         : 'relations'
     }/${link.id}`;
-    this.props.history.push(permalink);
+    this.props.navigate(permalink);
   }
 
   render() {

@@ -7,12 +7,6 @@ import DialogContent from '@mui/material/DialogContent';
 import Alert from '@mui/material/Alert';
 import { graphql, useSubscription } from 'react-relay';
 import { GraphQLSubscriptionConfig } from 'relay-runtime';
-import { CKEditor } from '@ckeditor/ckeditor5-react';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import Editor from 'ckeditor5-custom-build/build/ckeditor';
-import 'ckeditor5-custom-build/build/translations/fr';
-import 'ckeditor5-custom-build/build/translations/zh-cn';
 import ReactMde from 'react-mde';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
@@ -24,6 +18,7 @@ import { ResponseDialogAskAISubscription, ResponseDialogAskAISubscription$data }
 import { useFormatter } from '../../components/i18n';
 import MarkdownDisplay from '../../components/MarkdownDisplay';
 import { isNotEmptyField } from '../utils';
+import CKEditor from '../../components/CKEditor';
 
 // region types
 interface ResponseDialogProps {
@@ -50,6 +45,14 @@ const subscription = graphql`
         }
     }
 `;
+
+const classes = {
+  dialog: {
+    '.MuiDialogContent-root': {
+      paddingTop: '15px',
+    },
+  },
+};
 
 const ResponseDialog: FunctionComponent<ResponseDialogProps> = ({
   id,
@@ -85,8 +88,7 @@ const ResponseDialog: FunctionComponent<ResponseDialogProps> = ({
     return setContent(newContent ?? '');
   };
   const subConfig = useMemo<
-  GraphQLSubscriptionConfig<ResponseDialogAskAISubscription>
-  >(
+  GraphQLSubscriptionConfig<ResponseDialogAskAISubscription>>(
     () => ({
       subscription,
       variables: { id },
@@ -110,6 +112,7 @@ const ResponseDialog: FunctionComponent<ResponseDialogProps> = ({
         }}
         fullWidth={true}
         maxWidth="lg"
+        sx={classes.dialog}
       >
         <DialogTitle>{t_i18n('Ask AI')}</DialogTitle>
         <DialogContent>
@@ -141,8 +144,6 @@ const ResponseDialog: FunctionComponent<ResponseDialogProps> = ({
             {format === 'html' && (
               <CKEditor
                 id="response-dialog-editor"
-                editor={Editor}
-                config={{ language: 'en', toolbar: { shouldNotGroupWhenFull: true } }}
                 data={content}
                 onChange={(_, editor) => {
                   // eslint-disable-next-line @typescript-eslint/ban-ts-comment

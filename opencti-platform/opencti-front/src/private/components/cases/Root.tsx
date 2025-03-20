@@ -1,11 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// TODO Remove this when V6
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck
 import React, { Suspense, lazy } from 'react';
-import { Redirect, Switch } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { boundaryWrapper } from '@components/Error';
 import { useIsHiddenEntity } from '../../../utils/hooks/useEntitySettings';
-import { BoundaryRoute } from '../Error';
 import Loader from '../../../components/Loader';
 
 const CaseIncidents = lazy(() => import('./CaseIncidents'));
@@ -35,58 +31,52 @@ const Root = () => {
 
   return (
     <Suspense fallback={<Loader />}>
-      <Switch>
-        <BoundaryRoute
-          exact
-          path="/dashboard/cases"
-          render={() => <Redirect to={`/dashboard/cases/${redirect}`} />}
+      <Routes>
+        <Route
+          path="/"
+          element={<Navigate to={`/dashboard/cases/${redirect}`} replace={true} />}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/cases/incidents"
-          component={CaseIncidents}
+        <Route
+          path="/incidents"
+          element={boundaryWrapper(CaseIncidents)}
         />
-        <BoundaryRoute
-          path="/dashboard/cases/incidents/:caseId"
-          component={RootIncident}
+        <Route
+          path="/incidents/:caseId/*"
+          element={boundaryWrapper(RootIncident)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/cases/rfis"
-          component={CaseRfis}
+        <Route
+          path="/rfis"
+          element={boundaryWrapper(CaseRfis)}
         />
-        <BoundaryRoute
-          path="/dashboard/cases/rfis/:caseId"
-          component={RootCaseRfi}
+        <Route
+          path="/rfis/:caseId/*"
+          element={boundaryWrapper(RootCaseRfi)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/cases/rfts"
-          component={CaseRfts}
+        <Route
+          path="/rfts"
+          element={boundaryWrapper(CaseRfts)}
         />
-        <BoundaryRoute
-          path="/dashboard/cases/rfts/:caseId"
-          component={RootCaseRft}
+        <Route
+          path="/rfts/:caseId/*"
+          element={boundaryWrapper(RootCaseRft)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/cases/tasks"
-          component={Tasks}
+        <Route
+          path="/tasks"
+          element={boundaryWrapper(Tasks)}
         />
-        <BoundaryRoute
-          path="/dashboard/cases/tasks/:taskId"
-          component={RootTask}
+        <Route
+          path="/tasks/:taskId/*"
+          element={boundaryWrapper(RootTask)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/cases/feedbacks"
-          component={Feedbacks}
+        <Route
+          path="/feedbacks"
+          element={boundaryWrapper(Feedbacks)}
         />
-        <BoundaryRoute
-          path="/dashboard/cases/feedbacks/:caseId"
-          component={RootFeedback}
+        <Route
+          path="/feedbacks/:caseId/*"
+          element={boundaryWrapper(RootFeedback)}
         />
-      </Switch>
+      </Routes>
     </Suspense>
   );
 };

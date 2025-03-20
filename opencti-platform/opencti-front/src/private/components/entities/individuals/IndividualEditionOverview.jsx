@@ -9,7 +9,7 @@ import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
@@ -19,6 +19,8 @@ import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySet
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useHelper from '../../../../utils/hooks/useHelper';
+import IndividualDeletion from './IndividualDeletion';
 
 const individualMutationFieldPatch = graphql`
   mutation IndividualEditionOverviewFieldPatchMutation(
@@ -85,9 +87,10 @@ const individualMutationRelationDelete = graphql`
 const IndividualEditionOverviewComponent = (props) => {
   const { individual, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
     contact_information: Yup.string().nullable(),
@@ -185,7 +188,7 @@ const IndividualEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={individual} />
           <Field
             component={TextField}
@@ -280,16 +283,23 @@ const IndividualEditionOverviewComponent = (props) => {
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-          <CommitMessage
-            submitForm={submitForm}
-            disabled={isSubmitting || !isValid || !dirty}
-            setFieldValue={setFieldValue}
-            open={false}
-            values={values.references}
-            id={individual.id}
-          />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <IndividualDeletion
+                  id={individual.id}
+                />
+              : <div />}
+            {enableReferences && (
+            <CommitMessage
+              submitForm={submitForm}
+              disabled={isSubmitting || !isValid || !dirty}
+              setFieldValue={setFieldValue}
+              open={false}
+              values={values.references}
+              id={individual.id}
+            />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -304,6 +314,7 @@ export default createFragmentContainer(IndividualEditionOverviewComponent, {
         description
         contact_information
         confidence
+        entity_type
         x_opencti_reliability
         createdBy {
           ... on Identity {

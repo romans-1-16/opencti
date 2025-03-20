@@ -10,7 +10,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import { FormikConfig } from 'formik/dist/types';
 import { buildDate, formatDate } from '../../../../utils/Time';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { SubscriptionAvatars, SubscriptionFocus } from '../../../../components/Subscription';
 import KillChainPhasesField from '../form/KillChainPhasesField';
 import ObjectMarkingField from '../form/ObjectMarkingField';
@@ -34,6 +34,8 @@ import type { Theme } from '../../../../components/Theme';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   header: {
     backgroundColor: theme.palette.background.nav,
@@ -67,6 +69,7 @@ const StixCoreRelationshipEditionOverviewFragment = graphql`
   fragment StixCoreRelationshipEditionOverview_stixCoreRelationship on StixCoreRelationship {
     id
     confidence
+    entity_type
     start_time
     stop_time
     description
@@ -179,7 +182,7 @@ export const stixCoreRelationshipEditionOverviewQuery = graphql`
   }
 `;
 
-interface StixCoreRelationshipEditionOverviewProps {
+export interface StixCoreRelationshipEditionOverviewProps {
   handleClose: () => void;
   handleDelete: () => void;
   queryRef: PreloadedQuery<StixCoreRelationshipEditionOverviewQuery>;
@@ -331,7 +334,7 @@ Omit<StixCoreRelationshipEditionOverviewProps, 'queryRef'>
             isValid,
             dirty,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <AlertConfidenceForEntity entity={stixCoreRelationship} />
               <ConfidenceField
                 variant="edit"

@@ -25,7 +25,8 @@ export const RELATION_FROM_ROLE_FILTER = 'fromRole';
 export const RELATION_TO_ROLE_FILTER = 'toRole';
 export const RELATION_FROM_TYPES_FILTER = 'fromTypes';
 export const RELATION_TO_TYPES_FILTER = 'toTypes';
-export const INSTANCE_FILTER_TARGET_TYPES = 'elementWithTargetTypes'; // TODO Rename/migrate to fromOrToType
+export const REPRESENTATIVE_FILTER = 'representative'; // representative of an entity
+export const INSTANCE_RELATION_TYPES_FILTER = 'elementWithTargetTypes'; // TODO Rename/migrate to fromOrToType
 export const CONNECTED_TO_INSTANCE_FILTER = 'connectedToId'; // TODO Rename/migrate to triggerListenId
 export const CONNECTED_TO_INSTANCE_SIDE_EVENTS_FILTER = 'connectedToId_sideEvents';
 
@@ -43,7 +44,12 @@ export const CONFIDENCE_FILTER = 'confidence';
 export const REVOKED_FILTER = 'revoked';
 export const PATTERN_FILTER = 'pattern_type';
 export const MAIN_OBSERVABLE_TYPE_FILTER = 'x_opencti_main_observable_type';
-
+export const CISA_KEV_FILTER = 'x_opencti_cisa_kev';
+export const EPSS_PERCENTILE_FILTER = 'x_opencti_epss_percentile';
+export const EPSS_SCORE_FILTER = 'x_opencti_epss_score';
+export const CVSS_BASE_SCORE_FILTER = 'x_opencti_cvss_base_score';
+export const CVSS_BASE_SEVERITY_FILTER = 'x_opencti_cvss_base_severity';
+export const REPORT_TYPES_FILTER = 'report_types';
 // special cases
 export const IDS_FILTER = 'ids';
 export const SIGHTED_BY_FILTER = 'sightedBy';
@@ -52,6 +58,12 @@ export const RULE_FILTER = 'rule';
 export const USER_ID_FILTER = 'user_id';
 export const SOURCE_RELIABILITY_FILTER = 'source_reliability';
 export const COMPUTED_RELIABILITY_FILTER = 'computed_reliability';
+
+// for opinions
+export const OPINIONS_METRICS_MEAN_FILTER = 'opinionsMetricsMean';
+export const OPINIONS_METRICS_MAX_FILTER = 'opinionsMetricsMax';
+export const OPINIONS_METRICS_MIN_FILTER = 'opinionsMetricsMin';
+export const OPINIONS_METRICS_TOTAL_FILTER = 'opinionsMetricsTotal';
 
 // for audit logging (Elastic + Stream)
 export const CONTEXT_ENTITY_ID_FILTER = 'contextEntityId'; // 'context_data.id'
@@ -73,9 +85,9 @@ export const complexConversionFilterKeys = [
   WORKFLOW_FILTER, // values should match the parent workflow pattern id
   X_OPENCTI_WORKFLOW_ID, // values should match the parent workflow pattern id
   SOURCE_RELIABILITY_FILTER, // reliability of the author
-  COMPUTED_RELIABILITY_FILTER, // reliability, or reliabilityof the author if no reliability
+  COMPUTED_RELIABILITY_FILTER, // reliability, or reliability of the author if no reliability
   INSTANCE_RELATION_FILTER, // nested relation for the from or to of a relationship
-  INSTANCE_FILTER_TARGET_TYPES, // nested relation for the from or type type of a relationship
+  INSTANCE_RELATION_TYPES_FILTER, // nested relation for the from or to type of a relationship
   RELATION_FROM_FILTER, // nested relation for the from of a relationship
   RELATION_TO_FILTER, // nested relation for the to of a relationship
   RELATION_TO_SIGHTING_FILTER, // nested sigthing relation for the to of a sighting
@@ -83,7 +95,7 @@ export const complexConversionFilterKeys = [
   RELATION_TO_TYPES_FILTER, // nested relation for the to type of a relationship
   RELATION_FROM_ROLE_FILTER, // nested relation for the from role of a relationship
   RELATION_TO_ROLE_FILTER, // nested relation for the to role of a relationship
-  ALIAS_FILTER, // key that target both 'aliases' and 'x_opencti_aliases' attributes
+  ALIAS_FILTER, // key that target both the 'aliases' and 'x_opencti_aliases' attributes
 ];
 
 // list of the special filtering keys
@@ -94,6 +106,10 @@ export const specialFilterKeys = [
   `rel_${RELATION_OBJECT}`,
   CREATOR_FILTER, // technical creator
   CONNECTED_TO_INSTANCE_FILTER, // listened instances for an instance trigger
+  OPINIONS_METRICS_MEAN_FILTER,
+  OPINIONS_METRICS_MAX_FILTER,
+  OPINIONS_METRICS_MIN_FILTER,
+  OPINIONS_METRICS_TOTAL_FILTER,
   CONTEXT_ENTITY_ID_FILTER,
   CONTEXT_ENTITY_TYPE_FILTER,
   CONTEXT_CREATOR_FILTER,

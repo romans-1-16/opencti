@@ -10,15 +10,18 @@ import Tooltip from '@mui/material/Tooltip';
 import { InformationOutline } from 'mdi-material-ui';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
+import MenuItem from '@mui/material/MenuItem';
 import inject18n from '../../../../components/i18n';
 import { commitMutation, MESSAGING$ } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import Filters from '../../common/lists/Filters';
 import { adaptFieldValue } from '../../../../utils/String';
-import { deserializeFilterGroupForFrontend, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import { deserializeFilterGroupForFrontend, isFilterGroupNotEmpty, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import Drawer from '../../common/drawer/Drawer';
 import useFiltersState from '../../../../utils/filters/useFiltersState';
+import SelectField from '../../../../components/fields/SelectField';
+import { fieldSpacingContainerStyle } from '../../../../utils/field';
 
 const styles = (theme) => ({
   header: {
@@ -79,18 +82,15 @@ const retentionValidation = (t) => Yup.object().shape({
 
 const RetentionEditionContainer = (props) => {
   const { t, classes, open, handleClose, retentionRule } = props;
-  const initialValues = R.pickAll(['name', 'max_retention'], retentionRule);
+  const initialValues = R.pickAll(['name', 'max_retention', 'retention_unit'], retentionRule);
   const [filters, helpers] = useFiltersState(deserializeFilterGroupForFrontend(props.retentionRule?.filters ?? undefined));
   const [verified, setVerified] = useState(true);
   const onSubmit = (values, { setSubmitting }) => {
-    const inputValues = R.pipe(
-      R.assoc('filters', serializeFilterGroupForBackend(filters)),
-      R.toPairs,
-      R.map((n) => ({
-        key: n[0],
-        value: adaptFieldValue(n[1]),
-      })),
-    )(values);
+    const inputValues = Object.entries({
+      ...values,
+      filters: isFilterGroupNotEmpty(filters) ? serializeFilterGroupForBackend(filters) : '',
+    })
+      .map(([key, value]) => ({ key, value: adaptFieldValue(value) }));
     commitMutation({
       mutation: retentionMutationFieldPatch,
       variables: {
@@ -106,9 +106,11 @@ const RetentionEditionContainer = (props) => {
   };
 
   const handleVerify = (values) => {
-    const finalValues = R.pipe(
-      R.assoc('max_retention', Number(values.max_retention)),
-    )(values);
+    const finalValues = {
+      ...values,
+      max_retention: Number(values.max_retention),
+      scope: retentionRule.scope,
+    };
     const jsonFilters = serializeFilterGroupForBackend(filters);
     commitMutation({
       mutation: RetentionCheckMutation,
@@ -139,7 +141,7 @@ const RetentionEditionContainer = (props) => {
         onSubmit={onSubmit}
       >
         {({ isSubmitting, submitForm, values }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               variant="standard"
@@ -148,10 +150,22 @@ const RetentionEditionContainer = (props) => {
               fullWidth={true}
             />
             <Field
+              component={SelectField}
+              variant="standard"
+              name="retention_unit"
+              label={t('Unit')}
+              fullWidth={true}
+              containerstyle={fieldSpacingContainerStyle}
+            >
+              <MenuItem value="minutes">{t('minutes')}</MenuItem>
+              <MenuItem value="hours">{t('hours')}</MenuItem>
+              <MenuItem value="days">{t('days')}</MenuItem>
+            </Field>
+            <Field
               component={TextField}
               variant="standard"
               name="max_retention"
-              label={t('Maximum retention days')}
+              label={t('Maximum retention')}
               onChange={() => setVerified(false)}
               fullWidth={true}
               style={{ marginTop: 20 }}
@@ -160,7 +174,7 @@ const RetentionEditionContainer = (props) => {
                   <InputAdornment position="end">
                     <Tooltip
                       title={t(
-                        'All objects matching the filters that have not been updated since this amount of days will be deleted',
+                        'All objects matching the filters that have not been updated since this amount of units will be deleted',
                       )}
                     >
                       <InformationOutline
@@ -173,43 +187,51 @@ const RetentionEditionContainer = (props) => {
                 ),
               }}
             />
-            <Box sx={{ paddingTop: 4,
-              display: 'flex',
-              gap: 1 }}
-            >
-              <Filters
-                availableFilterKeys={[
-                  'entity_type',
-                  'workflow_id',
-                  'objectAssignee',
-                  'objects',
-                  'objectMarking',
-                  'objectLabel',
-                  'creator_id',
-                  'createdBy',
-                  'priority',
-                  'severity',
-                  'x_opencti_score',
-                  'x_opencti_detection',
-                  'x_opencti_main_observable_type',
-                  'revoked',
-                  'confidence',
-                  'indicator_types',
-                  'pattern_type',
-                  'fromId',
-                  'toId',
-                  'fromTypes',
-                  'toTypes',
-                ]}
-                helpers={helpers}
-                searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
-              />
-            </Box>
-            <FilterIconButton
-              filters={filters}
-              helpers={helpers}
-              redirection
-            />
+            {retentionRule.scope === 'knowledge'
+              && <>
+                <Box
+                  sx={{
+                    paddingTop: 4,
+                    display: 'flex',
+                    gap: 1,
+                  }}
+                >
+                  <Filters
+                    availableFilterKeys={[
+                      'entity_type',
+                      'workflow_id',
+                      'objectAssignee',
+                      'objects',
+                      'objectMarking',
+                      'objectLabel',
+                      'creator_id',
+                      'createdBy',
+                      'priority',
+                      'severity',
+                      'x_opencti_score',
+                      'x_opencti_detection',
+                      'x_opencti_main_observable_type',
+                      'revoked',
+                      'confidence',
+                      'indicator_types',
+                      'pattern_type',
+                      'fromId',
+                      'toId',
+                      'fromTypes',
+                      'toTypes',
+                    ]}
+                    helpers={helpers}
+                    searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+                  />
+                </Box>
+                <FilterIconButton
+                  filters={filters}
+                  helpers={helpers}
+                  redirection
+                  searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+                />
+              </>
+            }
             <div className={classes.buttons}>
               <Button
                 variant="contained"
@@ -252,8 +274,10 @@ const RetentionEditionFragment = createFragmentContainer(
             fragment RetentionEdition_retentionRule on RetentionRule {
                 id
                 name
+                retention_unit
                 max_retention
                 filters
+                scope
             }
         `,
   },

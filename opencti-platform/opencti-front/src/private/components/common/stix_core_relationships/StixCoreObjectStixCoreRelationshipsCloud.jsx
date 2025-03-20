@@ -14,13 +14,14 @@ import Security from '../../../../utils/Security';
 import { EXPLORE_EXUPDATE } from '../../../../utils/hooks/useGranted';
 import Loader from '../../../../components/Loader';
 import { hexToRGB, itemColor } from '../../../../utils/Colors';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
-const styles = () => ({
+const styles = (theme) => ({
   paper: {
     minHeight: 300,
     maxHeight: 300,
     height: 300,
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 4,
     overflow: 'hidden',
@@ -134,7 +135,7 @@ class StixCoreObjectStixCoreRelationshipsCloud extends Component {
                     return (
                       <Grid
                         key={line.label}
-                        item={true}
+                        item
                         xs={4}
                         style={{ padding: 0 }}
                       >
@@ -175,7 +176,7 @@ class StixCoreObjectStixCoreRelationshipsCloud extends Component {
                     textAlign: 'center',
                   }}
                 >
-                  {t('No entities of this type has been found.')}
+                  {t(NO_DATA_WIDGET_MESSAGE)}
                 </span>
               </div>
             );

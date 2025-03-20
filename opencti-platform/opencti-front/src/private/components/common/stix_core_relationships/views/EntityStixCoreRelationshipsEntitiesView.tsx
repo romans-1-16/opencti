@@ -1,4 +1,4 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useState } from 'react';
 import useAuth from '../../../../../utils/hooks/useAuth';
 import ListLines from '../../../../../components/list_lines/ListLines';
 import ToolBar from '../../../data/ToolBar';
@@ -12,7 +12,8 @@ import { computeTargetStixCyberObservableTypes, computeTargetStixDomainObjectTyp
 import { PaginationLocalStorage } from '../../../../../utils/hooks/useLocalStorage';
 import { DataColumns, PaginationOptions } from '../../../../../components/list_lines';
 import { EntityStixCoreRelationshipsEntitiesViewLinesPaginationQuery$variables } from './__generated__/EntityStixCoreRelationshipsEntitiesViewLinesPaginationQuery.graphql';
-import { Filter, FilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../utils/filters/filtersUtils';
+import { isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../utils/filters/filtersUtils';
+import { Filter, FilterGroup } from '../../../../../utils/filters/filtersHelpers-types';
 
 interface EntityStixCoreRelationshipsEntitiesViewProps {
   entityId: string;
@@ -20,7 +21,7 @@ interface EntityStixCoreRelationshipsEntitiesViewProps {
   defaultStopTime: string;
   localStorage: PaginationLocalStorage<PaginationOptions>;
   relationshipTypes: string[];
-  stixCoreObjectTypes: string[];
+  stixCoreObjectTypes?: string[];
   isRelationReversed: boolean;
   currentView: string;
   enableNestedView?: boolean;
@@ -109,7 +110,9 @@ EntityStixCoreRelationshipsEntitiesViewProps
 
   // Filters due to screen context
   const userFilters = useRemoveIdAndIncorrectKeysFromFilterGroupObject(filters, stixCoreObjectTypes.length > 0 ? stixCoreObjectTypes : ['Stix-Core-Object']);
-  const stixCoreObjectFilter: Filter[] = stixCoreObjectTypes.length > 0 ? [{ key: 'entity_type', operator: 'eq', mode: 'or', values: stixCoreObjectTypes }] : [];
+  const stixCoreObjectFilter: Filter[] = stixCoreObjectTypes.length > 0
+    ? [{ key: 'entity_type', operator: 'eq', mode: 'or', values: stixCoreObjectTypes }]
+    : [];
   const contextFilters: FilterGroup = {
     mode: 'and',
     filters: [
@@ -142,6 +145,11 @@ EntityStixCoreRelationshipsEntitiesViewProps
     handleToggleSelectAll,
     onToggleEntity,
   } = useEntityToggle(localStorageKey);
+
+  const [reversedRelation, setReversedRelation] = useState(isRelationReversed);
+  const handleReverseRelation = () => {
+    setReversedRelation(!reversedRelation);
+  };
 
   const finalView = currentView || view;
   return (
@@ -203,6 +211,7 @@ EntityStixCoreRelationshipsEntitiesViewProps
         enableContextualView={enableContextualView}
         currentView={finalView}
         entityTypes={stixCoreObjectTypes.length > 0 ? stixCoreObjectTypes : ['Stix-Core-Object']}
+        additionalFilterKeys={{ filterKeys: ['entity_type'] }}
       >
         <EntityStixCoreRelationshipsEntitiesViewLines
           paginationOptions={paginationOptions}
@@ -227,14 +236,15 @@ EntityStixCoreRelationshipsEntitiesViewProps
         variant="medium"
         warning={true}
         warningMessage={t_i18n(
-          'Be careful, you are about to delete the selected entities (not the relationships!).',
+          'Be careful, you are about to delete the selected entities (not the relationships)',
         )}
       />
       <Security needs={[KNOWLEDGE_KNUPDATE]}>
         <StixCoreRelationshipCreationFromEntity
           entityId={entityId}
           allowedRelationshipTypes={relationshipTypes}
-          isRelationReversed={isRelationReversed}
+          isRelationReversed={reversedRelation}
+          handleReverseRelation={handleReverseRelation}
           targetStixDomainObjectTypes={computeTargetStixDomainObjectTypes(
             stixCoreObjectTypes,
           )}

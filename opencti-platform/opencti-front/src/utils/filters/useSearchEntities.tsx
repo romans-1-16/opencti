@@ -1,11 +1,8 @@
 import * as R from 'ramda';
-import { Dispatch, useState } from 'react';
+import { BaseSyntheticEvent, Dispatch, useState } from 'react';
 import { graphql } from 'react-relay';
-import { SelectChangeEvent } from '@mui/material/Select';
-import { markingDefinitionsLinesSearchQuery } from '@components/settings/marking_definitions/MarkingDefinitionsLines';
 import { identitySearchCreatorsSearchQuery, identitySearchIdentitiesSearchQuery } from '@components/common/identities/IdentitySearch';
 import { stixDomainObjectsLinesSearchQuery } from '@components/common/stix_domain_objects/StixDomainObjectsLines';
-import { killChainPhasesLinesSearchQuery } from '@components/settings/kill_chain_phases/KillChainPhasesLines';
 import { labelsSearchQuery } from '@components/settings/LabelsQuery';
 import { vocabularySearchQuery } from '@components/settings/VocabularyQuery';
 import { objectAssigneeFieldAssigneesSearchQuery, objectAssigneeFieldMembersSearchQuery } from '@components/common/form/ObjectAssigneeField';
@@ -13,8 +10,6 @@ import { IdentitySearchIdentitiesSearchQuery$data } from '@components/common/ide
 import { IdentitySearchCreatorsSearchQuery$data } from '@components/common/identities/__generated__/IdentitySearchCreatorsSearchQuery.graphql';
 import { ObjectAssigneeFieldAssigneesSearchQuery$data } from '@components/common/form/__generated__/ObjectAssigneeFieldAssigneesSearchQuery.graphql';
 import { StixDomainObjectsLinesSearchQuery$data } from '@components/common/stix_domain_objects/__generated__/StixDomainObjectsLinesSearchQuery.graphql';
-import { MarkingDefinitionsLinesSearchQuery$data } from '@components/settings/marking_definitions/__generated__/MarkingDefinitionsLinesSearchQuery.graphql';
-import { KillChainPhasesLinesSearchQuery$data } from '@components/settings/kill_chain_phases/__generated__/KillChainPhasesLinesSearchQuery.graphql';
 import { LabelsQuerySearchQuery$data } from '@components/settings/__generated__/LabelsQuerySearchQuery.graphql';
 import { VocabularyQuery$data } from '@components/settings/__generated__/VocabularyQuery.graphql';
 import { ObjectAssigneeFieldMembersSearchQuery$data } from '@components/common/form/__generated__/ObjectAssigneeFieldMembersSearchQuery.graphql';
@@ -27,15 +22,22 @@ import { externalReferencesQueriesSearchQuery } from '@components/analyses/exter
 import { ExternalReferencesQueriesSearchQuery$data } from '@components/analyses/external_references/__generated__/ExternalReferencesQueriesSearchQuery.graphql';
 import { NotifierFieldQuery } from '@components/common/form/NotifierField';
 import { NotifierFieldSearchQuery$data } from '@components/common/form/__generated__/NotifierFieldSearchQuery.graphql';
+import { killChainPhasesSearchQuery } from '@components/settings/KillChainPhases';
+import { KillChainPhasesSearchQuery$data } from '@components/settings/__generated__/KillChainPhasesSearchQuery.graphql';
+import { triggersQueriesSearchQuery } from '@components/profile/triggers/TriggersQueries';
+import { TriggersQueriesSearchQuery$data } from '@components/profile/triggers/__generated__/TriggersQueriesSearchQuery.graphql';
+import { OptionValue } from '@components/common/lists/FilterAutocomplete';
 import useAuth, { FilterDefinition } from '../hooks/useAuth';
 import { useSearchEntitiesStixCoreObjectsSearchQuery$data } from './__generated__/useSearchEntitiesStixCoreObjectsSearchQuery.graphql';
 import { useFormatter } from '../../components/i18n';
-import { defaultValue } from '../Graph';
+import { getMainRepresentative } from '../defaultRepresentatives';
 import { fetchQuery } from '../../relay/environment';
 import { useSearchEntitiesSchemaSCOSearchQuery$data } from './__generated__/useSearchEntitiesSchemaSCOSearchQuery.graphql';
 import type { Theme } from '../../components/Theme';
 import useAttributes, { containerTypes } from '../hooks/useAttributes';
 import { contextFilters, entityTypesFilters } from './filtersUtils';
+import { useSearchEntitiesDashboardsQuery$data } from './__generated__/useSearchEntitiesDashboardsQuery.graphql';
+import { convertMarking } from '../edition';
 
 const filtersStixCoreObjectsSearchQuery = graphql`
   query useSearchEntitiesStixCoreObjectsSearchQuery(
@@ -65,6 +67,7 @@ const filtersStixCoreObjectsSearchQuery = graphql`
             content
           }
           ... on ObservedData {
+            name
             first_observed
             last_observed
           }
@@ -223,27 +226,20 @@ const filtersSchemaSCOSearchQuery = graphql`
   }
 `;
 
-export interface EntityValue {
-  label?: string | null;
-  value?: string | null;
-  type?: string;
-  group?: string;
-  color?: string | null;
-}
+const workspacesQuery = graphql`
+  query useSearchEntitiesDashboardsQuery($search: String, $filters: FilterGroup) {
+    workspaces(search: $search, filters: $filters) {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+`;
 
-interface EntityWithLabelValue {
-  label: string;
-  value: string;
-  type: string;
-}
-
-export interface SearchEntitiesProps {
-  availableEntityTypes?: string[];
-  availableRelationshipTypes?: string[];
-  searchContext: { entityTypes: string[]; elementId?: string[] };
-  searchScope: Record<string, string[]>;
-  setInputValues: (value: { key: string, values: string[], operator?: string }[]) => void;
-}
+export type EntityValue = OptionValue;
 
 const useSearchEntities = ({
   availableEntityTypes,
@@ -282,7 +278,7 @@ const useSearchEntities = ({
     filterKey: string,
     cacheEntities: Record< string, { label: string; value: string; type: string }[] >,
     setCacheEntities: Dispatch< Record<string, { label: string; value: string; type: string }[]> >,
-    event: SelectChangeEvent<string | number>,
+    event: BaseSyntheticEvent,
     isSubKey?: boolean,
   ) => {
     if (!event) {
@@ -330,18 +326,18 @@ const useSearchEntities = ({
       })
         .toPromise()
         .then((data) => {
-          const objectLabelEntities = (
+          const objectLabelEntities: EntityValue[] = (
             (data as LabelsQuerySearchQuery$data)?.labels?.edges ?? []
-          ).map((n) => ({
-            label: n?.node.value,
-            value: n?.node.id,
+          ).flatMap(({ node }) => ((!node.value || !node.id) ? [] : {
+            label: node.value,
+            value: node.id,
             type: 'Label',
-            color: n?.node.color,
+            color: node.color ?? undefined,
           }));
           unionSetEntities(key, [
             {
               label: t_i18n('No label'),
-              value: null,
+              value: '',
               type: 'Label',
               color: theme.palette.mode === 'dark' ? '#ffffff' : '#000000',
             },
@@ -352,33 +348,26 @@ const useSearchEntities = ({
 
     // fetches markings and add them to the set
     const buildOptionsFromMarkingsSearchQuery = (key: string) => {
-      fetchQuery(markingDefinitionsLinesSearchQuery, {
-        search: event.target.value !== 0 ? event.target.value : '',
-      })
-        .toPromise()
-        .then((data) => {
-          const markedByEntities = (
-            (data as MarkingDefinitionsLinesSearchQuery$data)?.markingDefinitions?.edges ?? []
-          ).map((n) => ({
-            label: n?.node.definition,
-            value: n?.node.id,
-            type: 'Marking-Definition',
-            color: n?.node.x_opencti_color,
-          }));
-          unionSetEntities(key, markedByEntities);
-        });
+      const allowedMarkingDefinitions = me.allowed_marking?.map(convertMarking) ?? [];
+      const markedByEntities: EntityValue[] = allowedMarkingDefinitions.flatMap((m) => ({
+        label: m.label,
+        value: m.value,
+        color: m.color,
+        type: 'Marking-Definition',
+      }));
+      unionSetEntities(key, markedByEntities);
     };
 
     // fetches kill chain phases and add them to the set
     const buildOptionsFromKillChainPhasesSearchQuery = (key: string) => {
-      fetchQuery(killChainPhasesLinesSearchQuery, {
+      fetchQuery(killChainPhasesSearchQuery, {
         search: event.target.value !== 0 ? event.target.value : '',
         first: 10,
       })
         .toPromise()
         .then((data) => {
           const killChainPhaseEntities = (
-            (data as KillChainPhasesLinesSearchQuery$data)?.killChainPhases?.edges ?? []
+            (data as KillChainPhasesSearchQuery$data)?.killChainPhases?.edges ?? []
           ).map((n) => ({
             label: n
               ? `[${n.node.kill_chain_name}] ${n.node.phase_name}`
@@ -435,13 +424,13 @@ const useSearchEntities = ({
       })
         .toPromise()
         .then((data) => {
-          const elementIdEntities = (
+          const elementIdEntities: EntityValue[] = (
             (data as useSearchEntitiesStixCoreObjectsSearchQuery$data)?.stixCoreObjects?.edges ?? []
-          ).map((n) => ({
-            label: defaultValue(n?.node),
-            value: n?.node.id,
-            type: n?.node.entity_type,
-            parentTypes: n?.node.parent_types,
+          ).map(({ node }) => ({
+            label: getMainRepresentative(node),
+            value: node.id,
+            type: node.entity_type,
+            parentTypes: node.parent_types.flatMap((t) => (t || [])),
           }));
           unionSetEntities(key, elementIdEntities);
         });
@@ -456,13 +445,13 @@ const useSearchEntities = ({
       })
         .toPromise()
         .then((data) => {
-          const createdByEntities = (
+          const createdByEntities: EntityValue[] = (
             (data as IdentitySearchIdentitiesSearchQuery$data)?.identities
               ?.edges ?? []
-          ).map((n) => ({
-            label: n?.node.name,
-            value: n?.node.id,
-            type: n?.node.entity_type,
+          ).flatMap((n) => (!n ? [] : {
+            label: n.node.name,
+            value: n.node.id,
+            type: n.node.entity_type,
           }));
           unionSetEntities(key, createdByEntities);
         });
@@ -484,8 +473,19 @@ const useSearchEntities = ({
             label: n?.node.name,
             value: n?.node.id,
             type: n?.node.entity_type,
+            group: n?.node.entity_type,
           }));
           unionSetEntities(key, membersEntities);
+          const membersSystems = (
+            (data as ObjectAssigneeFieldMembersSearchQuery$data)?.systemMembers
+              ?.edges ?? []
+          ).map((n) => ({
+            label: n?.node.name,
+            value: n?.node.id,
+            type: n?.node.entity_type,
+            group: n?.node.entity_type,
+          }));
+          unionSetEntities(key, membersSystems);
         });
     };
 
@@ -611,9 +611,12 @@ const useSearchEntities = ({
           buildOptionsFromIdentitySearchQuery(filterKey, ['Organization', 'Individual', 'System']);
           break;
         case 'id':
-        case 'contextEntityId':
         case 'connectedToId':
           buildOptionsFromStixCoreObjectTypes(filterKey, ['Stix-Core-Object']);
+          break;
+        case 'contextEntityId':
+          buildOptionsFromStixCoreObjectTypes(filterKey, ['Stix-Core-Object']);
+          buildOptionsFromMembersSearchQuery(filterKey, ['User', 'Group']);
           break;
         case 'sightedBy':
           fetchQuery(stixDomainObjectsLinesSearchQuery, {
@@ -623,12 +626,12 @@ const useSearchEntities = ({
           })
             .toPromise()
             .then((data) => {
-              const sightedByEntities = (
+              const sightedByEntities: EntityValue[] = (
                 (data as StixDomainObjectsLinesSearchQuery$data)?.stixDomainObjects?.edges ?? []
-              ).map((n) => ({
-                label: n?.node.name,
-                value: n?.node.id,
-                type: n?.node.entity_type,
+              ).flatMap((n) => ((!n || !n.node) ? [] : {
+                label: n.node.name ?? '',
+                value: n.node.id,
+                type: n.node.entity_type,
               }));
               unionSetEntities('sightedBy', sightedByEntities);
             });
@@ -644,22 +647,27 @@ const useSearchEntities = ({
           break;
         // region entity and relation types
         case 'contextEntityType': {
-          let elementTypeResult = [] as EntityWithLabelValue[];
-          elementTypeResult = [
+          const elementTypeResult = [
             ...(schema.scos ?? []).map((n) => ({
               label: t_i18n(`entity_${n.label}`),
               value: n.label,
               type: n.label,
             })),
-            ...elementTypeResult,
-          ];
-          elementTypeResult = [
             ...(schema.sdos ?? []).map((n) => ({
               label: t_i18n(`entity_${n.label}`),
               value: n.label,
               type: n.label,
             })),
-            ...elementTypeResult,
+            {
+              label: t_i18n('User'),
+              value: 'User',
+              type: 'User',
+            },
+            {
+              label: t_i18n('Group'),
+              value: 'Group',
+              type: 'Group',
+            },
           ];
           const elementTypeTypes = elementTypeResult.sort((a, b) => a.label.localeCompare(b.label));
           unionSetEntities(filterKey, elementTypeTypes);
@@ -671,6 +679,7 @@ const useSearchEntities = ({
         case 'fromTypes':
         case 'toTypes':
         case 'type':
+        case 'main_entity_type':
           if ( // case not abstract types
             availableEntityTypes
             && !availableEntityTypes.includes('Stix-Cyber-Observable')
@@ -701,7 +710,7 @@ const useSearchEntities = ({
               .sort((a, b) => a.label.localeCompare(b.label));
             unionSetEntities(filterKey, entitiesTypes);
           } else { // case abstract types
-            let result = [] as EntityWithLabelValue[];
+            let result: EntityValue[] = [];
             // push the observables
             if (
               !availableEntityTypes
@@ -715,12 +724,19 @@ const useSearchEntities = ({
                   type: n.label,
                 })),
                 ...result,
-                {
-                  label: t_i18n('entity_Stix-Cyber-Observable'),
-                  value: 'Stix-Cyber-Observable',
-                  type: 'Stix-Cyber-Observable',
-                },
               ];
+              // if there are not only stix cyber observables in the entity types list, add the 'Stix Cyber Observable' abstract type
+              if (!availableEntityTypes
+                || (availableEntityTypes && (availableEntityTypes.length > 1 || availableEntityTypes.includes('Stix-Core-Object')))) {
+                result = [
+                  {
+                    label: t_i18n('entity_Stix-Cyber-Observable'),
+                    value: 'Stix-Cyber-Observable',
+                    type: 'Stix-Cyber-Observable',
+                  },
+                  ...result,
+                ];
+              }
             }
             // push the stix domain objects
             if (
@@ -734,15 +750,22 @@ const useSearchEntities = ({
                   value: n.label,
                   type: n.label,
                 })),
-                {
-                  label: t_i18n('entity_Stix-Domain-Object'),
-                  value: 'Stix-Domain-Object',
-                  type: 'Stix-Domain-Object',
-                },
                 ...result,
               ];
+              // if there are not only stix domain objects in the entity types list, add the 'Stix Domain Object' abstract type
+              if (!availableEntityTypes
+                || (availableEntityTypes && (availableEntityTypes.length > 1 || availableEntityTypes.includes('Stix-Core-Object')))) {
+                result = [
+                  {
+                    label: t_i18n('entity_Stix-Domain-Object'),
+                    value: 'Stix-Domain-Object',
+                    type: 'Stix-Domain-Object',
+                  },
+                  ...result,
+                ];
+              }
             }
-            // push the relationship types
+            // push the stix core relationships types
             if (
               !availableEntityTypes
               || availableEntityTypes.includes('stix-core-relationship')
@@ -754,10 +777,45 @@ const useSearchEntities = ({
                   type: n.label,
                 })),
                 ...result,
+              ];
+              // if there are not only stix core relationships in the entity types list, add the 'Stix Core Relationship' abstract type
+              if (!availableEntityTypes
+                || (availableEntityTypes && availableEntityTypes.length > 1)) {
+                result = [
+                  {
+                    label: t_i18n('entity_Stix-Core-Relationship'),
+                    value: 'Stix-Core-Relationship',
+                    type: 'Stix-Core-Relationship',
+                  },
+                  ...result,
+                ];
+              }
+            }
+            // push the sighting relationship
+            if (
+              !availableEntityTypes
+              || availableEntityTypes.includes('stix-sighting-relationship')
+            ) {
+              result = [
+                ...result,
                 {
                   label: t_i18n('relationship_stix-sighting-relationship'),
                   value: 'stix-sighting-relationship',
                   type: 'stix-sighting-relationship',
+                },
+              ];
+            }
+            // push the 'contains' relationship
+            if (
+              !availableEntityTypes
+              || availableEntityTypes.includes('contains')
+            ) {
+              result = [
+                ...result,
+                {
+                  label: t_i18n('relationship_object'),
+                  value: 'object',
+                  type: 'stix-internal-relationship',
                 },
               ];
             }
@@ -766,26 +824,16 @@ const useSearchEntities = ({
           }
           break;
         case 'relationship_type': {
-          if (availableRelationshipTypes && !isSubKey) { // if relationship_type is the subKey of regarding_of, we always display all the relationship types
-            const relationshipsTypes = availableRelationshipTypes
+          let relationshipsTypes: { label: string, value: string, type: string }[] = [];
+          if (availableRelationshipTypes && !isSubKey) { // if available RelationshipTypes is specified, we display only the specified relationship types
+            relationshipsTypes = availableRelationshipTypes
               .map((n) => ({
                 label: t_i18n(`relationship_${n.toString()}`),
                 value: n,
                 type: n,
-              }))
-              .sort((a, b) => a.label.localeCompare(b.label));
-            unionSetEntities(filterKey, relationshipsTypes);
-          } else if (searchContext.entityTypes.length === 1 && searchContext.entityTypes[0] === 'stix-core-relationship' && !isSubKey) {
-            const relationshipsTypes = (schema.scrs ?? [])
-              .map((n) => ({
-                label: t_i18n(`relationship_${n.label}`),
-                value: n.label,
-                type: n.label,
-              }))
-              .sort((a, b) => a.label.localeCompare(b.label));
-            unionSetEntities(filterKey, relationshipsTypes);
-          } else {
-            const relationshipsTypes = (schema.scrs ?? [])
+              }));
+          } else if (isSubKey || !searchContext.entityTypes) { // if relationship_type is the subKey of regarding_of, we always display all the relationship types
+            relationshipsTypes = (schema.scrs ?? [])
               .map((n) => ({
                 label: t_i18n(`relationship_${n.label}`),
                 value: n.label,
@@ -802,13 +850,43 @@ const useSearchEntities = ({
                   value: 'object',
                   type: 'stix-internal-relationship',
                 },
-              ])
-              .sort((a, b) => a.label.localeCompare(b.label));
-            unionSetEntities(filterKey, relationshipsTypes);
+              ]);
+          } else { // display relationship types according to searchContext.entityTypes
+            const { entityTypes } = searchContext;
+            if (entityTypes.includes('stix-core-relationship')) {
+              relationshipsTypes = (schema.scrs ?? [])
+                .map((n) => ({
+                  label: t_i18n(`relationship_${n.label}`),
+                  value: n.label,
+                  type: n.label,
+                }));
+            }
+            if (entityTypes.includes('stix-sighting-relationship')) {
+              relationshipsTypes = [
+                ...relationshipsTypes,
+                {
+                  label: t_i18n('relationship_stix-sighting-relationship'),
+                  value: 'stix-sighting-relationship',
+                  type: 'stix-sighting-relationship',
+                },
+              ];
+            }
+            if (entityTypes.includes('contains')) {
+              relationshipsTypes = [
+                ...relationshipsTypes,
+                {
+                  label: t_i18n('relationship_object'),
+                  value: 'object',
+                  type: 'stix-internal-relationship',
+                },
+              ];
+            }
           }
+          unionSetEntities(filterKey, relationshipsTypes.sort((a, b) => a.label.localeCompare(b.label)));
           break;
         }
         case 'x_opencti_main_observable_type':
+        case 'exclusion_list_entity_types':
           fetchQuery(filtersSchemaSCOSearchQuery)
             .toPromise()
             .then((data) => {
@@ -816,9 +894,9 @@ const useSearchEntities = ({
                 (data as useSearchEntitiesSchemaSCOSearchQuery$data)?.schemaSCOs
                   ?.edges ?? []
               ).map((n) => ({
-                label: n?.node.label,
+                label: t_i18n(`entity_${n?.node.id}`),
                 value: n?.node.id,
-                type: 'Vocabulary',
+                type: n?.node.id,
               }));
               unionSetEntities(
                 filterKey,
@@ -874,25 +952,65 @@ const useSearchEntities = ({
                     notifiers,
                   );
                 });
+            } else if (idEntityTypes.includes('Trigger')) {
+              fetchQuery(triggersQueriesSearchQuery, {
+                search: event.target.value !== 0 ? event.target.value : '',
+              })
+                .toPromise()
+                .then((data) => {
+                  const triggers = (
+                    (data as TriggersQueriesSearchQuery$data).triggers?.edges ?? []
+                  ).map((n) => ({
+                    label: n.node.name,
+                    value: n.node.id,
+                    type: 'Trigger',
+                  }));
+                  unionSetEntities(
+                    filterKey,
+                    triggers,
+                  );
+                });
             } else if (idEntityTypes.includes('StatusTemplate')) {
               fetchQuery(StatusTemplateFieldQuery, {
                 first: 500,
               })
                 .toPromise()
                 .then((data) => {
-                  const statusTemplateEntities = (
+                  const statusTemplateEntities: EntityValue[] = (
                     (data as StatusTemplateFieldSearchQuery$data)?.statusTemplates?.edges
                     ?? []
                   )
-                    .filter((n) => !R.isNil(n?.node))
-                    .map((n) => ({
-                      label: n?.node.name,
-                      color: n?.node.color,
-                      value: n?.node.id,
+                    .flatMap((n) => (!n ? [] : {
+                      label: n.node.name,
+                      color: n.node.color,
+                      value: n.node.id,
                       type: 'Vocabulary',
                     }))
                     .sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
                   unionSetEntities(filterKey, statusTemplateEntities);
+                });
+            } else if (idEntityTypes.includes('PublicDashboard')) {
+              fetchQuery(workspacesQuery, {
+                first: 500,
+                filters: {
+                  mode: 'and',
+                  filters: [
+                    { key: 'type', values: ['dashboard'] },
+                  ],
+                  filterGroups: [],
+                },
+              })
+                .toPromise()
+                .then((data: unknown) => {
+                  const dashboards = ((data as useSearchEntitiesDashboardsQuery$data)?.workspaces?.edges ?? [])
+                    .filter((n) => !R.isNil(n?.node))
+                    .map((n) => ({
+                      label: n?.node.name,
+                      value: n?.node.id,
+                      type: 'Dashboard',
+                    }))
+                    .sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
+                  unionSetEntities(filterKey, dashboards);
                 });
             }
           }
@@ -902,7 +1020,7 @@ const useSearchEntities = ({
       }
     }
   };
-  return [entities, searchEntities];
+  return [entities, searchEntities] as const;
 };
 
 export default useSearchEntities;

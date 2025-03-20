@@ -16,8 +16,9 @@ import TableRow from '@mui/material/TableRow';
 import { QueryRenderer } from '../../../../relay/environment';
 import inject18n from '../../../../components/i18n';
 import ItemIcon from '../../../../components/ItemIcon';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
-const styles = () => ({
+const styles = (theme) => ({
   container: {
     width: '100%',
     height: '100%',
@@ -26,7 +27,7 @@ const styles = () => ({
   },
   paper: {
     height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 4,
   },
@@ -120,7 +121,7 @@ class IndicatorsList extends Component {
                     textAlign: 'center',
                   }}
                 >
-                  {t('No entities of this type has been found.')}
+                  {t(NO_DATA_WIDGET_MESSAGE)}
                 </span>
               </div>
             );

@@ -1,4 +1,3 @@
-import { withFilter } from 'graphql-subscriptions';
 import { BUS_TOPICS } from '../config/conf';
 import {
   addStixDomainObject,
@@ -21,8 +20,7 @@ import {
   stixDomainObjectsTimeSeriesByAuthor
 } from '../domain/stixDomainObject';
 import { findById as findStatusById, findByType } from '../domain/status';
-import { pubSubAsyncIterator } from '../database/redis';
-import withCancel from '../graphql/subscriptionWrapper';
+import { subscribeToInstanceEvents } from '../graphql/subscriptionWrapper';
 import { ABSTRACT_STIX_DOMAIN_OBJECT, INPUT_ASSIGNEE } from '../schema/general';
 import { stixDomainObjectOptions as StixDomainObjectsOptions } from '../schema/stixDomainObjectOptions';
 import { stixCoreObjectExportPush, stixCoreObjectImportPush, stixCoreObjectsExportPush } from '../domain/stixCoreObject';
@@ -77,33 +75,25 @@ const stixDomainObjectResolvers = {
       relationAdd: ({ input }) => stixDomainObjectAddRelation(context, context.user, id, input),
       relationDelete: ({ toId, relationship_type: relationshipType }) => stixDomainObjectDeleteRelation(context, context.user, id, toId, relationshipType),
       importPush: (args) => stixCoreObjectImportPush(context, context.user, id, args.file, args),
-      exportAsk: (args) => stixDomainObjectExportAsk(context, context.user, id, args),
-      exportPush: ({ file }) => stixCoreObjectExportPush(context, context.user, id, file),
+      exportAsk: ({ input }) => stixDomainObjectExportAsk(context, context.user, id, input),
+      exportPush: (args) => stixCoreObjectExportPush(context, context.user, id, args),
       stixDomainObjectFileEdit: ({ input }) => stixDomainObjectFileEdit(context, context.user, id, input),
     }),
     stixDomainObjectsDelete: (_, { id }, context) => stixDomainObjectsDelete(context, context.user, id),
     stixDomainObjectAdd: (_, { input }, context) => addStixDomainObject(context, context.user, input),
     stixDomainObjectsExportAsk: (_, args, context) => stixDomainObjectsExportAsk(context, context.user, args),
-    stixDomainObjectsExportPush: (_, { entity_id, entity_type, file, listFilters }, context) => {
-      return stixCoreObjectsExportPush(context, context.user, entity_id, entity_type, file, listFilters);
+    stixDomainObjectsExportPush: (_, { entity_id, entity_type, file, file_markings, listFilters }, context) => {
+      return stixCoreObjectsExportPush(context, context.user, entity_id, entity_type, file, file_markings, listFilters);
     },
   },
   Subscription: {
     stixDomainObject: {
       resolve: /* v8 ignore next */ (payload) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        stixDomainObjectEditContext(context, context.user, id);
+        const preFn = () => stixDomainObjectEditContext(context, context.user, id);
+        const cleanFn = () => stixDomainObjectCleanContext(context, context.user, id);
         const bus = BUS_TOPICS[ABSTRACT_STIX_DOMAIN_OBJECT];
-        const filtering = withFilter(
-          () => pubSubAsyncIterator([bus.EDIT_TOPIC, bus.CONTEXT_TOPIC]),
-          (payload) => {
-            if (!payload) return false; // When disconnect, an empty payload is dispatched.
-            return payload.user.id !== context.user.id && payload.instance.id === id;
-          }
-        )(_, { id }, context);
-        return withCancel(filtering, () => {
-          stixDomainObjectCleanContext(context, context.user, id);
-        });
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ABSTRACT_STIX_DOMAIN_OBJECT, preFn, cleanFn });
       },
     },
   },

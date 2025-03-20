@@ -20,8 +20,6 @@ import SearchInput from '../../../../components/SearchInput';
 
 const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: 0,
     padding: 15,
     borderRadius: 4,
@@ -298,7 +296,7 @@ StixCyberObservableEntities.propTypes = {
   relationship_type: PropTypes.string,
   classes: PropTypes.object,
   t: PropTypes.func,
-  history: PropTypes.object,
+  navigate: PropTypes.func,
   defaultStartTime: PropTypes.string,
   defaultStopTime: PropTypes.string,
 };

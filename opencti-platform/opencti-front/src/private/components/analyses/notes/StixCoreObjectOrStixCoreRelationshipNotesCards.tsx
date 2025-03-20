@@ -1,16 +1,17 @@
 import React, { FunctionComponent, useRef, useState } from 'react';
-import { graphql, PreloadedQuery, useMutation } from 'react-relay';
+import { graphql, PreloadedQuery } from 'react-relay';
 import Typography from '@mui/material/Typography';
 import { FormikConfig } from 'formik/dist/types';
 import makeStyles from '@mui/styles/makeStyles';
 import * as Yup from 'yup';
 import IconButton from '@mui/material/IconButton';
-import { EditOutlined, ExpandMoreOutlined, ExpandLessOutlined, RateReviewOutlined } from '@mui/icons-material';
+import { EditOutlined, ExpandLessOutlined, ExpandMoreOutlined, RateReviewOutlined } from '@mui/icons-material';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
+import useHelper from 'src/utils/hooks/useHelper';
 import { NOTE_TYPE, noteCreationUserMutation } from './NoteCreation';
 import { insertNode } from '../../../../utils/store';
 import usePreloadedFragment from '../../../../utils/hooks/usePreloadedFragment';
@@ -22,7 +23,7 @@ import { KNOWLEDGE_KNPARTICIPATE } from '../../../../utils/hooks/useGranted';
 import AddNotes from './AddNotes';
 import StixCoreObjectOrStixCoreRelationshipNoteCard from './StixCoreObjectOrStixCoreRelationshipNoteCard';
 import TextField from '../../../../components/TextField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import ConfidenceField from '../../common/form/ConfidenceField';
@@ -33,17 +34,21 @@ import {
   StixCoreObjectOrStixCoreRelationshipNotesCardsQuery$variables,
 } from './__generated__/StixCoreObjectOrStixCoreRelationshipNotesCardsQuery.graphql';
 import { StixCoreObjectOrStixCoreRelationshipNotesCards_data$key } from './__generated__/StixCoreObjectOrStixCoreRelationshipNotesCards_data.graphql';
-import SliderField from '../../../../components/SliderField';
-import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
+import SliderField from '../../../../components/fields/SliderField';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 import { convertMarking } from '../../../../utils/edition';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import AddNotesFunctionalComponent from './AddNotesFunctionalComponent';
+import { yupShapeConditionalRequired, useDynamicSchemaCreationValidation, useIsMandatoryAttribute } from '../../../../utils/hooks/useEntitySettings';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   heading: {
     display: 'flex',
   },
   buttons: {
-    margin: '20px 0 5px 0',
+    margin: `${theme.spacing(2)} 0 ${theme.spacing(0.5)} 0`,
   },
   buttonMore: {
     float: 'left',
@@ -161,19 +166,23 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
   title,
 }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const { mandatoryAttributes } = useIsMandatoryAttribute(NOTE_TYPE);
   const classes = useStyles();
-  const basicShape = {
-    content: Yup.string().min(2).required(t_i18n('This field is required')),
+  const basicShape = yupShapeConditionalRequired({
+    content: Yup.string().trim().min(2),
     attribute_abstract: Yup.string().nullable(),
     confidence: Yup.number(),
     note_types: Yup.array(),
     likelihood: Yup.number().min(0).max(100),
-  };
+  }, mandatoryAttributes);
   // created & createdBy must be excluded from the validation, it will be handled directly by the backend
-  const noteValidator = useSchemaCreationValidation('Note', basicShape, [
-    'created',
-    'createdBy',
-  ]);
+  const noteValidator = useDynamicSchemaCreationValidation(
+    mandatoryAttributes,
+    basicShape,
+    ['created', 'createdBy'],
+  );
   const data = usePreloadedFragment<
   StixCoreObjectOrStixCoreRelationshipNotesCardsQuery,
   StixCoreObjectOrStixCoreRelationshipNotesCards_data$key
@@ -198,7 +207,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
   });
   const scrollToBottom = () => {
     setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, 300);
   };
   const handleToggleWrite = () => {
@@ -213,7 +222,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
   const handleToggleMore = () => {
     setMore(!more);
   };
-  const [commit] = useMutation(noteCreationUserMutation);
+  const [commit] = useApiMutation(noteCreationUserMutation);
   const onSubmit: FormikConfig<NoteAddInput>['onSubmit'] = (
     values,
     { setSubmitting, resetForm },
@@ -233,7 +242,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
     });
   };
   return (
-    <div style={{ marginTop: marginTop || 55 }}>
+    <div style={{ marginTop }}>
       <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
         {title}
       </Typography>
@@ -247,11 +256,18 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
           >
             <EditOutlined fontSize="small" />
           </IconButton>
-          <AddNotes
-            stixCoreObjectOrStixCoreRelationshipId={id}
-            stixCoreObjectOrStixCoreRelationshipNotes={notes}
-            paginationOptions={paginationOptions}
-          />
+          {isFABReplaced
+            ? <AddNotesFunctionalComponent
+                stixCoreObjectOrStixCoreRelationshipId={id}
+                stixCoreObjectOrStixCoreRelationshipNotes={data}
+                paginationOptions={paginationOptions}
+              />
+            : <AddNotes
+                stixCoreObjectOrStixCoreRelationshipId={id}
+                stixCoreObjectOrStixCoreRelationshipNotes={notes}
+                paginationOptions={paginationOptions}
+              />
+          }
         </>
       </Security>
       <div className="clearfix" />
@@ -269,7 +285,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
         })}
       <Security needs={[KNOWLEDGE_KNPARTICIPATE]}>
         <Accordion
-          style={{ margin: `${notes.length > 0 ? '30' : '0'}px 0 80px 0` }}
+          style={{ margin: `${notes.length > 0 ? '30' : '0'}px 0 0px 0` }}
           expanded={open}
           variant="outlined"
         >
@@ -302,13 +318,16 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
                     component={MarkdownField}
                     name="content"
                     label={t_i18n('Content')}
+                    required={(mandatoryAttributes.includes('content'))}
                     fullWidth={true}
                     multiline={true}
                     rows="4"
                   />
                   <ObjectMarkingField
                     name="objectMarking"
+                    required={(mandatoryAttributes.includes('objectMarking'))}
                     style={fieldSpacingContainerStyle}
+                    setFieldValue={setFieldValue}
                   />
                   {more && (
                     <>
@@ -316,6 +335,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
                         component={TextField}
                         name="attribute_abstract"
                         label={t_i18n('Abstract')}
+                        required={(mandatoryAttributes.includes('attribute_abstract'))}
                         fullWidth={true}
                         style={{ marginTop: 20 }}
                       />
@@ -323,6 +343,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
                         label={t_i18n('Note types')}
                         type="note_types_ov"
                         name="note_types"
+                        required={(mandatoryAttributes.includes('note_types'))}
                         onChange={(name, value) => setFieldValue(name, value)}
                         containerStyle={fieldSpacingContainerStyle}
                         multiple={true}
@@ -340,6 +361,7 @@ StixCoreObjectOrStixCoreRelationshipNotesCardsProps
                       />
                       <ObjectLabelField
                         name="objectLabel"
+                        required={(mandatoryAttributes.includes('objectLabel'))}
                         style={{ marginTop: 10, width: '100%' }}
                         setFieldValue={setFieldValue}
                         values={values.objectLabel}

@@ -1,9 +1,16 @@
 export interface RelayError {
   res: {
     errors: {
-      data: {
-        existingIds: string[]
-        reason: string
+      message?: string
+      name?: string
+      path?: string[]
+      extensions: {
+        code: string
+        data: {
+          genre: string
+          http_status: number
+        }
+        stacktrace?: string[]
       }
     }[]
   }

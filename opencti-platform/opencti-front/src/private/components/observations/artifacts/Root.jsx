@@ -1,11 +1,13 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
-import { Route, withRouter, Switch, Link } from 'react-router-dom';
+import { Route, Routes, Link } from 'react-router-dom';
 import { graphql } from 'react-relay';
 import * as R from 'ramda';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import StixCoreObjectContentRoot from '../../common/stix_core_objects/StixCoreObjectContentRoot';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import { QueryRenderer, requestSubscription } from '../../../../relay/environment';
 import StixCoreRelationship from '../../common/stix_core_relationships/StixCoreRelationship';
 import StixCyberObservable from '../stix_cyber_observables/StixCyberObservable';
@@ -19,6 +21,7 @@ import FileManager from '../../common/files/FileManager';
 import StixSightingRelationship from '../../events/stix_sighting_relationships/StixSightingRelationship';
 import inject18n from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import { getCurrentTab, getPaddingRight } from '../../../../utils/utils';
 
 const subscription = graphql`
   subscription RootArtifactSubscription($id: ID!) {
@@ -38,6 +41,10 @@ const rootArtifactQuery = graphql`
   query RootArtifactQuery($id: String!) {
     stixCyberObservable(id: $id) {
       id
+      draftVersion {
+        draft_id
+        draft_operation
+      }
       standard_id
       entity_type
       observable_value
@@ -50,6 +57,7 @@ const rootArtifactQuery = graphql`
       ...FileExportViewer_entity
       ...FileExternalReferencesViewer_entity
       ...WorkbenchFileViewer_entity
+      ...StixCoreObjectContent_stixCoreObject
     }
     connectorsForImport {
       ...FileManager_connectorsImport
@@ -64,9 +72,7 @@ class RootArtifact extends Component {
   constructor(props) {
     super(props);
     const {
-      match: {
-        params: { observableId },
-      },
+      params: { observableId },
     } = props;
     this.sub = requestSubscription({
       subscription,
@@ -82,9 +88,7 @@ class RootArtifact extends Component {
     const {
       t,
       location,
-      match: {
-        params: { observableId },
-      },
+      params: { observableId },
     } = this.props;
     const link = `/dashboard/observations/artifacts/${observableId}/knowledge`;
     return (
@@ -96,9 +100,10 @@ class RootArtifact extends Component {
             if (props) {
               if (props.stixCyberObservable) {
                 const { stixCyberObservable } = props;
+                const paddingRight = getPaddingRight(location.pathname, stixCyberObservable.id, '/dashboard/observations/artifacts', false);
                 return (
-                  <>
-                    <Breadcrumbs variant="object" elements={[
+                  <div style={{ paddingRight }}>
+                    <Breadcrumbs elements={[
                       { label: t('Observations') },
                       { label: t('Artifacts'), link: '/dashboard/observations/artifacts' },
                       { label: stixCyberObservable.observable_value, current: true },
@@ -112,17 +117,11 @@ class RootArtifact extends Component {
                       sx={{
                         borderBottom: 1,
                         borderColor: 'divider',
-                        marginBottom: 4,
+                        marginBottom: 3,
                       }}
                     >
                       <Tabs
-                        value={
-                          location.pathname.includes(
-                            `/dashboard/observations/artifacts/${stixCyberObservable.id}/knowledge`,
-                          )
-                            ? `/dashboard/observations/artifacts/${stixCyberObservable.id}/knowledge`
-                            : location.pathname
-                        }
+                        value={getCurrentTab(location.pathname, stixCyberObservable.id, '/dashboard/observations/artifacts')}
                       >
                         <Tab
                           component={Link}
@@ -135,6 +134,12 @@ class RootArtifact extends Component {
                           to={`/dashboard/observations/artifacts/${stixCyberObservable.id}/knowledge`}
                           value={`/dashboard/observations/artifacts/${stixCyberObservable.id}/knowledge`}
                           label={t('Knowledge')}
+                        />
+                        <Tab
+                          component={Link}
+                          to={`/dashboard/observations/artifacts/${stixCyberObservable.id}/content`}
+                          value={`/dashboard/observations/artifacts/${stixCyberObservable.id}/content`}
+                          label={t('Content')}
                         />
                         <Tab
                           component={Link}
@@ -162,34 +167,36 @@ class RootArtifact extends Component {
                         />
                       </Tabs>
                     </Box>
-                    <Switch>
+                    <Routes>
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId"
-                        render={(routeProps) => (
+                        path="/"
+                        element={(
                           <StixCyberObservable
-                            {...routeProps}
-                            stixCyberObservable={stixCyberObservable}
+                            stixCyberObservableData={stixCyberObservable}
                           />
-                        )}
+                                )}
                       />
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId/knowledge"
-                        render={(routeProps) => (
+                        path="/knowledge"
+                        element={
                           <StixCyberObservableKnowledge
-                            {...routeProps}
                             stixCyberObservable={stixCyberObservable}
                             connectorsForImport={props.connectorsForImport}
                           />
-                        )}
+                                }
                       />
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId/sightings"
-                        render={(routeProps) => (
+                        path="/content/*"
+                        element={
+                          <StixCoreObjectContentRoot
+                            stixCoreObject={stixCyberObservable}
+                          />
+                                }
+                      />
+                      <Route
+                        path="/sightings"
+                        element={(
                           <EntityStixSightingRelationships
-                            {...routeProps}
                             entityId={observableId}
                             entityLink={link}
                             noRightBar={true}
@@ -205,14 +212,12 @@ class RootArtifact extends Component {
                               'System',
                             ]}
                           />
-                        )}
+                                )}
                       />
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId/files"
-                        render={(routeProps) => (
+                        path="/files"
+                        element={(
                           <FileManager
-                            {...routeProps}
                             id={observableId}
                             connectorsImport={props.connectorsForImport}
                             connectorsExport={props.connectorsForExport}
@@ -220,40 +225,35 @@ class RootArtifact extends Component {
                             isArtifact={true}
                             directDownload={true}
                           />
-                        )}
+                                )}
                       />
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId/history"
-                        render={(routeProps) => (
+                        path="/history"
+                        element={(
                           <StixCoreObjectHistory
-                            {...routeProps}
                             stixCoreObjectId={observableId}
                           />
-                        )}
+                                )}
                       />
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId/knowledge/relations/:relationId"
-                        render={(routeProps) => (
+                        path="/knowledge/relations/:relationId"
+                        element={(
                           <StixCoreRelationship
                             entityId={observableId}
-                            {...routeProps}
                           />
-                        )}
+                                )}
                       />
                       <Route
-                        exact
-                        path="/dashboard/observations/artifacts/:observableId/knowledge/sightings/:sightingId"
-                        render={(routeProps) => (
+                        path="/knowledge/sightings/:sightingId"
+                        element={(
                           <StixSightingRelationship
                             entityId={observableId}
-                            {...routeProps}
+                            paddingRight
                           />
-                        )}
+                                )}
                       />
-                    </Switch>
-                  </>
+                    </Routes>
+                  </div>
                 );
               }
               return <ErrorNotFound />;
@@ -268,7 +268,7 @@ class RootArtifact extends Component {
 
 RootArtifact.propTypes = {
   children: PropTypes.node,
-  match: PropTypes.object,
+  params: PropTypes.object,
 };
 
 export default R.compose(inject18n, withRouter)(RootArtifact);

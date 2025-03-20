@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -19,7 +19,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // @ts-nocheck
 
 import React from 'react';
-import { Route, useParams } from 'react-router-dom';
+import { Route, Routes, useParams } from 'react-router-dom';
 import { graphql } from 'react-relay';
 import { QueryRenderer } from '../../../../relay/environment';
 import { RootPlaybookQuery$data } from './__generated__/RootPlaybookQuery.graphql';
@@ -59,19 +59,17 @@ const RootPlaybook = () => {
         if (props) {
           if (props.playbook && props.playbookComponents) {
             return (
-              <>
+              <Routes>
                 <Route
-                  exact
-                  path="/dashboard/data/processing/automation/:playbookId"
-                  render={(routeProps: any) => (
+                  path="/"
+                  element={
                     <Playbook
-                      {...routeProps}
                       playbook={props.playbook}
                       playbookComponents={props.playbookComponents}
                     />
-                  )}
+                  }
                 />
-              </>
+              </Routes>
             );
           }
           return <ErrorNotFound />;

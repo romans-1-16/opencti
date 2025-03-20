@@ -1,5 +1,5 @@
 import React, { FunctionComponent } from 'react';
-import { graphql, useFragment, useMutation } from 'react-relay';
+import { graphql, useFragment } from 'react-relay';
 import * as Yup from 'yup';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
@@ -7,6 +7,7 @@ import {
   ThreatActorIndividualMutationRelationDelete,
   threatActorIndividualRelationAddMutation,
 } from '@components/threats/threat_actors_individual/ThreatActorIndividualEditionOverview';
+import { useTheme } from '@mui/styles';
 import { GenericContext } from '../../common/model/GenericContextModel';
 import { isNone, useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
@@ -23,6 +24,8 @@ import { ThreatActorIndividualEditionDetailsFocusMutation } from './__generated_
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEditor';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import type { Theme } from '../../../../components/Theme';
 
 const threatActorIndividualMutationFieldPatch = graphql`
   mutation ThreatActorIndividualEditionDetailsFieldPatchMutation(
@@ -67,6 +70,7 @@ const threatActorIndividualEditionDetailsFragment = graphql`
     goals
     roles
     confidence
+    entity_type
     objectMarking {
       id
       definition_type
@@ -96,11 +100,13 @@ const ThreatActorIndividualEditionDetailsComponent: FunctionComponent<
 ThreatActorIndividualEditionDetailsProps
 > = ({ threatActorIndividualRef, context, enableReferences, handleClose }) => {
   const { t_i18n } = useFormatter();
+  const theme = useTheme<Theme>();
+
   const threatActorIndividual = useFragment(
     threatActorIndividualEditionDetailsFragment,
     threatActorIndividualRef,
   );
-  const [commitEditionDetailsFocus] = useMutation<ThreatActorIndividualEditionDetailsFocusMutation>(
+  const [commitEditionDetailsFocus] = useApiMutation<ThreatActorIndividualEditionDetailsFocusMutation>(
     ThreatActorIndividualEditionDetailsFocus,
   );
   const basicShape = {
@@ -244,7 +250,7 @@ ThreatActorIndividualEditionDetailsProps
           dirty,
         }) => (
           <div>
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form style={{ marginTop: theme.spacing(2) }}>
               <AlertConfidenceForEntity entity={threatActorIndividual} />
               <Field
                 component={DateTimePickerField}

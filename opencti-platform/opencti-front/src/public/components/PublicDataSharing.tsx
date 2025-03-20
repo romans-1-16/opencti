@@ -6,13 +6,14 @@ import PublicFeedLines from '@components/data/feeds/PublicFeedLines';
 import React from 'react';
 import { loadQuery, usePreloadedQuery } from 'react-relay';
 import type { Theme } from '../../components/Theme';
-import Message from '../../components/Message';
 import { environment, fileUri } from '../../relay/environment';
 import { LoginRootPublicQuery } from '../__generated__/LoginRootPublicQuery.graphql';
 import { rootPublicQuery } from '../LoginRoot';
 import logoLight from '../../static/images/logo_light.png';
 import logoDark from '../../static/images/logo_dark.png';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles({
   container: {
     textAlign: 'center',
@@ -47,7 +48,6 @@ const PublicDataSharing = () => {
 
   return (
     <>
-      <Message />
       <div className={classes.container}>
         <img
           src={loginLogo && loginLogo.length > 0 ? loginLogo : fileUri(theme.palette.mode === 'dark' ? logoDark : logoLight)}

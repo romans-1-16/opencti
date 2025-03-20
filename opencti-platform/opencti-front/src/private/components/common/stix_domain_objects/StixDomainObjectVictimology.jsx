@@ -11,18 +11,18 @@ import EntityStixCoreRelationships from '../stix_core_relationships/EntityStixCo
 import EntityStixCoreRelationshipsHorizontalBars from '../stix_core_relationships/EntityStixCoreRelationshipsHorizontalBars';
 import StixDomainObjectVictimologyMap from './StixDomainObjectVictimologyMap';
 
-const styles = () => ({
+const styles = (theme) => ({
   container: {
-    marginTop: 40,
+    marginTop: theme.spacing(3),
   },
   bottomNav: {
-    zIndex: 1000,
+    zIndex: 1,
     padding: '0 200px 0 205px',
     display: 'flex',
     height: 50,
   },
   paper: {
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     overflow: 'hidden',
   },
@@ -32,7 +32,7 @@ class StixDomainObjectVictimology extends Component {
   constructor(props) {
     super(props);
     this.state = {
-      viewMode: 'entities',
+      viewMode: 'relationships',
     };
   }
 
@@ -59,7 +59,7 @@ class StixDomainObjectVictimology extends Component {
       <>
         <Grid container={true} spacing={3} style={{ marginTop: 15 }}>
           <Grid
-            item={true}
+            item
             xs={6}
             style={{ height: 300, minHeight: 300, paddingTop: 0 }}
           >
@@ -73,7 +73,7 @@ class StixDomainObjectVictimology extends Component {
             />
           </Grid>
           <Grid
-            item={true}
+            item
             xs={6}
             style={{ height: 300, minHeight: 300, paddingTop: 0 }}
           >
@@ -87,10 +87,10 @@ class StixDomainObjectVictimology extends Component {
             />
           </Grid>
           <Grid
-            item={true}
+            item
             xs={6}
             style={{
-              marginTop: 60,
+              marginTop: 45,
               height: 300,
               minHeight: 300,
               paddingTop: 0,
@@ -106,10 +106,10 @@ class StixDomainObjectVictimology extends Component {
             />
           </Grid>
           <Grid
-            item={true}
+            item
             xs={6}
             style={{
-              marginTop: 60,
+              marginTop: 45,
               height: 300,
               minHeight: 300,
               paddingTop: 0,
@@ -124,36 +124,37 @@ class StixDomainObjectVictimology extends Component {
         <Divider style={{ marginTop: 50 }} />
         <div className={classes.container} id="container">
           {(viewMode === 'entities' || viewMode === 'relationships') && (
-          <EntityStixCoreRelationships
-            entityLink={entityLink}
-            entityId={stixDomainObjectId}
-            stixCoreObjectTypes={[
-              'System',
-              'Individual',
-              'Organization',
-              'Sector',
-              'City',
-              'Country',
-              'Region',
-              'Position',
-              'Event',
-              'Administrative-Area',
-            ]}
-            relationshipTypes={['targets']}
-            isRelationReversed={false}
-            enableExport={true}
-            currentView={viewMode}
-            handleChangeView={this.handleChangeView.bind(this)}
-            enableNestedView={true}
-            defaultStartTime={defaultStartTime}
-            defaultStopTime={defaultStopTime}
-          />
+            <EntityStixCoreRelationships
+              entityLink={entityLink}
+              entityId={stixDomainObjectId}
+              stixCoreObjectTypes={[
+                'System',
+                'Individual',
+                'Organization',
+                'Sector',
+                'City',
+                'Country',
+                'Region',
+                'Position',
+                'Event',
+                'Administrative-Area',
+              ]}
+              relationshipTypes={['targets']}
+              isRelationReversed={false}
+              enableExport={true}
+              currentView={viewMode}
+              handleChangeView={this.handleChangeView.bind(this)}
+              enableNestedView={true}
+              enableEntitiesView={false}
+              defaultStartTime={defaultStartTime}
+              defaultStopTime={defaultStopTime}
+            />
           )}
           {viewMode === 'nested' && (
           <QueryRenderer
             query={
-                  stixDomainObjectVictimologySectorsStixCoreRelationshipsQuery
-                }
+              stixDomainObjectVictimologySectorsStixCoreRelationshipsQuery
+            }
             variables={{ first: 500, ...paginationOptionsSectors }}
             render={({ props }) => {
               if (props) {

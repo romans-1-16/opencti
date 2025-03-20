@@ -14,9 +14,12 @@ import { useFormatter } from '../../../components/i18n';
 import CustomizationMenu from './CustomizationMenu';
 import { emptyFilterGroup } from '../../../utils/filters/filtersUtils';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'notifiers';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>(() => ({
   container: {
     margin: 0,
@@ -27,6 +30,8 @@ const useStyles = makeStyles<Theme>(() => ({
 const Notifiers = () => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Notifiers | Customization | Settings'));
   const {
     viewStorage,
     paginationOptions,
@@ -69,7 +74,7 @@ const Notifiers = () => {
   return (
     <div className={classes.container}>
       <CustomizationMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Notifiers'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Notifiers'), current: true }]} />
       <NotifierCreation paginationOptions={paginationOptions} />
       <ListLines
         helpers={storageHelpers}

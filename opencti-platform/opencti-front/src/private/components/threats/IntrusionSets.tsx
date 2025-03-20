@@ -1,32 +1,52 @@
 import React from 'react';
 import Grid from '@mui/material/Grid';
 import { GenericAttackCardDummy } from '@components/common/cards/GenericAttackCard';
+import ToggleButton from '@mui/material/ToggleButton';
+import Tooltip from '@mui/material/Tooltip';
+import { ViewListOutlined, ViewModuleOutlined } from '@mui/icons-material';
+import { IntrusionSetCardFragment } from '@components/threats/intrusion_sets/IntrusionSetCard';
+import { IntrusionSetsCards_data$data } from '@components/threats/intrusion_sets/__generated__/IntrusionSetsCards_data.graphql';
 import { IntrusionSetsCardsPaginationQuery, IntrusionSetsCardsPaginationQuery$variables } from './intrusion_sets/__generated__/IntrusionSetsCardsPaginationQuery.graphql';
 import ListCards from '../../../components/list_cards/ListCards';
-import IntrusionSetsCards, { intrusionSetsCardsQuery } from './intrusion_sets/IntrusionSetsCards';
+import IntrusionSetsCards, { intrusionSetsCardsFragment, intrusionSetsCardsQuery } from './intrusion_sets/IntrusionSetsCards';
 import IntrusionSetCreation from './intrusion_sets/IntrusionSetCreation';
 import Security from '../../../utils/Security';
 import { KNOWLEDGE_KNUPDATE } from '../../../utils/hooks/useGranted';
 import { usePaginationLocalStorage } from '../../../utils/hooks/useLocalStorage';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
-import { emptyFilterGroup } from '../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, useBuildEntityTypeBasedFilterContext } from '../../../utils/filters/filtersUtils';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { useFormatter } from '../../../components/i18n';
+import { UsePreloadedPaginationFragment } from '../../../utils/hooks/usePreloadedPaginationFragment';
+import DataTable from '../../../components/dataGrid/DataTable';
+import useHelper from '../../../utils/hooks/useHelper';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'intrusionSets';
 
 const IntrusionSets = () => {
   const { t_i18n } = useFormatter();
+  const initialValues = {
+    searchTerm: '',
+    sortBy: 'name',
+    orderAsc: true,
+    openExports: false,
+    filters: emptyFilterGroup,
+    view: 'cards',
+  };
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Intrusion Sets | Threats'));
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<IntrusionSetsCardsPaginationQuery$variables>(
     LOCAL_STORAGE_KEY,
-    {
-      searchTerm: '',
-      sortBy: 'name',
-      orderAsc: true,
-      openExports: false,
-      filters: emptyFilterGroup,
-    },
+    initialValues,
   );
+
+  const contextFilters = useBuildEntityTypeBasedFilterContext('Intrusion-Set', viewStorage.filters);
+  const queryPaginationOptions = {
+    ...paginationOptions,
+    filters: contextFilters,
+  } as unknown as IntrusionSetsCardsPaginationQuery$variables;
+
   const {
     sortBy,
     orderAsc,
@@ -38,8 +58,11 @@ const IntrusionSets = () => {
 
   const queryRef = useQueryLoading<IntrusionSetsCardsPaginationQuery>(
     intrusionSetsCardsQuery,
-    paginationOptions,
+    queryPaginationOptions,
   );
+
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
 
   const renderCards = () => {
     const dataColumns = {
@@ -70,8 +93,14 @@ const IntrusionSets = () => {
         exportContext={{ entity_type: 'Intrusion-Set' }}
         keyword={searchTerm}
         filters={filters}
-        paginationOptions={paginationOptions}
+        paginationOptions={queryPaginationOptions}
         numberOfElements={numberOfElements}
+        handleChangeView={helpers.handleChangeView}
+        createButton={isFABReplaced && (
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <IntrusionSetCreation paginationOptions={queryPaginationOptions} />
+          </Security>
+        )}
       >
         {queryRef && (
           <React.Suspense
@@ -81,7 +110,7 @@ const IntrusionSets = () => {
                   .fill(0)
                   .map((_, idx) => (
                     <Grid
-                      item={true}
+                      item
                       xs={3}
                       key={idx}
                     >
@@ -102,13 +131,72 @@ const IntrusionSets = () => {
     );
   };
 
+  const renderList = () => {
+    const dataColumns = {
+      name: {
+        percentWidth: 15,
+      },
+      resource_level: {},
+      primary_motivation: {},
+      secondary_motivations: {},
+      creator: { percentWidth: 15 },
+      objectLabel: {},
+      modified: {},
+      objectMarking: { percentWidth: 10 },
+    };
+
+    const preloadedPaginationProps = {
+      linesQuery: intrusionSetsCardsQuery,
+      linesFragment: intrusionSetsCardsFragment,
+      queryRef,
+      nodePath: ['intrusionSets', 'pageInfo', 'globalCount'],
+      setNumberOfElements: helpers.handleSetNumberOfElements,
+    } as UsePreloadedPaginationFragment<IntrusionSetsCardsPaginationQuery>;
+
+    return (
+      <>
+        {queryRef && (
+          <DataTable
+            dataColumns={dataColumns}
+            resolvePath={(data: IntrusionSetsCards_data$data) => data.intrusionSets?.edges?.map((n) => n?.node)}
+            storageKey={LOCAL_STORAGE_KEY}
+            initialValues={initialValues}
+            toolbarFilters={contextFilters}
+            preloadedPaginationProps={preloadedPaginationProps}
+            lineFragment={IntrusionSetCardFragment}
+            exportContext={{ entity_type: 'Intrusion-Set' }}
+            additionalHeaderButtons={[
+              (<ToggleButton key="cards" value="cards" aria-label="cards">
+                <Tooltip title={t_i18n('Cards view')}>
+                  <ViewModuleOutlined fontSize="small" color="primary" />
+                </Tooltip>
+              </ToggleButton>),
+              (<ToggleButton key="lines" value="lines" aria-label="lines">
+                <Tooltip title={t_i18n('Lines view')}>
+                  <ViewListOutlined color="secondary" fontSize="small" />
+                </Tooltip>
+              </ToggleButton>),
+            ]}
+            createButton={isFABReplaced && (
+              <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                <IntrusionSetCreation paginationOptions={queryPaginationOptions} />
+              </Security>
+            )}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Threats') }, { label: t_i18n('Intrusion sets'), current: true }]} />
-      {renderCards()}
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <IntrusionSetCreation paginationOptions={paginationOptions} />
-      </Security>
+      <Breadcrumbs elements={[{ label: t_i18n('Threats') }, { label: t_i18n('Intrusion sets'), current: true }]} />
+      {viewStorage.view !== 'lines' ? renderCards() : renderList()}
+      {!isFABReplaced && (
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <IntrusionSetCreation paginationOptions={queryPaginationOptions} />
+        </Security>
+      )}
     </>
   );
 };

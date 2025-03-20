@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -23,24 +23,24 @@ import ListItemText from '@mui/material/ListItemText';
 import { Field, Form, Formik } from 'formik';
 import { FileIndexingConfigurationQuery$data } from '@components/settings/file_indexing/__generated__/FileIndexingConfigurationQuery.graphql';
 import { FormikConfig } from 'formik/dist/types';
-import { useMutation } from 'react-relay';
 import { fileIndexingConfigurationFieldPatch } from '@components/settings/file_indexing/FileIndexing';
 import Checkbox from '@mui/material/Checkbox';
 import * as Yup from 'yup';
 import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
 import { handleErrorInForm } from '../../../../relay/environment';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import AutocompleteField from '../../../../components/AutocompleteField';
 import ItemIcon from '../../../../components/ItemIcon';
 import TextField from '../../../../components/TextField';
 import useAttributes from '../../../../utils/hooks/useAttributes';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 20,
     borderRadius: 4,
   },
@@ -76,7 +76,7 @@ FileIndexingConfigurationProps
     max_file_size: manager_setting?.max_file_size,
     entity_types: manager_setting?.entity_types,
   };
-  const [commitManagerSetting] = useMutation(
+  const [commitManagerSetting] = useApiMutation(
     fileIndexingConfigurationFieldPatch,
   );
   const onSubmitForm: FormikConfig<FileIndexingConfigurationFormValues>['onSubmit'] = (values, { setSubmitting, setErrors }) => {
@@ -143,7 +143,7 @@ FileIndexingConfigurationProps
                           setFieldValue(
                             'accept_mime_types',
                             values.accept_mime_types.filter(
-                              (v) => v !== mimeType,
+                              (v: string) => v !== mimeType,
                             ),
                           );
                         } else {

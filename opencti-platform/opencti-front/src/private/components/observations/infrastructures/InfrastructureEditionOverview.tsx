@@ -8,7 +8,7 @@ import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import KillChainPhasesField from '../../common/form/KillChainPhasesField';
 import OpenVocabField from '../../common/form/OpenVocabField';
@@ -25,6 +25,8 @@ import { InfrastructureEditionOverview_infrastructure$key } from './__generated_
 import { Option } from '../../common/form/ReferenceField';
 import { GenericContext } from '../../common/model/GenericContextModel';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useHelper from '../../../../utils/hooks/useHelper';
+import InfrastructureDeletion from './InfrastructureDeletion';
 
 const infrastructureMutationFieldPatch = graphql`
   mutation InfrastructureEditionOverviewFieldPatchMutation(
@@ -94,6 +96,7 @@ export const infrastructureEditionOverviewFragment = graphql`
     name
     description
     confidence
+    entity_type
     first_seen
     last_seen
     infrastructure_types
@@ -157,9 +160,10 @@ const InfrastructureEditionOverviewComponent: FunctionComponent<InfrastructureEd
 }) => {
   const { t_i18n } = useFormatter();
   const infrastructure = useFragment(infrastructureEditionOverviewFragment, infrastructureData);
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     infrastructure_types: Yup.array().nullable(),
     confidence: Yup.number().nullable(),
@@ -254,7 +258,7 @@ const InfrastructureEditionOverviewComponent: FunctionComponent<InfrastructureEd
     references: [],
   };
   return (
-    <Formik
+    <Formik<InfrastructureEditionFormValues>
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={infrastructureValidator}
@@ -268,7 +272,7 @@ const InfrastructureEditionOverviewComponent: FunctionComponent<InfrastructureEd
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={infrastructure} />
           <Field
             component={TextField}
@@ -312,7 +316,7 @@ const InfrastructureEditionOverviewComponent: FunctionComponent<InfrastructureEd
               fullWidth: true,
               style: { marginTop: 20 },
               helperText: (
-                <SubscriptionFocus context={context} fieldName="first_seen"/>
+                <SubscriptionFocus context={context} fieldName="first_seen" />
               ),
             }}
           />
@@ -327,7 +331,7 @@ const InfrastructureEditionOverviewComponent: FunctionComponent<InfrastructureEd
               fullWidth: true,
               style: { marginTop: 20 },
               helperText: (
-                <SubscriptionFocus context={context} fieldName="last_seen"/>
+                <SubscriptionFocus context={context} fieldName="last_seen" />
               ),
             }}
           />
@@ -391,16 +395,23 @@ const InfrastructureEditionOverviewComponent: FunctionComponent<InfrastructureEd
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={infrastructure.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <InfrastructureDeletion
+                  id={infrastructure.id}
+                />
+              : <div />}
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={infrastructure.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

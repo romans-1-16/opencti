@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
@@ -11,10 +11,13 @@ import DialogContentText from '@mui/material/DialogContentText';
 import Slide, { SlideProps } from '@mui/material/Slide';
 import MoreVert from '@mui/icons-material/MoreVert';
 import makeStyles from '@mui/styles/makeStyles';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import { useFormatter } from '../../../../components/i18n';
 import GroupEdition from './GroupEdition';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -44,7 +47,7 @@ const groupPopoverDeletionMutation = graphql`
   }
 `;
 
-const GroupPopover = ({ groupId }: { groupId: string }) => {
+const GroupPopover = ({ groupId, disabled = false }: { groupId: string, disabled?: boolean }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
   const navigate = useNavigate();
@@ -52,8 +55,8 @@ const GroupPopover = ({ groupId }: { groupId: string }) => {
   const [displayUpdate, setDisplayUpdate] = useState(false);
   const [displayDelete, setDisplayDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [commitCleanContext] = useMutation(groupPopoverCleanContext);
-  const [commitDeleteMutation] = useMutation(groupPopoverDeletionMutation);
+  const [commitCleanContext] = useApiMutation(groupPopoverCleanContext);
+  const [commitDeleteMutation] = useApiMutation(groupPopoverDeletionMutation);
 
   const handleOpen = (event: React.MouseEvent) => {
     setAnchorEl(event.currentTarget);
@@ -105,7 +108,8 @@ const GroupPopover = ({ groupId }: { groupId: string }) => {
         aria-haspopup="true"
         size="large"
         style={{ marginTop: 3 }}
-        color="primary"
+        disabled={disabled}
+        color={'primary'}
       >
         <MoreVert />
       </IconButton>

@@ -1,13 +1,14 @@
 import React, { FunctionComponent } from 'react';
-import { useMutation } from 'react-relay';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import { CaseRfiEditionContainerCaseQuery } from './__generated__/CaseRfiEditionContainerCaseQuery.graphql';
 import CaseRfiEditionContainer, { caseRfiEditionQuery } from './CaseRfiEditionContainer';
 import { caseRfiEditionOverviewFocus } from './CaseRfiEditionOverview';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 const CaseRfiEdition: FunctionComponent<{ caseId: string }> = ({ caseId }) => {
-  const [commit] = useMutation(caseRfiEditionOverviewFocus);
+  const [commit] = useApiMutation(caseRfiEditionOverviewFocus);
   const handleClose = () => {
     commit({
       variables: {
@@ -24,11 +25,12 @@ const CaseRfiEdition: FunctionComponent<{ caseId: string }> = ({ caseId }) => {
     <>
       {queryRef && (
         <React.Suspense
-          fallback={<Loader variant={LoaderVariant.inElement} />}
+          fallback={<Loader variant={LoaderVariant.inline} />}
         >
           <CaseRfiEditionContainer
             queryRef={queryRef}
             handleClose={handleClose}
+            controlledDial={EditEntityControlledDial}
           />
         </React.Suspense>
       )}

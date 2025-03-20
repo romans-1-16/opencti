@@ -13,13 +13,15 @@ import { useFormatter } from '../../../../components/i18n';
 import FreeTextUploader from './FreeTextUploader';
 import { FileImportViewer_entity$data } from './__generated__/FileImportViewer_entity.graphql';
 import { FileLine_file$data } from './__generated__/FileLine_file.graphql';
+import { KNOWLEDGE_KNUPLOAD } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
 
 const interval$ = interval(TEN_SECONDS);
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     padding: '10px 15px 10px 15px',
     borderRadius: 4,
     marginTop: 2,
@@ -60,25 +62,27 @@ FileImportViewerComponentProps
     };
   }, []);
   return (
-    <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-      <div style={{ height: '100%' }} className="break">
+    <Grid item xs={6}>
+      <>
         <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
           {t_i18n('Uploaded files')}
         </Typography>
-        <div style={{ float: 'left', marginTop: -15 }}>
-          <FileUploader
-            entityId={id}
-            onUploadSuccess={() => relay.refetch({ id })}
-            size="medium"
-          />
-          <FreeTextUploader
-            entityId={id}
-            onUploadSuccess={() => relay.refetch({ id })}
-            size="medium"
-          />
-        </div>
+        <Security needs={[KNOWLEDGE_KNUPLOAD]} placeholder={<div style={{ height: 25 }} />}>
+          <div style={{ float: 'left', marginTop: -15 }}>
+            <FileUploader
+              entityId={id}
+              onUploadSuccess={() => relay.refetch({ id })}
+              size="medium"
+            />
+            <FreeTextUploader
+              entityId={id}
+              onUploadSuccess={() => relay.refetch({ id })}
+              size="medium"
+            />
+          </div>
+        </Security>
         <div className="clearfix" />
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           {importFiles?.edges?.length ? (
             <List>
               {importFiles?.edges?.map((file) => {
@@ -115,7 +119,7 @@ FileImportViewerComponentProps
             </div>
           )}
         </Paper>
-      </div>
+      </>
     </Grid>
   );
 };

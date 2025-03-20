@@ -9,7 +9,7 @@ import {
   timeSeriesEntities,
   updateAttribute,
   updateAttributeFromLoadedWithRefs,
-  validateCreatedBy
+  validateCreatedBy,
 } from '../database/middleware';
 import { listAllToEntitiesThroughRelations, listEntities, listEntitiesThroughRelationsPaginated, storeLoadById } from '../database/middleware-loader';
 import { elCount, elFindByIds } from '../database/engine';
@@ -25,7 +25,7 @@ import {
   isStixDomainObjectLocation,
   isStixDomainObjectThreatActor
 } from '../schema/stixDomainObject';
-import { ABSTRACT_STIX_CYBER_OBSERVABLE, ABSTRACT_STIX_DOMAIN_OBJECT, buildRefRelationKey } from '../schema/general';
+import { ABSTRACT_STIX_CYBER_OBSERVABLE, ABSTRACT_STIX_DOMAIN_OBJECT, buildRefRelationKey, INPUT_CREATED_BY, INPUT_MARKINGS } from '../schema/general';
 import { RELATION_CREATED_BY, RELATION_OBJECT_ASSIGNEE, } from '../schema/stixRefRelationship';
 import { askEntityExport, askListExport, exportTransformFilters } from './stix';
 import { RELATION_BASED_ON } from '../schema/stixCoreRelationship';
@@ -39,6 +39,7 @@ import { entityLocationType, identityClass, xOpenctiType } from '../schema/attri
 import { usersSessionRefresh } from './user';
 import { addFilter } from '../utils/filtering/filtering-utils';
 import { ENTITY_TYPE_INDICATOR } from '../modules/indicator/indicator-types';
+import { validateMarking } from '../utils/access';
 
 export const findAll = async (context, user, args) => {
   let types = [];
@@ -100,18 +101,18 @@ export const stixDomainObjectAvatar = (stixDomainObject) => {
 
 // region export
 export const stixDomainObjectsExportAsk = async (context, user, args) => {
-  const { exportContext, format, exportType, maxMarkingDefinition, selectedIds } = args;
+  const { exportContext, format, exportType, contentMaxMarkings, selectedIds, fileMarkings } = args;
   const { search, orderBy, orderMode, filters } = args;
   const filteringArgs = { search, orderBy, orderMode, filters };
   const ordersOpts = stixDomainObjectOptions.StixDomainObjectsOrdering;
   const listParams = exportTransformFilters(filteringArgs, ordersOpts);
-  const works = await askListExport(context, user, exportContext, format, selectedIds, listParams, exportType, maxMarkingDefinition);
+  const works = await askListExport(context, user, exportContext, format, selectedIds, listParams, exportType, contentMaxMarkings, fileMarkings);
   return works.map((w) => workToExportFile(w));
 };
-export const stixDomainObjectExportAsk = async (context, user, stixDomainObjectId, args) => {
-  const { format, exportType = null, maxMarkingDefinition = null } = args;
+export const stixDomainObjectExportAsk = async (context, user, stixDomainObjectId, input) => {
+  const { format, exportType, contentMaxMarkings, fileMarkings } = input;
   const entity = await storeLoadById(context, user, stixDomainObjectId, ABSTRACT_STIX_DOMAIN_OBJECT);
-  const works = await askEntityExport(context, user, format, entity, exportType, maxMarkingDefinition);
+  const works = await askEntityExport(context, user, format, entity, exportType, contentMaxMarkings, fileMarkings);
   return works.map((w) => workToExportFile(w));
 };
 
@@ -170,7 +171,8 @@ export const addStixDomainObject = async (context, user, stixDomainObject) => {
 };
 
 export const stixDomainObjectDelete = async (context, user, stixDomainObjectId) => {
-  const stixDomainObject = await storeLoadById(context, user, stixDomainObjectId, ABSTRACT_STIX_DOMAIN_OBJECT);
+  // If we are in a draft, we need to also search for deleted elements
+  const stixDomainObject = await storeLoadById(context, user, stixDomainObjectId, ABSTRACT_STIX_DOMAIN_OBJECT, { includeDeletedInDraft: true });
   if (!stixDomainObject) {
     throw FunctionalError('Cannot delete the object, Stix-Domain-Object cannot be found.');
   }
@@ -188,11 +190,11 @@ export const stixDomainObjectsDelete = async (context, user, stixDomainObjectsId
 };
 
 // region relation ref
-export const stixDomainObjectAddRelation = async (context, user, stixDomainObjectId, input) => {
-  return stixObjectOrRelationshipAddRefRelation(context, user, stixDomainObjectId, input, ABSTRACT_STIX_DOMAIN_OBJECT);
+export const stixDomainObjectAddRelation = async (context, user, stixDomainObjectId, input, opts = {}) => {
+  return stixObjectOrRelationshipAddRefRelation(context, user, stixDomainObjectId, input, ABSTRACT_STIX_DOMAIN_OBJECT, opts);
 };
-export const stixDomainObjectDeleteRelation = async (context, user, stixDomainObjectId, toId, relationshipType) => {
-  return stixObjectOrRelationshipDeleteRefRelation(context, user, stixDomainObjectId, toId, relationshipType, ABSTRACT_STIX_DOMAIN_OBJECT);
+export const stixDomainObjectDeleteRelation = async (context, user, stixDomainObjectId, toId, relationshipType, opts = {}) => {
+  return stixObjectOrRelationshipDeleteRefRelation(context, user, stixDomainObjectId, toId, relationshipType, ABSTRACT_STIX_DOMAIN_OBJECT, opts);
 };
 // endregion
 
@@ -201,12 +203,19 @@ export const stixDomainObjectEditField = async (context, user, stixObjectId, inp
   if (!stixDomainObject) {
     throw FunctionalError('Cannot edit the field, Stix-Domain-Object cannot be found.');
   }
-
-  const createdByKey = input.find((inputData) => inputData.key === 'createdBy');
+  // Validate specific relations, created by and markings
+  const markingsInput = input.find((inputData) => inputData.key === INPUT_MARKINGS);
+  if (markingsInput && markingsInput.value?.length > 0) {
+    for (let index = 0; index < markingsInput.value.length; index += 1) {
+      const markingId = markingsInput.value[index];
+      await validateMarking(context, user, markingId);
+    }
+  }
+  const createdByKey = input.find((inputData) => inputData.key === INPUT_CREATED_BY);
   if (createdByKey && createdByKey.value?.length > 0) {
     await validateCreatedBy(context, user, createdByKey.value[0]);
   }
-
+  // Start the element edition
   const { element: updatedElem } = await updateAttribute(context, user, stixObjectId, ABSTRACT_STIX_DOMAIN_OBJECT, input, opts);
   // If indicator is score patched, we also patch the score of all observables attached to the indicator
   if (stixDomainObject.entity_type === ENTITY_TYPE_INDICATOR && input.key === 'x_opencti_score') {
@@ -239,8 +248,12 @@ export const stixDomainObjectFileEdit = async (context, user, sdoId, { id, order
     }
     return file;
   });
-
-  const { element: updatedElement } = await updateAttributeFromLoadedWithRefs(context, user, stixDomainObject, { key: 'x_opencti_files', value: files });
+  const nonResolvedFiles = files.map((f) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { [INPUT_MARKINGS]: markingInput, ...nonResolvedFile } = f;
+    return nonResolvedFile;
+  });
+  const { element: updatedElement } = await updateAttributeFromLoadedWithRefs(context, user, stixDomainObject, { key: 'x_opencti_files', value: nonResolvedFiles });
   return notify(BUS_TOPICS[ABSTRACT_STIX_DOMAIN_OBJECT].EDIT_TOPIC, updatedElement, user);
 };
 

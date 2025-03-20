@@ -1,10 +1,10 @@
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION } from '@opentelemetry/semantic-conventions';
 import type { AuthContext, AuthUser } from '../../types/user';
 import { createEntity, loadEntity, updateAttribute } from '../../database/middleware';
 import type { BasicStoreEntityEntitySetting } from './entitySetting-types';
 import { ENTITY_TYPE_ENTITY_SETTING } from './entitySetting-types';
 import { listAllEntities, listEntitiesPaginated, storeLoadById } from '../../database/middleware-loader';
-import type { EditInput, QueryEntitySettingsArgs } from '../../generated/graphql';
+import type { EditInput, EntitySettingFintelTemplatesArgs, QueryEntitySettingsArgs } from '../../generated/graphql';
 import { FilterMode } from '../../generated/graphql';
 import { SYSTEM_USER } from '../../utils/access';
 import { notify } from '../../database/redis';
@@ -17,6 +17,14 @@ import { INPUT_AUTHORIZED_MEMBERS } from '../../schema/general';
 import { containsValidAdmin } from '../../utils/authorizedMembers';
 import { FunctionalError } from '../../config/errors';
 import { getEntitySettingSchemaAttributes, getMandatoryAttributesForSetting } from './entitySetting-attributeUtils';
+import { schemaOverviewLayoutCustomization } from '../../schema/schema-overviewLayoutCustomization';
+import { canViewTemplates } from '../fintelTemplate/fintelTemplate-domain';
+import { type BasicStoreEntityFintelTemplate, ENTITY_TYPE_FINTEL_TEMPLATE } from '../fintelTemplate/fintelTemplate-types';
+import { addFilter } from '../../utils/filtering/filtering-utils';
+import type { BasicStoreEntity, StoreEntityConnection } from '../../types/store';
+import { emptyPaginationResult } from '../../database/utils';
+import { findAllMembers } from '../../domain/user';
+import { authorizedMembers } from '../../schema/attribute-definition';
 
 // -- LOADING --
 
@@ -35,8 +43,8 @@ export const findByType = async (context: AuthContext, user: AuthUser, targetTyp
     });
   };
   return telemetry(context, user, 'QUERY entitySetting', {
-    [SemanticAttributes.DB_NAME]: 'entitySetting_domain',
-    [SemanticAttributes.DB_OPERATION]: 'read',
+    [SEMATTRS_DB_NAME]: 'entitySetting_domain',
+    [SEMATTRS_DB_OPERATION]: 'read',
   }, findByTypeFn);
 };
 
@@ -53,8 +61,8 @@ export const batchEntitySettingsByType = async (context: AuthContext, user: Auth
     return targetTypes.map((targetType) => entitySettings.find((entitySetting) => entitySetting.target_type === targetType));
   };
   return telemetry(context, user, 'BATCH entitySettings', {
-    [SemanticAttributes.DB_NAME]: 'entitySetting_domain',
-    [SemanticAttributes.DB_OPERATION]: 'read',
+    [SEMATTRS_DB_NAME]: 'entitySetting_domain',
+    [SEMATTRS_DB_OPERATION]: 'read',
   }, findByTypeFn);
 };
 
@@ -78,7 +86,6 @@ export const entitySettingEditField = async (context: AuthContext, user: AuthUse
       throw FunctionalError('It should have at least one member with admin access');
     }
   }
-
   const { element } = await updateAttribute(context, user, entitySettingId, ENTITY_TYPE_ENTITY_SETTING, input);
   await publishUserAction({
     user,
@@ -89,6 +96,24 @@ export const entitySettingEditField = async (context: AuthContext, user: AuthUse
     context_data: { id: entitySettingId, entity_type: element.target_type, input }
   });
   return notify(BUS_TOPICS[ENTITY_TYPE_ENTITY_SETTING].EDIT_TOPIC, element, user);
+};
+
+export const getOverviewLayoutCustomization = (entitySetting: BasicStoreEntityEntitySetting) => {
+  return entitySetting.overview_layout_customization?.[0] ? entitySetting.overview_layout_customization : schemaOverviewLayoutCustomization.get(entitySetting.target_type);
+};
+
+export const getTemplatesForSetting = async (
+  context: AuthContext,
+  user: AuthUser,
+  targetType: string,
+  opts: EntitySettingFintelTemplatesArgs,
+): Promise<StoreEntityConnection<BasicStoreEntityFintelTemplate>> => {
+  const canGetTemplates = await canViewTemplates(context);
+  if (!canGetTemplates) {
+    return emptyPaginationResult();
+  }
+  const filters = addFilter(undefined, 'settings_types', [targetType]);
+  return listEntitiesPaginated(context, user, [ENTITY_TYPE_FINTEL_TEMPLATE], { ...opts, filters });
 };
 
 export const entitySettingsEditField = async (context: AuthContext, user: AuthUser, entitySettingIds: string[], input: EditInput[]) => {
@@ -161,5 +186,30 @@ export const queryDefaultValuesAttributesForSetting = async (
   entitySetting: BasicStoreEntityEntitySetting
 ) => {
   const attributes = await getEntitySettingSchemaAttributes(context, user, entitySetting);
-  return attributes.filter((a) => a.defaultValues).map((a) => ({ ...a, defaultValues: a.defaultValues ?? [] }));
+  const defaultValuesAttributes = await Promise.all(attributes.filter((a) => a.defaultValues).map(async (a) => {
+    if (a.name === authorizedMembers.name && a.defaultValues) {
+      const membersIds = a.defaultValues.map((d) => JSON.parse(d.id).id);
+      const args = {
+        connectionFormat: false,
+        filters: {
+          mode: 'and',
+          filters: [{ key: 'internal_id', values: membersIds }],
+          filterGroups: [],
+        },
+      };
+      const members = await findAllMembers(context, user, args);
+      const membersDefaultValues = a.defaultValues.map((d) => {
+        const defaultValueObject = JSON.parse(d.id);
+        const memberId = defaultValueObject.id;
+        const member = members.find((m) => (m as BasicStoreEntity).id === memberId) as BasicStoreEntity;
+        defaultValueObject.name = member?.name ?? '';
+        defaultValueObject.entity_type = member?.entity_type ?? '';
+        const jsonValue = JSON.stringify(defaultValueObject);
+        return { ...d, id: jsonValue, name: jsonValue };
+      });
+      return { ...a, defaultValues: membersDefaultValues };
+    }
+    return { ...a, defaultValues: a.defaultValues ?? [] };
+  }));
+  return defaultValuesAttributes;
 };

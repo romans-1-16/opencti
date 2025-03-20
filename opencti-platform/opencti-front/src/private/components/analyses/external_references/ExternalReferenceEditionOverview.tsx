@@ -1,14 +1,15 @@
 import React, { FunctionComponent } from 'react';
-import { createFragmentContainer, graphql, useMutation } from 'react-relay';
+import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import { pick } from 'ramda';
 import * as Yup from 'yup';
 import { GenericContext } from '@components/common/model/GenericContextModel';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import TextField from '../../../../components/TextField';
 import { ExternalReferenceEditionOverview_externalReference$data } from './__generated__/ExternalReferenceEditionOverview_externalReference.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 export const externalReferenceMutationFieldPatch = graphql`
   mutation ExternalReferenceEditionOverviewFieldPatchMutation(
@@ -40,7 +41,12 @@ export const externalReferenceEditionOverviewFocus = graphql`
 const externalReferenceValidation = (t: (value: string) => string) => Yup.object().shape({
   source_name: Yup.string().required(t('This field is required')),
   external_id: Yup.string().nullable(),
-  url: Yup.string().url(t('The value must be an URL')).nullable(),
+  url: Yup.string()
+    .nullable()
+    .matches(
+      /^(https?:\/\/[^\s/$.?#].[^\s]*)$/,
+      t('The value must be an URL'),
+    ),
   description: Yup.string().nullable(),
 });
 
@@ -54,10 +60,10 @@ ExternalReferenceEditionOverviewComponentProps
 > = ({ externalReference, context }) => {
   const { t_i18n } = useFormatter();
 
-  const [commitMutationExternalReferenceEditionOverviewFocus] = useMutation(
+  const [commitMutationExternalReferenceEditionOverviewFocus] = useApiMutation(
     externalReferenceEditionOverviewFocus,
   );
-  const [commitMutationExternalReferenceMutationFieldPatch] = useMutation(
+  const [commitMutationExternalReferenceMutationFieldPatch] = useApiMutation(
     externalReferenceMutationFieldPatch,
   );
 
@@ -95,11 +101,13 @@ ExternalReferenceEditionOverviewComponentProps
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={externalReferenceValidation(t_i18n)}
+      validateOnChange={true}
+      validateOnBlur={true}
       onSubmit={() => {}}
     >
       {() => (
         <div>
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               name="source_name"

@@ -4,18 +4,20 @@ import { Theme as MuiTheme, ThemeOptions } from '@mui/material/styles/createThem
 declare module '@mui/material/IconButton' {
   interface IconButtonPropsColorOverrides {
     ee: true
+    dangerZone: true
   }
 }
 
 declare module '@mui/material/Button' {
   interface ButtonPropsColorOverrides {
     ee: true
+    pagination: true
   }
 }
 
-declare module '@mui/material/Button' {
-  interface ChipPropsColorOverrides {
-    ee: true
+declare module '@mui/material/ButtonGroup' {
+  interface ButtonGroupPropsColorOverrides {
+    pagination: true
   }
 }
 
@@ -25,9 +27,22 @@ declare module '@mui/material/SvgIcon' {
   }
 }
 
+declare module '@mui/material/Fab' {
+  interface FabPropsColorOverrides {
+    dangerZone: true
+  }
+}
+
+declare module '@mui/material/Alert' {
+  interface AlertPropsColorOverrides {
+    dangerZone: true
+  }
+}
+
 interface ExtendedColor extends PaletteColorOptions {
   main: string
   dark: string
+  light: string
   palette: ExtendedPaletteOptions
   text: Partial<TypeText>
   mode: PaletteMode
@@ -43,13 +58,24 @@ interface ExtendedBackground extends TypeBackground {
 }
 
 interface ExtendedPaletteOptions extends PaletteOptions {
-  common: Partial<CommonColors>
+  common: Partial<CommonColors & { grey: string, lightGrey: string }>
   background: Partial<ExtendedBackground>
+  border: {
+    primary: string
+    secondary: string
+    pagination: string
+    lightBackground?: string
+  }
+  dangerZone: Partial<ExtendedColor>
   primary: Partial<ExtendedColor>
   error: Partial<ExtendedColor>
+  warn: Partial<ExtendedColor>
   success: Partial<ExtendedColor>
   chip: Partial<ExtendedColor>
+  pagination: Partial<ExtendedColor>
   ee: Partial<ExtendedColor>
+  ai: Partial<ExtendedColor>
+  xtmhub: Partial<ExtendedColor>
   secondary: Partial<ExtendedColor>
   mode: PaletteMode
 }

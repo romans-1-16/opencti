@@ -1,13 +1,16 @@
 import React, { FunctionComponent } from 'react';
-import { createFragmentContainer, graphql, useMutation } from 'react-relay';
+import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as R from 'ramda';
 import * as Yup from 'yup';
+import { useTheme } from '@mui/styles';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import TextField from '../../../../components/TextField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { useFormatter } from '../../../../components/i18n';
 import { RoleEditionOverview_role$data } from './__generated__/RoleEditionOverview_role.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import type { Theme } from '../../../../components/Theme';
 
 const roleMutationFieldPatch = graphql`
   mutation RoleEditionOverviewFieldPatchMutation(
@@ -47,12 +50,14 @@ interface RoleEditionOverviewComponentProps {
 
 const RoleEditionOverviewComponent: FunctionComponent<RoleEditionOverviewComponentProps> = ({ role, context }) => {
   const { t_i18n } = useFormatter();
+  const theme = useTheme<Theme>();
+
   const initialValues = R.pick(
     ['name', 'description'],
     role,
   );
-  const [commitFocus] = useMutation(roleEditionOverviewFocus);
-  const [commitFieldPatch] = useMutation(roleMutationFieldPatch);
+  const [commitFocus] = useApiMutation(roleEditionOverviewFocus);
+  const [commitFieldPatch] = useApiMutation(roleMutationFieldPatch);
   const handleChangeFocus = (name: string) => {
     commitFocus({
       variables: {
@@ -82,7 +87,7 @@ const RoleEditionOverviewComponent: FunctionComponent<RoleEditionOverviewCompone
         onSubmit={() => {}}
       >
         {() => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form style={{ marginTop: theme.spacing(2) }}>
             <Field
               component={TextField}
               variant="standard"

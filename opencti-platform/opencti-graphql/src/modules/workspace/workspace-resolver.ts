@@ -1,23 +1,23 @@
-import { withFilter } from 'graphql-subscriptions';
 import {
   addWorkspace,
-  editAuthorizedMembers,
+  duplicateWorkspace,
   findAll,
   findById,
+  generateWidgetExportConfiguration,
+  generateWorkspaceExportConfiguration,
   getCurrentUserAccessRight,
   getOwnerId,
-  duplicateWorkspace,
+  isDashboardShared,
   objects,
   workspaceCleanContext,
   workspaceDelete,
+  workspaceEditAuthorizedMembers,
   workspaceEditContext,
   workspaceEditField,
   workspaceImportConfiguration,
-  workspaceImportWidgetConfiguration,
-  generateWorkspaceExportConfiguration,
-  generateWidgetExportConfiguration
+  workspaceImportWidgetConfiguration
 } from './workspace-domain';
-import { fetchEditContext, pubSubAsyncIterator } from '../../database/redis';
+import { fetchEditContext } from '../../database/redis';
 import { BUS_TOPICS } from '../../config/conf';
 import { ENTITY_TYPE_WORKSPACE } from './workspace-types';
 import type { Resolvers } from '../../generated/graphql';
@@ -25,6 +25,7 @@ import { batchLoader } from '../../database/middleware';
 import { batchCreator } from '../../domain/user';
 import { getAuthorizedMembers } from '../../utils/authorizedMembers';
 import { toStixReportBundle } from './investigation-domain';
+import { subscribeToInstanceEvents } from '../../graphql/subscriptionWrapper';
 
 const creatorLoader = batchLoader(batchCreator);
 
@@ -42,6 +43,7 @@ const workspaceResolvers: Resolvers = {
     toStixReportBundle: (workspace, _, context) => toStixReportBundle(context, context.user, workspace),
     toConfigurationExport: (workspace, _, context) => generateWorkspaceExportConfiguration(context, context.user, workspace),
     toWidgetExport: (workspace, { widgetId }, context) => generateWidgetExportConfiguration(context, context.user, workspace, widgetId),
+    isShared: (workspace, _, context) => isDashboardShared(context, workspace)
   },
   Mutation: {
     workspaceAdd: (_, { input }, context) => {
@@ -57,7 +59,7 @@ const workspaceResolvers: Resolvers = {
       return workspaceEditField(context, context.user, id, input);
     },
     workspaceEditAuthorizedMembers: (_, { id, input }, context) => {
-      return editAuthorizedMembers(context, context.user, id, input);
+      return workspaceEditAuthorizedMembers(context, context.user, id, input);
     },
     workspaceContextPatch: (_, { id, input }, context) => {
       return workspaceEditContext(context, context.user, id, input);
@@ -76,11 +78,8 @@ const workspaceResolvers: Resolvers = {
     workspace: {
       resolve: /* v8 ignore next */ (payload: any) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        const asyncIterator = pubSubAsyncIterator(BUS_TOPICS[ENTITY_TYPE_WORKSPACE].EDIT_TOPIC);
-        const filtering = withFilter(() => asyncIterator, (payload) => {
-          return payload.user.id !== context.user.id && payload.instance.id === id;
-        })();
-        return { [Symbol.asyncIterator]() { return filtering; } };
+        const bus = BUS_TOPICS[ENTITY_TYPE_WORKSPACE];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ENTITY_TYPE_WORKSPACE });
       },
     },
   },

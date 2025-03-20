@@ -5,7 +5,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import MenuItem from '@mui/material/MenuItem';
 import Menu from '@mui/material/Menu';
 import { v4 as uuid } from 'uuid';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Dialog from '@mui/material/Dialog';
 import { DialogTitle } from '@mui/material';
 import DialogContent from '@mui/material/DialogContent';
@@ -20,12 +20,15 @@ import { TextFieldAskAIMakeLongerMutation, TextFieldAskAIMakeLongerMutation$data
 import { TextFieldAskAIChangeToneMutation, TextFieldAskAIChangeToneMutation$data } from '@components/common/form/__generated__/TextFieldAskAIChangeToneMutation.graphql';
 import { TextFieldAskAISummarizeMutation, TextFieldAskAISummarizeMutation$data } from '@components/common/form/__generated__/TextFieldAskAISummarizeMutation.graphql';
 import { TextFieldAskAIExplainMutation, TextFieldAskAIExplainMutation$data } from '@components/common/form/__generated__/TextFieldAskAIExplainMutation.graphql';
+import { useTheme } from '@mui/styles';
 import EETooltip from '../entreprise_edition/EETooltip';
 import { useFormatter } from '../../../../components/i18n';
 // eslint-disable-next-line import/no-cycle
 import ResponseDialog from '../../../../utils/ai/ResponseDialog';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 import useAI from '../../../../utils/hooks/useAI';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import type { Theme } from '../../../../components/Theme';
 
 // region types
 interface TextFieldAskAiProps {
@@ -81,6 +84,7 @@ const TextFieldAskAI: FunctionComponent<TextFieldAskAiProps> = ({
   disabled,
   style,
 }) => {
+  const theme = useTheme<Theme>();
   const { t_i18n } = useFormatter();
   const isEnterpriseEdition = useEnterpriseEdition();
   const { enabled, configured } = useAI();
@@ -108,12 +112,12 @@ const TextFieldAskAI: FunctionComponent<TextFieldAskAiProps> = ({
   const handleCloseToneOptions = () => setOpenToneOptions(false);
   const handleOpenAskAI = () => setDisplayAskAI(true);
   const handleCloseAskAI = () => setDisplayAskAI(false);
-  const [commitMutationFixSpelling] = useMutation<TextFieldAskAIFixSpellingMutation>(textFieldAskAIFixSpellingMutation);
-  const [commitMutationMakeShorter] = useMutation<TextFieldAskAIMakeShorterMutation>(textFieldAskAIMakeShorterMutation);
-  const [commitMutationMakeLonger] = useMutation<TextFieldAskAIMakeLongerMutation>(textFieldAskAIMakeLongerMutation);
-  const [commitMutationChangeTone] = useMutation<TextFieldAskAIChangeToneMutation>(textFieldAskAIChangeToneMutation);
-  const [commitMutationSummarize] = useMutation<TextFieldAskAISummarizeMutation>(textFieldAskAISummarizeMutation);
-  const [commitMutationExplain] = useMutation<TextFieldAskAIExplainMutation>(textFieldAskAIExplainMutation);
+  const [commitMutationFixSpelling] = useApiMutation<TextFieldAskAIFixSpellingMutation>(textFieldAskAIFixSpellingMutation);
+  const [commitMutationMakeShorter] = useApiMutation<TextFieldAskAIMakeShorterMutation>(textFieldAskAIMakeShorterMutation);
+  const [commitMutationMakeLonger] = useApiMutation<TextFieldAskAIMakeLongerMutation>(textFieldAskAIMakeLongerMutation);
+  const [commitMutationChangeTone] = useApiMutation<TextFieldAskAIChangeToneMutation>(textFieldAskAIChangeToneMutation);
+  const [commitMutationSummarize] = useApiMutation<TextFieldAskAISummarizeMutation>(textFieldAskAISummarizeMutation);
+  const [commitMutationExplain] = useApiMutation<TextFieldAskAIExplainMutation>(textFieldAskAIExplainMutation);
   const handleAskAi = (action: string, canBeAccepted = true) => {
     setDisableResponse(true);
     handleCloseMenu();
@@ -233,13 +237,12 @@ const TextFieldAskAI: FunctionComponent<TextFieldAskAiProps> = ({
       <>
         <EETooltip forAi={true} title={t_i18n('Ask AI')}>
           <IconButton
-            size="medium"
-            color="secondary"
+            size="small"
             onClick={(event) => ((isEnterpriseEdition && enabled && configured) ? handleOpenMenu(event) : null)}
             disabled={disabled || currentValue.length < 10}
-            style={{ marginRight: -10 }}
+            style={{ marginTop: 4, color: theme.palette.ai.main }}
           >
-            <AutoAwesomeOutlined fontSize='medium'/>
+            <AutoAwesomeOutlined fontSize='small' />
           </IconButton>
         </EETooltip>
         <Menu
@@ -328,20 +331,20 @@ const TextFieldAskAI: FunctionComponent<TextFieldAskAiProps> = ({
   };
   if (variant === 'markdown') {
     return (
-      <div style={style || { position: 'absolute', top: 15, right: 0 }}>
+      <div style={style || { position: 'absolute', top: 17, right: 0 }}>
         {renderButton()}
       </div>
     );
   }
   if (variant === 'html') {
     return (
-      <div style={style || { position: 'absolute', top: -12, right: 35 }}>
+      <div style={style || { position: 'absolute', top: -12, right: 30 }}>
         {renderButton()}
       </div>
     );
   }
   return (
-    <InputAdornment position="end" style={{ position: 'absolute', top: 5, right: 0 }}>
+    <InputAdornment position="end" style={{ position: 'absolute', top: 7, right: 0 }}>
       {renderButton()}
     </InputAdornment>
   );

@@ -1,8 +1,7 @@
-version: '3'
 services:
   opencti-dev-redis:
     container_name: opencti-dev-redis
-    image: redis:7.2.4
+    image: redis:7.4.2
     restart: unless-stopped
     ports:
       - 6379:6379
@@ -12,9 +11,10 @@ services:
     restart: unless-stopped
     ports:
       - 8001:8001
+      - 5540:5540
   opencti-dev-elasticsearch:
     container_name: opencti-dev-elasticsearch
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.3
     volumes:
       - esdata:/usr/share/elasticsearch/data
       - essnapshots:/usr/share/elasticsearch/snapshots
@@ -36,7 +36,7 @@ services:
       - 9300:9300
   opencti-dev-kibana:
     container_name: opencti-dev-kibana
-    image: docker.elastic.co/kibana/kibana:8.12.2
+    image: docker.elastic.co/kibana/kibana:8.17.3
     environment:
       - ELASTICSEARCH_HOSTS=http://opencti-dev-elasticsearch:9200
     restart: unless-stopped
@@ -44,6 +44,56 @@ services:
       - 5601:5601
     depends_on:
       - opencti-dev-elasticsearch
+  opencti-dev-smtp:
+    container_name: opencti-dev-smtp
+    image: maildev/maildev:2.2.1
+    restart: unless-stopped
+    ports:
+      - 1025:1025
+      - 1080:1080
+
+  # Disabled by default, to run use:
+  # docker compose --profile opensearch up -d
+  # in opencti configuration:
+  # "elasticsearch": {
+  #     "url": "http://localhost:9201",
+  #     "username": "admin",
+  #     "password": "GraceH00per!"
+  opencti-dev-opensearch:
+    profiles: [ opensearch ]
+    container_name: opencti-dev-opensearch
+    image: opensearchproject/opensearch:2.19.1
+    volumes:
+      - osdata:/usr/share/opensearch/data
+      - ossnapshots:/usr/share/opensearch/snapshots
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms2G -Xmx2G
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=GraceH00per! # minimum 8 character password and must contain at least one uppercase letter, one lowercase letter, one digit, and one special character that is strong.
+    ulimits:
+      memlock:
+        soft: -1 # Set memlock to unlimited (no soft or hard limit)
+        hard: -1
+      nofile:
+        soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
+        hard: 65536
+    ports:
+      - 9201:9200
+      - 9600:9600
+  opencti-dev-opensearch-dashboards:
+    profiles: [ opensearch ]
+    image: opensearchproject/opensearch-dashboards:2.19.0
+    container_name: opencti-dev-opensearch-dashboards
+    ports:
+      - 5602:5601 # Map host port 5601 to container port 5601
+    expose:
+      - 5602 # Expose port 5601 for web access to OpenSearch Dashboards
+    environment:
+      OPENSEARCH_HOSTS: '["http://opencti-dev-opensearch:9200"]' # Define the OpenSearch nodes that OpenSearch Dashboards will query
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: true
+
   opencti-dev-minio:
     container_name: opencti-dev-minio
     image: minio/minio:latest
@@ -63,22 +113,125 @@ services:
     restart: unless-stopped
   opencti-dev-rabbitmq:
     container_name: opencti-dev-rabbitmq
-    image: rabbitmq:3.13-management
+    image: rabbitmq:4.0-management
     restart: unless-stopped
     ports:
       - 5672:5672
       - 15672:15672
-  opencti-dev-jaegertracing:
+
+  ## Telemetry + tracing dependencies
+  ## docker compose --profile telemetry up -d (launch everything + telemetry)
+  opencti-dev-telemetry-pyroscope:
+    container_name: opencti-pyroscope
+    image: grafana/pyroscope
+    restart: unless-stopped
+    ports:
+      - "4040:4040"
+    profiles:
+      - "telemetry"
+  opencti-dev-telemetry-jaegertracing:
     container_name: opencti-dev-jaegertracing
     image: jaegertracing/all-in-one:latest
     environment:
       COLLECTOR_OTLP_ENABLED: true
     ports:
-      - 16686:16686
-      - 4318:4318
+      - "16686:16686"
+      - "4318:4318"
+    profiles:
+      - "telemetry"
+  opencti-dev-telemetry-otlp:
+    container_name: opencti-telemetry-otlp
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    restart: unless-stopped
+    volumes:
+      - "./otlp-config.yaml:/etc/config/otlp-config.yaml"
+    command:
+      - '--config=/etc/config/otlp-config.yaml'
+    ports:
+      - "1010:1010"
+      - "8889:8889"
+    profiles:
+      - "telemetry"
+
+  # SAML / OpenId provider with keycloak - disabled by default
+  # docker compose --profile keycloak up -d
+  opencti-dev-keycloak:
+      profiles: [ keycloak ]
+      image: quay.io/keycloak/keycloak:26.1.2
+      volumes:
+        - keycloakdata:/opt/keycloak/data
+      container_name: opencti-dev-keycloak
+      command: start-dev
+      environment:
+        KEYCLOAK_ADMIN: "admin"
+        KEYCLOAK_ADMIN_PASSWORD: "admin"
+      ports:
+        - "9999:8080"
+
+  # LDAP provider - disabled by default
+  # docker compose --profile ldap up -d
+  # bind_dn is "cn=admin,dc=example,dc=org", bind_credential see LDAP_ADMIN_PASSWORD
+  # search_base is "dc=example,dc=org"
+  opencti-dev-openldap:
+    image: osixia/openldap:1.5.0
+    profiles: [ ldap ]
+    container_name: opencti-dev-openldap
+    environment:
+      LDAP_LOG_LEVEL: "256"
+      LDAP_ORGANISATION: "Example Inc."
+      LDAP_DOMAIN: "example.org"
+      LDAP_BASE_DN: ""
+      LDAP_ADMIN_PASSWORD: "12341234"
+      LDAP_CONFIG_PASSWORD: "config"
+      LDAP_READONLY_USER: "false"
+      LDAP_RFC2307BIS_SCHEMA: "false"
+      LDAP_BACKEND: "mdb"
+      LDAP_TLS: "false"
+      LDAP_TLS_CRT_FILENAME: "ldap.crt"
+      LDAP_TLS_KEY_FILENAME: "ldap.key"
+      LDAP_TLS_DH_PARAM_FILENAME: "dhparam.pem"
+      LDAP_TLS_CA_CRT_FILENAME: "ca.crt"
+      LDAP_TLS_ENFORCE: "false"
+      LDAP_TLS_CIPHER_SUITE: "SECURE256:-VERS-SSL3.0"
+      LDAP_TLS_VERIFY_CLIENT: "demand"
+      LDAP_REPLICATION: "false"
+      KEEP_EXISTING_CONFIG: "false"
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
+      LDAP_SSL_HELPER_PREFIX: "ldap"
+    tty: true
+    stdin_open: true
+    volumes:
+      - /var/lib/ldap
+      - /etc/ldap/slapd.d
+      - /container/service/slapd/assets/certs/
+    ports:
+      - "389:389"
+      - "636:636"
+    domainname: "example.org"
+    hostname: "ldap-server"
+
+    # UI to configure ldap, localhost:8888, login DN 'cn=admin,dc=example,dc=org'
+    # password see LDAP_ADMIN_PASSWORD above
+  opencti-dev-phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    profiles: [ ldap ]
+    container_name: opencti-dev-phpldapadmin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: "opencti-dev-openldap"
+      PHPLDAPADMIN_HTTPS: "false"
+    ports:
+      - "8888:80"
+    depends_on:
+      - opencti-dev-openldap
 
 volumes:
   esdata:
     driver: local
   essnapshots:
+    driver: local
+  osdata:
+    driver: local
+  ossnapshots:
+    driver: local
+  keycloakdata:
     driver: local

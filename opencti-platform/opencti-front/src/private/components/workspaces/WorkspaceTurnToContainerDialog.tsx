@@ -10,8 +10,8 @@ import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import makeStyles from '@mui/styles/makeStyles';
-import { graphql, useMutation } from 'react-relay';
-import { useHistory } from 'react-router-dom';
+import { graphql } from 'react-relay';
+import { useNavigate } from 'react-router-dom';
 import { WorkspaceTurnToContainerDialogMutation } from '@components/workspaces/__generated__/WorkspaceTurnToContainerDialogMutation.graphql';
 import { Option } from '@components/common/form/ReferenceField';
 import Transition from '../../../components/Transition';
@@ -21,7 +21,10 @@ import { resolveLink } from '../../../utils/Entity';
 import { handleError } from '../../../relay/environment';
 import type { Theme } from '../../../components/Theme';
 import useSearchEntities, { EntityValue } from '../../../utils/filters/useSearchEntities';
+import useApiMutation from '../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   icon: {
     display: 'inline-block',
@@ -99,10 +102,10 @@ const WorkspaceTurnToContainerDialog: FunctionComponent<WorkspaceTurnToContainer
   ]; // change when useSearchEntities will be in TS;
   const containersFromElements = entities.id ?? [];
 
-  const [commitInvestigationToContainerAdd] = useMutation<WorkspaceTurnToContainerDialogMutation>(
+  const [commitInvestigationToContainerAdd] = useApiMutation<WorkspaceTurnToContainerDialogMutation>(
     investigationToContainerMutation,
   );
-  const history = useHistory();
+  const navigate = useNavigate();
   const handleCloseUpdate = () => {
     setActionsInputs(null);
   };
@@ -116,7 +119,7 @@ const WorkspaceTurnToContainerDialog: FunctionComponent<WorkspaceTurnToContainer
       onCompleted: (data) => {
         const id = data.containerEdit?.knowledgeAddFromInvestigation?.id;
         const entityType = data.containerEdit?.knowledgeAddFromInvestigation?.entity_type || '';
-        history.push(
+        navigate(
           `${resolveLink(entityType.toString())}/${id}/knowledge/graph`,
         );
       },
@@ -165,6 +168,7 @@ const WorkspaceTurnToContainerDialog: FunctionComponent<WorkspaceTurnToContainer
       <DialogTitle>{t_i18n('Add to container')}</DialogTitle>
       <DialogContent>
         <StixDomainObjectCreation
+          isFromBulkRelation={undefined}
           inputValue={actionsInputs?.inputValue || ''}
           open={containerCreation}
           display={true}
@@ -178,19 +182,23 @@ const WorkspaceTurnToContainerDialog: FunctionComponent<WorkspaceTurnToContainer
           ]}
           handleClose={() => setContainerCreation(false)}
           creationCallback={({ name, id, entity_type }: StixContainer) => {
-            const element = {
-              label: name,
-              value: id,
-              type: entity_type,
-            };
-            containersFromElements.push(element);
-            handleChangeActionInputValues(null, [element]);
+            if (name && id && entity_type) {
+              const element = {
+                label: name,
+                value: id,
+                type: entity_type,
+              };
+              containersFromElements.push(element);
+              handleChangeActionInputValues(null, [element]);
+            }
           }}
           confidence={undefined}
           defaultCreatedBy={undefined}
           defaultMarkingDefinitions={undefined}
+          onCompleted={undefined}
           paginationKey={undefined}
           paginationOptions={undefined}
+          // controlledDial={undefined}
         />
         <Autocomplete
           size="small"
@@ -214,7 +222,7 @@ const WorkspaceTurnToContainerDialog: FunctionComponent<WorkspaceTurnToContainer
           options={containersFromElements}
           onInputChange={(event, userInput) => searchContainers(event, userInput)}
           inputValue={actionsInputs?.inputValue || ''}
-          onChange={(event, value) => handleChangeActionInputValues(event, value)}
+          onChange={(event, value) => handleChangeActionInputValues(event, value as EntityValue[])}
           renderOption={(props, option) => (
             <li {...props}>
               <div className={classes.icon}>

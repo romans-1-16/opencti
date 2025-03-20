@@ -9,13 +9,16 @@ import Skeleton from '@mui/material/Skeleton';
 import { Link } from 'react-router-dom';
 import makeStyles from '@mui/styles/makeStyles';
 import { GroupLine_node$data } from '@components/settings/groups/__generated__/GroupLine_node.graphql';
-import { GroupingsLinesPaginationQuery$variables } from '@components/analyses/groupings/__generated__/GroupingsLinesPaginationQuery.graphql';
 import Tooltip from '@mui/material/Tooltip';
+import DangerZoneChip from '@components/common/danger_zone/DangerZoneChip';
 import { useFormatter } from '../../../../components/i18n';
 import ItemIcon from '../../../../components/ItemIcon';
 import type { Theme } from '../../../../components/Theme';
 import { DataColumns } from '../../../../components/list_lines';
+import useSensitiveModifications from '../../../../utils/hooks/useSensitiveModifications';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -42,13 +45,14 @@ const useStyles = makeStyles<Theme>((theme) => ({
 interface GroupLineProps {
   dataColumns: DataColumns
   node: GroupLine_node$data
-  paginationOptions: GroupingsLinesPaginationQuery$variables
 }
 
 const GroupLineComponent: React.FC<GroupLineProps> = (props) => {
-  const { fd, t_i18n } = useFormatter();
   const classes = useStyles();
+
+  const { fd, t_i18n } = useFormatter();
   const { dataColumns, node } = props;
+  const { isSensitive } = useSensitiveModifications('groups', node.standard_id);
 
   return (
     <ListItem
@@ -66,9 +70,9 @@ const GroupLineComponent: React.FC<GroupLineProps> = (props) => {
           <>
             <div
               className={classes.bodyItem}
-              style={{ width: dataColumns.name.width }}
+              style={{ width: dataColumns.name.width, display: 'flex', alignItems: 'center' }}
             >
-              {node.name}
+              {node.name}{isSensitive && <DangerZoneChip />}
             </div>
             <div
               className={classes.bodyItem}
@@ -85,6 +89,16 @@ const GroupLineComponent: React.FC<GroupLineProps> = (props) => {
               style={{ width: dataColumns.auto_new_marking.width }}
             >
               {node.auto_new_marking ? (
+                <CheckCircleOutlined fontSize="small" color="success"/>
+              ) : (
+                <DoNotDisturbOnOutlined fontSize="small" color="primary"/>
+              )}
+            </div>
+            <div
+              className={classes.bodyItem}
+              style={{ width: dataColumns.no_creators.width }}
+            >
+              {node.no_creators ? (
                 <CheckCircleOutlined fontSize="small" color="success"/>
               ) : (
                 <DoNotDisturbOnOutlined fontSize="small" color="primary"/>
@@ -129,7 +143,9 @@ export const GroupLine = createFragmentContainer(GroupLineComponent, {
     fragment GroupLine_node on Group {
       id
       name
+      standard_id
       default_assignation
+      no_creators
       auto_new_marking
       group_confidence_level {
         max_confidence
@@ -174,7 +190,7 @@ export const GroupLineDummy: React.FC<Pick<GroupLineProps, 'dataColumns'>> = ({ 
               <Skeleton
                 animation="wave"
                 variant="rectangular"
-                width={80}
+                width="90%"
                 height="100%"
               />
             </div>
@@ -185,7 +201,7 @@ export const GroupLineDummy: React.FC<Pick<GroupLineProps, 'dataColumns'>> = ({ 
               <Skeleton
                 animation="wave"
                 variant="rectangular"
-                width={80}
+                width="90%"
                 height="100%"
               />
             </div>
@@ -196,7 +212,7 @@ export const GroupLineDummy: React.FC<Pick<GroupLineProps, 'dataColumns'>> = ({ 
               <Skeleton
                 animation="wave"
                 variant="rectangular"
-                width={80}
+                width="90%"
                 height="100%"
               />
             </div>
@@ -207,7 +223,7 @@ export const GroupLineDummy: React.FC<Pick<GroupLineProps, 'dataColumns'>> = ({ 
               <Skeleton
                 animation="wave"
                 variant="rectangular"
-                width={80}
+                width="90%"
                 height="100%"
               />
             </div>
@@ -218,7 +234,7 @@ export const GroupLineDummy: React.FC<Pick<GroupLineProps, 'dataColumns'>> = ({ 
               <Skeleton
                 animation="wave"
                 variant="rectangular"
-                width={80}
+                width="90%"
                 height="100%"
               />
             </div>

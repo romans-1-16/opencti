@@ -24,6 +24,8 @@ import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStora
 import { emptyFilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../utils/filters/filtersUtils';
 import { useFormatter } from '../../../../components/i18n';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     paddingBottom: 70,
@@ -32,6 +34,13 @@ const useStyles = makeStyles(() => ({
     paddingBottom: 0,
   },
 }));
+
+/**
+ * @param stixDomainObjectOrStixCoreRelationship {any}
+ * @param authorId {string | undefined}
+ * @param onChangeOpenExports {Function | undefined}
+ * @param reportType {string | undefined}
+ */
 const StixCoreObjectOrStixCoreRelationshipContainers = ({
   stixDomainObjectOrStixCoreRelationship,
   authorId,
@@ -45,9 +54,9 @@ const StixCoreObjectOrStixCoreRelationshipContainers = ({
   } = useAuth();
   const isRuntimeSort = isRuntimeFieldEnable() ?? false;
   const LOCAL_STORAGE_KEY = `containers${
-    stixDomainObjectOrStixCoreRelationship
-      ? `-${stixDomainObjectOrStixCoreRelationship.id}`
-      : `-${authorId}`
+    authorId
+      ? `-${authorId}`
+      : `-${stixDomainObjectOrStixCoreRelationship.id}`
   }`;
 
   const { viewStorage, paginationOptions, helpers } = usePaginationLocalStorage(
@@ -82,7 +91,7 @@ const StixCoreObjectOrStixCoreRelationshipContainers = ({
       { key: 'entity_type', operator: 'eq', mode: 'or', values: ['Container'] },
       ...(reportFilterClass ? [{ key: 'report_types', values: [reportFilterClass], operator: 'eq', mode: 'or' }] : []),
       ...(authorId ? [{ key: 'createdBy', values: [authorId], operator: 'eq', mode: 'or' }] : []),
-      ...(stixDomainObjectOrStixCoreRelationship?.id ? [{ key: 'objects', values: [stixDomainObjectOrStixCoreRelationship.id], operator: 'eq', mode: 'or' }] : []),
+      ...(!authorId && stixDomainObjectOrStixCoreRelationship?.id ? [{ key: 'objects', values: [stixDomainObjectOrStixCoreRelationship.id], operator: 'eq', mode: 'or' }] : []),
     ],
     filterGroups: userFilters && isFilterGroupNotEmpty(userFilters) ? [userFilters] : [],
   };
@@ -156,6 +165,7 @@ const StixCoreObjectOrStixCoreRelationshipContainers = ({
         filters={filters}
         paginationOptions={queryPaginationOptions}
         numberOfElements={numberOfElements}
+        setNumberOfElements={helpers.handleSetNumberOfElements}
         disableCards={true}
         enableGraph={true}
       >

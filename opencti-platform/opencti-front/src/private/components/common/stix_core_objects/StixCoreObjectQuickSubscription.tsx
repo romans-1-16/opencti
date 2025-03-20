@@ -1,6 +1,7 @@
 import { ExpandLess, ExpandMore, NotificationsOutlined } from '@mui/icons-material';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import { OverridableStringUnion } from '@mui/types';
 import Checkbox from '@mui/material/Checkbox';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
@@ -11,12 +12,12 @@ import ListItemText from '@mui/material/ListItemText';
 import MenuItem from '@mui/material/MenuItem';
 import ToggleButton from '@mui/material/ToggleButton';
 import Tooltip from '@mui/material/Tooltip';
-import { makeStyles } from '@mui/styles';
+import { makeStyles, useTheme } from '@mui/styles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import { pick, uniq } from 'ramda';
 import React, { FunctionComponent, useState } from 'react';
-import { useMutation, useRefetchableFragment } from 'react-relay';
+import { useRefetchableFragment } from 'react-relay';
 import * as Yup from 'yup';
 import Drawer from '@components/common/drawer/Drawer';
 import { stixCoreObjectTriggersFragment } from '@components/common/stix_core_objects/stixCoreObjectTriggersUtils';
@@ -26,6 +27,7 @@ import {
   stixCoreObjectTriggersUtilsPaginationQuery$variables,
 } from '@components/common/stix_core_objects/__generated__/stixCoreObjectTriggersUtilsPaginationQuery.graphql';
 import { stixCoreObjectTriggersUtils_triggers$key as FragmentKey } from '@components/common/stix_core_objects/__generated__/stixCoreObjectTriggersUtils_triggers.graphql';
+import { SvgIconPropsColorOverrides } from '@mui/material';
 import AutocompleteField from '../../../../components/AutocompleteField';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import { useFormatter } from '../../../../components/i18n';
@@ -43,6 +45,8 @@ import { TriggerPopoverDeletionMutation } from '../../profile/triggers/TriggerPo
 import NotifierField from '../form/NotifierField';
 import { Option } from '../form/ReferenceField';
 import { deserializeFilterGroupForFrontend, findFilterFromKey, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import useDraftContext from '../../../../utils/hooks/useDraftContext';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 interface InstanceTriggerEditionFormValues {
   id: string;
@@ -53,6 +57,8 @@ interface InstanceTriggerEditionFormValues {
   filters: string | null;
 }
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     textAlign: 'right',
@@ -71,14 +77,13 @@ const useStyles = makeStyles<Theme>((theme) => ({
     },
   },
   container: {
-    padding: '10px 20px 20px 20px',
+    padding: theme.spacing(1),
   },
   subcontainer: {
-    padding: '10px 20px 20px 40px',
+    padding: `${theme.spacing(1)} ${theme.spacing(3)}`,
   },
   nested: {
-    marginLeft: '20px',
-    marginRight: '20px',
+    margin: `0 ${theme.spacing(1)}`,
     width: 'auto',
     backgroundColor: theme.palette.background.nav,
   },
@@ -95,8 +100,12 @@ const StixCoreObjectQuickSubscription: FunctionComponent<
 StixCoreObjectQuickSubscriptionContentProps
 > = ({ triggerData, instanceId, paginationOptions, instanceName }) => {
   const classes = useStyles();
+  const theme = useTheme<Theme>();
   const { t_i18n } = useFormatter();
   const { me } = useAuth();
+  const draftContext = useDraftContext();
+  const disabledInDraft = !!draftContext;
+
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [expandedLines, setExpandedLines] = useState<boolean>(false);
@@ -107,11 +116,11 @@ StixCoreObjectQuickSubscriptionContentProps
   const myInstanceTriggers = existingInstanceTriggersEdges.filter((e) => e.node.recipients?.some((r) => r.id === me.id)) ?? [];
   const triggerUpdate = myInstanceTriggers.length > 0;
 
-  const [commitAddTrigger] = useMutation<TriggerLiveCreationKnowledgeMutation>(
+  const [commitAddTrigger] = useApiMutation<TriggerLiveCreationKnowledgeMutation>(
     triggerLiveKnowledgeCreationMutation,
   );
-  const [commitFieldPatch] = useMutation(triggerMutationFieldPatch);
-  const [commitDeleteTrigger] = useMutation(TriggerPopoverDeletionMutation);
+  const [commitFieldPatch] = useApiMutation(triggerMutationFieldPatch);
+  const [commitDeleteTrigger] = useApiMutation(TriggerPopoverDeletionMutation);
 
   const handleOpen = () => {
     setOpen(true);
@@ -126,7 +135,7 @@ StixCoreObjectQuickSubscriptionContentProps
   };
 
   const liveTriggerValidation = () => Yup.object().shape({
-    name: Yup.string().required(t_i18n('This field is required')),
+    name: Yup.string().trim().required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     event_types: Yup.array()
       .min(1, t_i18n('Minimum one event type'))
@@ -301,7 +310,7 @@ StixCoreObjectQuickSubscriptionContentProps
           onSubmit={onSubmitUpdate}
         >
           {({ submitForm, isSubmitting, values, setFieldValue }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form style={{ margin: `${theme.spacing(1)} 0` }}>
               <Field
                 component={TextField}
                 variant="standard"
@@ -421,7 +430,7 @@ StixCoreObjectQuickSubscriptionContentProps
         onClose={handleClose}
       >
         <>
-          <Alert severity="info" style={{ margin: '15px 15px 0 15px' }}>
+          <Alert severity="info">
             {t_i18n(instanceTriggerDescription)}
           </Alert>
           <div>
@@ -467,18 +476,26 @@ StixCoreObjectQuickSubscriptionContentProps
       </Drawer>
     );
   };
+
+  const title = disabledInDraft ? t_i18n('Not available in draft') : t_i18n('Subscribe to updates (modifications and new relations)');
+  let color: OverridableStringUnion<'inherit' | 'disabled' | 'secondary' | 'primary' | 'action' | 'info' | 'success' | 'warning' | 'error', SvgIconPropsColorOverrides> | undefined;
+  if (disabledInDraft) {
+    color = 'disabled';
+  } else {
+    color = triggerUpdate ? 'secondary' : 'primary';
+  }
   return (
     <>
-      <Tooltip title={t_i18n('Subscribe to updates (modifications and new relations)')}>
+      <Tooltip title={title}>
         <ToggleButton
-          onClick={triggerUpdate ? handleOpen : createInstanceTrigger}
+          onClick={() => !disabledInDraft && (triggerUpdate ? handleOpen() : createInstanceTrigger())}
           value="quick-subscription"
           size="small"
           style={{ marginRight: 3 }}
         >
           <NotificationsOutlined
             fontSize="small"
-            color={triggerUpdate ? 'secondary' : 'primary'}
+            color={color}
           />
         </ToggleButton>
       </Tooltip>

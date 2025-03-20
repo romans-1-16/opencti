@@ -1,9 +1,10 @@
 import moment from 'moment';
-import { isEmptyField, isNotEmptyField } from './utils';
+import { isEmptyField, isNotEmptyField, REDACTED_INFORMATION } from './utils';
 import { isStixRelationship } from '../schema/stixRelationship';
-import { ENTITY_TYPE_CAPABILITY, ENTITY_TYPE_STATUS } from '../schema/internalObject';
+import { ENTITY_TYPE_CAPABILITY, ENTITY_TYPE_STATUS, ENTITY_TYPE_USER } from '../schema/internalObject';
 import { isStixCyberObservable } from '../schema/stixCyberObservable';
 import { observableValue } from '../utils/format';
+import { ENABLED_DEMO_MODE } from '../config/conf';
 
 export const extractRepresentativeDescription = (entityData) => {
   let secondValue;
@@ -40,7 +41,9 @@ const extractRelationshipRepresentative = (relationshipData) => {
 // TODO migrate to extractStixRepresentative from convertStoreToStix
 export const extractEntityRepresentativeName = (entityData) => {
   let mainValue;
-  if (isStixCyberObservable(entityData.entity_type)) {
+  if (entityData.entity_type === ENTITY_TYPE_USER) {
+    mainValue = ENABLED_DEMO_MODE ? REDACTED_INFORMATION : entityData.name;
+  } else if (isStixCyberObservable(entityData.entity_type)) {
     mainValue = observableValue(entityData);
   } else if (entityData.entity_type === ENTITY_TYPE_STATUS && entityData.name && entityData.type) {
     mainValue = `${entityData.type} - ${entityData.name}`;
@@ -58,6 +61,8 @@ export const extractEntityRepresentativeName = (entityData) => {
     mainValue = entityData.observable_value;
   } else if (isNotEmptyField(entityData.indicator_pattern)) {
     mainValue = entityData.indicator_pattern;
+  } else if (isNotEmptyField(entityData.relationship_type)) {
+    mainValue = extractRelationshipRepresentativeName(entityData);
   } else if (isNotEmptyField(entityData.source_name)) {
     mainValue = `${entityData.source_name}${entityData.external_id ? ` (${entityData.external_id})` : ''}`;
   } else if (isNotEmptyField(entityData.phase_name)) {
@@ -83,8 +88,8 @@ export const extractEntityRepresentativeName = (entityData) => {
     mainValue = entityData.description;
   }
   // If no representative value found, return the standard id
-  if (isEmptyField(mainValue) || mainValue === 'Unknown') {
-    return entityData.standard_id;
+  if (isEmptyField(mainValue)) {
+    return 'Unknown';
   }
 
   return String(mainValue);
@@ -100,6 +105,11 @@ const extractEntityRepresentative = (entityData) => {
 // -- ENTITY | RELATIONSHIP
 
 export const extractRepresentative = (entityData) => {
+  // the representative can already be given (happens when the internals set it to "Restricted")
+  if (entityData.representative) {
+    return entityData.representative;
+  }
+  // otherwise we find extract it depending on the entity type
   if (isStixRelationship(entityData.entity_type)) {
     return extractRelationshipRepresentative(entityData);
   }

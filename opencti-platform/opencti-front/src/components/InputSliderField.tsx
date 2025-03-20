@@ -60,12 +60,13 @@ const InputSliderField: FunctionComponent<InputSliderFieldProps & FieldProps> = 
   const currentLevel = buildScaleLevel(value, scale);
 
   const [initialValue] = useState(value);
-
   if (variant === 'edit') {
+    // disabled prop is "forced", be it true or false
+    const finalDisabled = (disabled === true || disabled === false) ? disabled : initialValue > max;
     return (
       <>
         <Grid container={true} spacing={3} >
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Field
               component={SimpleTextField}
               fullWidth
@@ -74,19 +75,19 @@ const InputSliderField: FunctionComponent<InputSliderFieldProps & FieldProps> = 
               label={label}
               onSubmit={onSubmit}
               onFocus={onFocus}
-              disabled={disabled || initialValue > max}
+              disabled={finalDisabled}
               helpertext={
                 <SubscriptionFocus context={editContext} fieldName={name} />
               }
             />
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Select
               fullWidth
               labelId={name}
               value={currentLevel.level.value?.toString() ?? ''}
               onChange={updateFromSelect}
-              disabled={disabled || initialValue > max}
+              disabled={finalDisabled}
               sx={{ marginTop: 2 }} // to align field with the number input, that has a label
             >
               {marks.map((mark, i: number) => {
@@ -103,7 +104,7 @@ const InputSliderField: FunctionComponent<InputSliderFieldProps & FieldProps> = 
           </Grid>
         </Grid>
         <Slider
-          value={value || 0}
+          value={typeof value === 'string' ? parseInt(value, 10) : value ?? 0}
           min={min}
           max={max}
           onChange={(_, v) => setFieldValue(name, v.toString())}
@@ -113,7 +114,7 @@ const InputSliderField: FunctionComponent<InputSliderFieldProps & FieldProps> = 
           valueLabelDisplay="off"
           size="small"
           valueLabelFormat={() => currentLevel.level.label}
-          disabled={disabled || initialValue > max}
+          disabled={finalDisabled}
         />
       </>
     );
@@ -121,7 +122,7 @@ const InputSliderField: FunctionComponent<InputSliderFieldProps & FieldProps> = 
   return (
     <>
       <Grid container={true} spacing={3} >
-        <Grid item={true} xs={6}>
+        <Grid item xs={6}>
           <Field
             component={SimpleTextField}
             fullWidth
@@ -131,7 +132,7 @@ const InputSliderField: FunctionComponent<InputSliderFieldProps & FieldProps> = 
             disabled={disabled}
           />
         </Grid>
-        <Grid item={true} xs={6}>
+        <Grid item xs={6}>
           <Select
             fullWidth
             labelId={name}

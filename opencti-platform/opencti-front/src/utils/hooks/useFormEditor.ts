@@ -1,13 +1,15 @@
 import { GraphQLTaggedNode } from 'relay-runtime/lib/query/RelayModernGraphQLTag';
-import { useMutation, UseMutationConfig } from 'react-relay';
+import { UseMutationConfig } from 'react-relay';
 import { ObjectSchema, SchemaObjectDescription } from 'yup';
 import { MutationParameters } from 'relay-runtime';
 import { Option } from '@components/common/form/ReferenceField';
 import { convertAssignees, convertExternalReferences, convertKillChainPhases, convertMarkings, convertParticipants } from '../edition';
 import useConfidenceLevel from './useConfidenceLevel';
+import useApiMutation from './useApiMutation';
 
 export interface GenericData {
   id: string;
+  entity_type?: string;
   confidence?: number;
   readonly objectMarking: {
     readonly edges: ReadonlyArray<{
@@ -52,10 +54,10 @@ const useFormEditor = (
   queries: Queries,
   validator: ObjectSchema<{ [p: string]: unknown }>,
 ) => {
-  const [commitRelationAdd] = useMutation(queries.relationAdd);
-  const [commitRelationDelete] = useMutation(queries.relationDelete);
-  const [commitFieldPatch] = useMutation(queries.fieldPatch);
-  const [commitEditionFocus] = useMutation(queries.editionFocus);
+  const [commitRelationAdd] = useApiMutation(queries.relationAdd);
+  const [commitRelationDelete] = useApiMutation(queries.relationDelete);
+  const [commitFieldPatch] = useApiMutation(queries.fieldPatch);
+  const [commitEditionFocus] = useApiMutation(queries.editionFocus);
   const schemaFields = (validator.describe() as SchemaObjectDescription).fields;
 
   const validate = (

@@ -9,11 +9,14 @@ import Skeleton from '@mui/material/Skeleton';
 import makeStyles from '@mui/styles/makeStyles';
 import { Theme } from '@mui/material/styles/createTheme';
 import { IndividualLine_node$key } from '@components/entities/individuals/__generated__/IndividualLine_node.graphql';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import { useFormatter } from '../../../../components/i18n';
 import StixCoreObjectLabels from '../../common/stix_core_objects/StixCoreObjectLabels';
 import ItemIcon from '../../../../components/ItemIcon';
 import { DataColumns } from '../../../../components/list_lines';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -54,6 +57,10 @@ const individualLineFragment = graphql`
         name
         created
         modified
+        draftVersion {
+            draft_id
+            draft_operation
+        }
         objectMarking {
             id
             definition_type
@@ -96,6 +103,7 @@ export const IndividualLine: FunctionComponent<IndividualLineProps> = ({
               style={{ width: dataColumns.name.width }}
             >
               {data.name}
+              {data.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}

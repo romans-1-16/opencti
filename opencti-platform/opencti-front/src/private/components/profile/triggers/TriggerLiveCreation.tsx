@@ -12,19 +12,19 @@ import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig, FormikHelpers } from 'formik/dist/types';
 import React, { FunctionComponent, useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import * as Yup from 'yup';
 import { Box } from '@mui/material';
 import AutocompleteField from '../../../../components/AutocompleteField';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
-import SwitchField from '../../../../components/SwitchField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
 import { handleErrorInForm } from '../../../../relay/environment';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
-import { emptyFilterGroup, getDefaultFilterObject, serializeFilterGroupForBackend, useFilterDefinition } from '../../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, getDefaultFilterObject, serializeFilterGroupForBackend, stixFilters, useFilterDefinition } from '../../../../utils/filters/filtersUtils';
 import { insertNode } from '../../../../utils/store';
 import NotifierField from '../../common/form/NotifierField';
 import { Option } from '../../common/form/ReferenceField';
@@ -32,7 +32,10 @@ import Filters from '../../common/lists/Filters';
 import { TriggerEventType, TriggerLiveCreationKnowledgeMutation, TriggerLiveCreationKnowledgeMutation$data } from './__generated__/TriggerLiveCreationKnowledgeMutation.graphql';
 import { TriggersLinesPaginationQuery$variables } from './__generated__/TriggersLinesPaginationQuery.graphql';
 import useFiltersState from '../../../../utils/filters/useFiltersState';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   dialogActions: {
     padding: '0 17px 20px 0',
@@ -139,7 +142,7 @@ const TriggerLiveCreation: FunctionComponent<TriggerLiveCreationProps> = ({
     setInstanceTrigger(newInstanceTriggerValue);
   };
 
-  const [commitLive] = useMutation<TriggerLiveCreationKnowledgeMutation>(
+  const [commitLive] = useApiMutation<TriggerLiveCreationKnowledgeMutation>(
     triggerLiveKnowledgeCreationMutation,
   );
   const liveInitialValues: TriggerLiveAddInput = {
@@ -243,31 +246,9 @@ const TriggerLiveCreation: FunctionComponent<TriggerLiveCreationProps> = ({
         >
           {(!instance_trigger
             && <Filters
-              availableFilterKeys={[
-                'entity_type',
-                'workflow_id',
-                'objectAssignee',
-                'objects',
-                'objectMarking',
-                'objectLabel',
-                'creator_id',
-                'createdBy',
-                'priority',
-                'severity',
-                'x_opencti_score',
-                'x_opencti_detection',
-                'revoked',
-                'confidence',
-                'indicator_types',
-                'x_opencti_main_observable_type',
-                'pattern_type',
-                'fromId',
-                'toId',
-                'fromTypes',
-                'toTypes',
-              ]}
+              availableFilterKeys={stixFilters}
               helpers={helpers}
-              searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+              searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering'] }}
                />
           )}
         </Box>
@@ -301,23 +282,26 @@ const TriggerLiveCreation: FunctionComponent<TriggerLiveCreationProps> = ({
         style={{ marginTop: 20 }}
       />
       {renderKnowledgeTrigger(values, setFieldValue)}
-      {instance_trigger
-        ? <FilterIconButton
-            filters={instanceTriggerFilters}
-            redirection
-            entityTypes={['Instance']}
-            helpers={{
-              ...instanceTriggerFiltersHelpers,
-              handleSwitchLocalMode: () => undefined, // connectedToId filter can only have the 'or' local mode
-            }}
-            restrictedFiltersConfig={{ localModeSwitching: ['connectedToId'], filterRemoving: ['connectedToId'] }}
-          />
-        : <FilterIconButton
-            filters={filters}
-            helpers={helpers}
-            redirection
-          />
-      }
+      {instance_trigger ? (
+        <FilterIconButton
+          filters={instanceTriggerFilters}
+          redirection
+          entityTypes={['Instance']}
+          helpers={{
+            ...instanceTriggerFiltersHelpers,
+            handleSwitchLocalMode: () => undefined, // connectedToId filter can only have the 'or' local mode
+          }}
+          filtersRestrictions={{ preventLocalModeSwitchingFor: ['connectedToId'], preventRemoveFor: ['connectedToId'] }}
+        />
+      ) : (
+        <FilterIconButton
+          filters={filters}
+          helpers={helpers}
+          redirection
+          searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+          entityTypes={['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering']}
+        />
+      )}
 
     </React.Fragment>
   );
@@ -343,7 +327,7 @@ const TriggerLiveCreation: FunctionComponent<TriggerLiveCreationProps> = ({
             setFieldValue,
             values,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               {liveFields(setFieldValue, values)}
               <div className={classes.buttons}>
                 <Button

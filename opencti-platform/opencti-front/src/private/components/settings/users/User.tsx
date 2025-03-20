@@ -1,9 +1,9 @@
 import React, { FunctionComponent, useState } from 'react';
-import { graphql, useFragment, useMutation } from 'react-relay';
+import { graphql, useFragment } from 'react-relay';
 import Grid from '@mui/material/Grid';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
-import { DeleteForeverOutlined, DeleteOutlined } from '@mui/icons-material';
+import { DeleteForeverOutlined, DeleteOutlined, RefreshOutlined, Visibility, VisibilityOff } from '@mui/icons-material';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -21,6 +21,8 @@ import makeStyles from '@mui/styles/makeStyles';
 import { ApexOptions } from 'apexcharts';
 import { SimplePaletteColorOptions } from '@mui/material/styles/createPalette';
 import UserConfidenceLevel from '@components/settings/users/UserConfidenceLevel';
+import { UserUserRenewTokenMutation } from '@components/settings/users/__generated__/UserUserRenewTokenMutation.graphql';
+import Tooltip from '@mui/material/Tooltip';
 import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 import { useFormatter } from '../../../../components/i18n';
 import UserEdition from './UserEdition';
@@ -44,15 +46,20 @@ import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 import ItemIcon from '../../../../components/ItemIcon';
 import HiddenTypesChipList from '../hidden_types/HiddenTypesChipList';
 import ItemAccountStatus from '../../../../components/ItemAccountStatus';
-import { BYPASS, SETTINGS } from '../../../../utils/hooks/useGranted';
+import useGranted, { BYPASS, KNOWLEDGE, SETTINGS_SECURITYACTIVITY, SETTINGS_SETACCESSES } from '../../../../utils/hooks/useGranted';
 import Security from '../../../../utils/Security';
 import useAuth from '../../../../utils/hooks/useAuth';
 import type { Theme } from '../../../../components/Theme';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import ItemCopy from '../../../../components/ItemCopy';
+import { maskString } from '../../../../utils/String';
 
 const startDate = yearsAgo(1);
 const endDate = now();
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   floatingButton: {
     float: 'left',
     margin: '-8px 0 0 5px',
@@ -61,9 +68,7 @@ const useStyles = makeStyles(() => ({
     marginBottom: 50,
   },
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -79,6 +84,17 @@ export const userUserSessionsKillMutation = graphql`
   mutation UserUserSessionsKillMutation($id: ID!) {
     userSessionsKill(id: $id)
   }
+`;
+
+export const userUserRenewTokenMutation = graphql`
+    mutation UserUserRenewTokenMutation($id: ID!) {
+        userEdit(id: $id) {
+            tokenRenew {
+                id
+                api_token
+            }
+        }
+    }
 `;
 
 export const userOtpDeactivationMutation = graphql`
@@ -121,6 +137,9 @@ const UserFragment = graphql`
     groupsOrderMode: { type: "OrderingMode", defaultValue: asc }
     organizationsOrderBy: { type: "OrganizationsOrdering", defaultValue: name }
     organizationsOrderMode: { type: "OrderingMode", defaultValue: asc }
+    organizationsCount: { type: "Int", defaultValue: 500 }
+    rolesOrderBy: { type: "RolesOrdering", defaultValue: name }
+    rolesOrderMode: { type: "OrderingMode", defaultValue: asc }
   ) {
     id
     name
@@ -134,7 +153,7 @@ const UserFragment = graphql`
     language
     api_token
     otp_activated
-    roles {
+    roles(orderBy: $rolesOrderBy, orderMode: $rolesOrderMode) {
       id
       name
       description
@@ -155,9 +174,24 @@ const UserFragment = graphql`
     default_hidden_types
     user_confidence_level {
       max_confidence
+      overrides {
+        max_confidence
+        entity_type
+      }
     }
     effective_confidence_level {
       max_confidence
+      overrides {
+        max_confidence
+        entity_type
+        source {
+          type
+          object {
+            ... on User { entity_type id name }
+            ... on Group { entity_type id name }
+          }
+        }
+      }
       source {
         type
         object {
@@ -167,6 +201,7 @@ const UserFragment = graphql`
       }
     }
     objectOrganization(
+      first: $organizationsCount
       orderBy: $organizationsOrderBy
       orderMode: $organizationsOrderMode
     ) {
@@ -194,28 +229,34 @@ type Session = {
 
 interface UserProps {
   data: User_user$key;
+  refetch: () => void;
 }
 
-const User: FunctionComponent<UserProps> = ({ data }) => {
+const User: FunctionComponent<UserProps> = ({ data, refetch }) => {
   const classes = useStyles();
   const { t_i18n, nsdt, fsd, fldt } = useFormatter();
   const { me } = useAuth();
   const theme = useTheme<Theme>();
+  const [showToken, setShowToken] = useState<boolean>(false);
   const [displayKillSession, setDisplayKillSession] = useState<boolean>(false);
   const [displayKillSessions, setDisplayKillSessions] = useState<boolean>(false);
+  const [displayRenewToken, setDisplayRenewToken] = useState<boolean>(false);
   const [killing, setKilling] = useState<boolean>(false);
   const [sessionToKill, setSessionToKill] = useState<string | null>(null);
   const user = useFragment(UserFragment, data);
   const isEnterpriseEdition = useEnterpriseEdition();
-  const [commitUserSessionKill] = useMutation<UserSessionKillMutation>(
+  const isGrantedToAudit = useGranted([SETTINGS_SECURITYACTIVITY]);
+  const isGrantedToKnowledge = useGranted([KNOWLEDGE]);
+  const [commitUserSessionKill] = useApiMutation<UserSessionKillMutation>(
     userSessionKillMutation,
   );
-  const [commitUserUserSessionsKill] = useMutation<UserUserSessionsKillMutation>(userUserSessionsKillMutation);
-  const [commitUserOtpDeactivation] = useMutation<UserOtpDeactivationMutation>(
+  const [commitUserUserSessionsKill] = useApiMutation<UserUserSessionsKillMutation>(userUserSessionsKillMutation);
+  const [commitUserUserRenewToken] = useApiMutation<UserUserRenewTokenMutation>(userUserRenewTokenMutation);
+  const [commitUserOtpDeactivation] = useApiMutation<UserOtpDeactivationMutation>(
     userOtpDeactivationMutation,
   );
   const userCapabilities = (me.capabilities ?? []).map((c) => c.name);
-  const userHasSettingsCapability = userCapabilities.includes(SETTINGS) || userCapabilities.includes(BYPASS);
+  const userHasSettingsCapability = userCapabilities.includes(SETTINGS_SETACCESSES) || userCapabilities.includes(BYPASS);
   const handleOpenKillSession = (sessionId: string) => {
     setDisplayKillSession(true);
     setSessionToKill(sessionId);
@@ -238,6 +279,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
         onCompleted: () => {
           setKilling(false);
           handleCloseKillSession();
+          refetch();
         },
       });
     }
@@ -261,9 +303,32 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
       onCompleted: () => {
         setKilling(false);
         handleCloseKillSessions();
+        refetch();
       },
     });
   };
+
+  const handleOpenRenewToken = () => {
+    setDisplayRenewToken(true);
+  };
+  const handleCloseRenewToken = () => {
+    setDisplayRenewToken(false);
+  };
+  const submitRenewToken = () => {
+    commitUserUserRenewToken({
+      variables: {
+        id: user.id,
+      },
+      onError: (error: Error) => {
+        handleError(error);
+      },
+      onCompleted: () => {
+        handleCloseRenewToken();
+        refetch();
+      },
+    });
+  };
+
   const otpUserDeactivation = () => {
     commitUserOtpDeactivation({
       variables: {
@@ -284,6 +349,13 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
       (a: Session, b: Session) => timestamp(a?.created) - timestamp(b?.created),
     );
   const accountExpireDate = fldt(user.account_lock_after_date);
+  let historyTypes = ['History'];
+  if (isGrantedToAudit && !isGrantedToKnowledge) {
+    historyTypes = ['Activity'];
+  } else if (isGrantedToAudit && isGrantedToKnowledge) {
+    historyTypes = ['History', 'Activity'];
+  }
+
   return (
     <>
       <Grid
@@ -291,13 +363,13 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Basic information')}
           </Typography>
-          <Paper classes={{ root: classes.paper }} variant="outlined">
+          <Paper classes={{ root: classes.paper }} className="paper-for-grid" variant="outlined">
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={8}>
+              <Grid item xs={8}>
                 <Typography
                   variant="h3"
                   gutterBottom={true}
@@ -307,7 +379,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                 </Typography>
                 <pre style={{ margin: 0 }}>{user.user_email}</pre>
               </Grid>
-              <Grid item={true} xs={4}>
+              <Grid item xs={4}>
                 <Typography
                   variant="h3"
                   gutterBottom={true}
@@ -331,25 +403,67 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   {user.otp_activated ? t_i18n('Enabled') : t_i18n('Disabled')}
                 </pre>
               </Grid>
-              <Grid item={true} xs={12}>
-                <Typography variant="h3" gutterBottom={true}>
+              <Grid item xs={12}>
+                <Typography variant="h3" gutterBottom={true} style={{ float: 'left' }}>
                   {t_i18n('Token')}
                 </Typography>
-                <pre style={{ margin: 0 }}>{user.api_token}</pre>
+                <Security needs={[SETTINGS_SETACCESSES]}>
+                  <Tooltip title={t_i18n('Revoke token')}>
+                    <IconButton
+                      color='primary'
+                      aria-label={t_i18n('Revoke token')}
+                      onClick={handleOpenRenewToken}
+                      classes={{ root: classes.floatingButton }}
+                      size='small'
+                    >
+                      <RefreshOutlined fontSize='small'/>
+                    </IconButton>
+                  </Tooltip>
+                </Security>
+                <div className="clearfix"/>
+                <pre
+                  style={{
+                    margin: 0,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    width: '100%',
+                    padding: `${theme.spacing(1)}`,
+                  }}
+                >
+                  <span style={{ flexGrow: 1 }}>
+                    <ItemCopy
+                      content={showToken ? user.api_token : maskString(user.api_token)}
+                      value={user.api_token}
+                    />
+                  </span>
+                  <IconButton
+                    style={{
+                      cursor: 'pointer',
+                      color: theme.palette.primary.main,
+                      padding: `0 ${theme.spacing(1)}`,
+                    }}
+                    disableRipple
+                    onClick={() => setShowToken((value) => !value)}
+                    aria-label={showToken ? t_i18n('Hide') : t_i18n('Show')}
+                  >
+                    {showToken ? <VisibilityOff/> : <Visibility/>}
+                  </IconButton>
+                </pre>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Firstname')}
                 </Typography>
                 {user.firstname || '-'}
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Lastname')}
                 </Typography>
                 {user.lastname || '-'}
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Account status')}
                 </Typography>
@@ -359,7 +473,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   variant="outlined"
                 />
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Account expiration date')}
                 </Typography>
@@ -368,13 +482,13 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
             </Grid>
           </Paper>
         </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Permissions')}
           </Typography>
-          <Paper classes={{ root: classes.paper }} variant="outlined">
+          <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Roles')}
                 </Typography>
@@ -405,7 +519,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Groups')}
                 </Typography>
@@ -440,7 +554,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Organizations')}
                 </Typography>
@@ -477,7 +591,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography
                   variant="h3"
                   gutterBottom={true}
@@ -485,16 +599,18 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                 >
                   {t_i18n('Sessions')}
                 </Typography>
-                <Security needs={[SETTINGS]}>
-                  <IconButton
-                    color="primary"
-                    aria-label="Delete all"
-                    onClick={handleOpenKillSessions}
-                    classes={{ root: classes.floatingButton }}
-                    size="small"
-                  >
-                    <DeleteForeverOutlined fontSize="small" />
-                  </IconButton>
+                <Security needs={[SETTINGS_SETACCESSES]}>
+                  <Tooltip title={t_i18n('Kill all sessions')}>
+                    <IconButton
+                      color="primary"
+                      aria-label={t_i18n('Delete all')}
+                      onClick={handleOpenKillSessions}
+                      classes={{ root: classes.floatingButton }}
+                      size="small"
+                    >
+                      <DeleteForeverOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </Security>
                 <div className="clearfix" />
                 <FieldOrEmpty source={orderedSessions}>
@@ -539,12 +655,12 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <HiddenTypesChipList
                   hiddenTypes={user.default_hidden_types ?? []}
                 />
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography
                   variant="h3"
                   gutterBottom={true}
@@ -559,14 +675,15 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
           </Paper>
         </Grid>
         <Triggers recipientId={user.id} filterKey="authorized_members.id" />
-        <Grid item={true} xs={6} style={{ marginTop: 35 }}>
+        <Grid item xs={6} style={{ marginTop: 10 }}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Operations')}
           </Typography>
           <Paper
             classes={{ root: classes.paper }}
             variant="outlined"
-            style={{ marginTop: 14, minHeight: 500 }}
+            style={{ minHeight: 500 }}
+            className={'paper-for-grid'}
           >
             {!isEnterpriseEdition ? (
               <div style={{ display: 'table', height: '100%', width: '100%' }}>
@@ -586,7 +703,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
               <QueryRenderer
                 query={UserAuditsTimeSeriesQuery}
                 variables={{
-                  types: ['History'],
+                  types: historyTypes,
                   field: 'timestamp',
                   operation: 'count',
                   startDate,
@@ -595,12 +712,7 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
                   filters: {
                     mode: 'and',
                     filters: [
-                      {
-                        key: 'members_user',
-                        values: [user.id],
-                        operator: 'eq',
-                        mode: 'or',
-                      },
+                      { key: ['user_id'], values: [user.id], operator: 'wildcard', mode: 'or' },
                     ],
                     filterGroups: [],
                   },
@@ -644,8 +756,34 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
             )}
           </Paper>
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 35 }}>
-          <UserHistory userId={user.id} />
+        <Grid item xs={6} style={{ marginTop: 10 }}>
+          {isGrantedToAudit ? (
+            <UserHistory userId={user.id} />
+          ) : (
+            <>
+              <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
+                {t_i18n('History')}
+              </Typography>
+              <div style={{ display: 'table', height: '100%', width: '100%' }}>
+                <Paper
+                  classes={{ root: classes.paper }}
+                  variant="outlined"
+                  className={'paper-for-grid'}
+                >
+                  <span
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      height: '100%',
+                    }}
+                  >
+                    {t_i18n('You are not authorized to see this data.')}
+                  </span>
+                </Paper>
+              </div>
+            </>
+          )}
         </Grid>
       </Grid>
       <QueryRenderer
@@ -705,6 +843,30 @@ const User: FunctionComponent<UserProps> = ({ data }) => {
             disabled={killing}
           >
             {t_i18n('Kill all')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={displayRenewToken}
+        PaperProps={{ elevation: 1 }}
+        keepMounted={true}
+        TransitionComponent={Transition}
+        onClose={handleCloseRenewToken}
+      >
+        <DialogContent>
+          <DialogContentText>
+            {t_i18n('Do you want to revoke this user token ? Once the token is revoked all access are forbidden, please verify that the token is not used by connectors or other API calls before revoking.')}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRenewToken}>
+            {t_i18n('Cancel')}
+          </Button>
+          <Button
+            onClick={submitRenewToken}
+            color="secondary"
+          >
+            {t_i18n('Revoke')}
           </Button>
         </DialogActions>
       </Dialog>

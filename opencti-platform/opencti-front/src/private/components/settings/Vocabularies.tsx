@@ -18,7 +18,10 @@ import ToolBar from '../data/ToolBar';
 import useVocabularyCategory from '../../../utils/hooks/useVocabularyCategory';
 import { emptyFilterGroup } from '../../../utils/filters/filtersUtils';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -35,6 +38,8 @@ const useStyles = makeStyles(() => ({
 const Vocabularies = () => {
   const classes = useStyles();
   const { t_i18n, n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Vocabularies | Taxonomies | Settings'));
   const params = useParams() as { category: string };
   const { typeToCategory } = useVocabularyCategory();
   const category = typeToCategory(params.category);
@@ -100,7 +105,7 @@ const Vocabularies = () => {
       description: {
         label: 'Description',
         width: '25%',
-        isSortable: true,
+        isSortable: false,
         render: (node: useVocabularyCategory_Vocabularynode$data) => node.description,
       },
       usages: {
@@ -167,6 +172,7 @@ const Vocabularies = () => {
               noWarning={true}
               deleteDisable={true}
               filters={toolBarFilters}
+              taskScope='SETTINGS'
               variant="medium"
             />
           </>
@@ -177,7 +183,7 @@ const Vocabularies = () => {
   return (
     <div className={classes.container}>
       <LabelsVocabulariesMenu />
-      <Breadcrumbs variant="list" elements={[
+      <Breadcrumbs elements={[
         { label: t_i18n('Settings') },
         { label: t_i18n('Taxonomies') },
         { label: t_i18n('Vocabularies'), link: '/dashboard/settings/vocabularies/fields' },

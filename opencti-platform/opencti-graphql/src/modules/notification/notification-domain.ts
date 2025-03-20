@@ -40,6 +40,8 @@ import {
   VIRTUAL_ORGANIZATION_ADMIN,
   SETTINGS_SET_ACCESSES,
   SYSTEM_USER,
+  SETTINGS_SECURITYACTIVITY,
+  isOnlyOrgaAdmin
 } from '../../utils/access';
 import { ForbiddenAccess, UnsupportedError } from '../../config/errors';
 import { ENTITY_TYPE_GROUP, ENTITY_TYPE_USER } from '../../schema/internalObject';
@@ -146,7 +148,7 @@ export const addTriggerActivity = async (
     trigger_scope: 'activity',
     trigger_type: type,
     authorized_members: [...(triggerInput.recipients ?? []).map((r) => ({ id: r, access_right: MEMBER_ACCESS_RIGHT_VIEW }))],
-    authorized_authorities: ['SETTINGS'] // Add extra capabilities
+    authorized_authorities: [SETTINGS_SECURITYACTIVITY] // Add extra capabilities
   };
   const trigger = { ...triggerInput, ...defaultOpts };
   const created = await createEntity(context, user, trigger, ENTITY_TYPE_TRIGGER);
@@ -231,7 +233,7 @@ export const triggerDelete = async (context: AuthContext, user: AuthUser, trigge
     throw ForbiddenAccess();
   }
   // If user is only organization admin, check if he has access on all targets
-  if (!isUserHasCapability(user, SETTINGS_SET_ACCESSES) && isUserHasCapability(user, VIRTUAL_ORGANIZATION_ADMIN)) {
+  if (isOnlyOrgaAdmin(user)) {
     const memberIds = (trigger.authorized_members ?? []).map((a: AuthorizedMember) => a.id);
     const adminOrganizationIds = (user.administrated_organizations ?? []).map((o) => o.internal_id);
     if (!adminOrganizationIds.every((v) => memberIds.includes(v))) {
@@ -273,6 +275,15 @@ export const triggersKnowledgeCount = async (context: AuthContext, opts: QueryTr
 export const triggersActivityFind = (context: AuthContext, user: AuthUser, opts: QueryTriggersActivityArgs) => {
   const finalFilter = addFilter(opts.filters, 'trigger_scope', 'activity');
   const queryArgs = { ...opts, includeAuthorities: true, filters: finalFilter };
+  return listEntitiesPaginated<BasicStoreEntityTrigger>(context, user, [ENTITY_TYPE_TRIGGER], queryArgs);
+};
+
+export const triggersFind = (context: AuthContext, user: AuthUser, opts: QueryTriggersActivityArgs) => {
+  if (!isUserHasCapability(user, SETTINGS_SECURITYACTIVITY)) {
+    // if user doesn't have SETTINGS_SECURITYACTIVITY capabilities, we only return knowledge triggers
+    return triggersKnowledgeFind(context, user, opts);
+  }
+  const queryArgs = { ...opts, includeAuthorities: true };
   return listEntitiesPaginated<BasicStoreEntityTrigger>(context, user, [ENTITY_TYPE_TRIGGER], queryArgs);
 };
 

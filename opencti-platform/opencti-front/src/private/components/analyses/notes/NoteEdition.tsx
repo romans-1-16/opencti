@@ -1,5 +1,5 @@
 import React from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import NoteEditionContainer from './NoteEditionContainer';
 import { QueryRenderer } from '../../../../relay/environment';
 import { noteEditionOverviewFocus } from './NoteEditionOverview';
@@ -7,6 +7,8 @@ import Loader, { LoaderVariant } from '../../../../components/Loader';
 import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import { NoteEditionContainerQuery$data } from './__generated__/NoteEditionContainerQuery.graphql';
 import { CollaborativeSecurity } from '../../../../utils/Security';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 
 export const noteEditionQuery = graphql`
   query NoteEditionContainerQuery($id: String!) {
@@ -20,7 +22,7 @@ export const noteEditionQuery = graphql`
 `;
 
 const NoteEdition = ({ noteId }: { noteId: string }) => {
-  const [commit] = useMutation(noteEditionOverviewFocus);
+  const [commit] = useApiMutation(noteEditionOverviewFocus);
 
   const handleClose = () => {
     commit({
@@ -32,28 +34,27 @@ const NoteEdition = ({ noteId }: { noteId: string }) => {
   };
 
   return (
-    <div>
-      <QueryRenderer
-        query={noteEditionQuery}
-        variables={{ id: noteId }}
-        render={({ props }: { props: NoteEditionContainerQuery$data }) => {
-          if (props && props.note) {
-            return (
-              <CollaborativeSecurity
-                data={props.note}
-                needs={[KNOWLEDGE_KNUPDATE]}
-              >
-                <NoteEditionContainer
-                  note={props.note}
-                  handleClose={handleClose}
-                />
-              </CollaborativeSecurity>
-            );
-          }
-          return <Loader variant={LoaderVariant.inElement} />;
-        }}
-      />
-    </div>
+    <QueryRenderer
+      query={noteEditionQuery}
+      variables={{ id: noteId }}
+      render={({ props }: { props: NoteEditionContainerQuery$data }) => {
+        if (props?.note) {
+          return (
+            <CollaborativeSecurity
+              data={props.note}
+              needs={[KNOWLEDGE_KNUPDATE]}
+            >
+              <NoteEditionContainer
+                note={props.note}
+                handleClose={handleClose}
+                controlledDial={EditEntityControlledDial}
+              />
+            </CollaborativeSecurity>
+          );
+        }
+        return <Loader variant={LoaderVariant.inline} />;
+      }}
+    />
   );
 };
 

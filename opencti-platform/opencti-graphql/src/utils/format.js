@@ -13,6 +13,7 @@ import {
   ENTITY_MUTEX,
   ENTITY_NETWORK_TRAFFIC,
   ENTITY_PAYMENT_CARD,
+  ENTITY_PERSONA,
   ENTITY_PROCESS,
   ENTITY_SOFTWARE,
   ENTITY_USER_ACCOUNT,
@@ -35,6 +36,8 @@ export const UNTIL_END_STR = '5138-11-16T09:46:40.000Z';
 const dateFormat = 'YYYY-MM-DDTHH:mm:ss.SSS';
 
 export const utcDate = (date) => (date ? moment(date).utc() : moment().utc());
+export const utcEpochTime = (date = null) => utcDate(date).toDate().getTime();
+export const streamEventId = (date = null, index = 0) => `${utcEpochTime(date)}-${index}`;
 export const now = () => utcDate().toISOString();
 export const nowTime = () => timeFormat(now());
 export const sinceNowInMinutes = (lastModified) => {
@@ -75,6 +78,31 @@ export const computeRangeIntersection = (a, b) => {
 export const minutesAgo = (minutes) => moment().utc().subtract(minutes, 'minutes');
 export const hoursAgo = (hours) => moment().utc().subtract(hours, 'hours');
 
+/**
+ * @param {number} days Number of days
+ * @return {string} ISO Date string
+ */
+export const daysAgo = (days) => {
+  const currentDate = new Date();
+  currentDate.setDate(currentDate.getDate() - days);
+  return currentDate.toISOString().split('T')[0];
+};
+
+export const dayStartDate = (date = null, fromStart = true) => {
+  let start = new Date();
+  if (date) {
+    start = utcDate(date).toDate();
+  }
+  if (fromStart) {
+    start.setHours(0, 0, 0, 0);
+  }
+  return start;
+};
+
+export const monthsAgo = (number) => moment(dayStartDate()).subtract(number, 'months').format();
+
+export const yearsAgo = (number) => moment(dayStartDate()).subtract(number, 'years').format();
+
 const hashes = ['SHA-512', 'SHA-256', 'SHA-1', 'MD5'];
 export const hashValue = (stixCyberObservable) => {
   if (stixCyberObservable.hashes) {
@@ -112,6 +140,14 @@ export const truncate = (str, limit = DEFAULT_TRUNCATE_LIMIT, withPoints = true)
   return `${trimmedStr.substr(0, Math.min(trimmedStr.length, trimmedStr.lastIndexOf(' ')))}...`;
 };
 
+const formatSoftware = (stixCyberObservable) => {
+  const value = stixCyberObservable.name || stixCyberObservable.cpe || stixCyberObservable.swid || 'Unknown';
+  if (value !== 'Unknown' && !!stixCyberObservable.version) {
+    return `${value} (${stixCyberObservable.version})`;
+  }
+  return value;
+};
+
 // TODO for now this list is duplicated in Front, think about updating it aswell
 export const observableValue = (stixCyberObservable) => {
   switch (stixCyberObservable.entity_type) {
@@ -134,7 +170,7 @@ export const observableValue = (stixCyberObservable) => {
     case ENTITY_PROCESS:
       return stixCyberObservable.pid || stixCyberObservable.command_line || 'Unknown';
     case ENTITY_SOFTWARE:
-      return stixCyberObservable.name || stixCyberObservable.cpe || stixCyberObservable.swid || 'Unknown';
+      return formatSoftware(stixCyberObservable);
     case ENTITY_USER_ACCOUNT:
       return stixCyberObservable.account_login || stixCyberObservable.user_id || 'Unknown';
     case ENTITY_BANK_ACCOUNT:
@@ -147,6 +183,8 @@ export const observableValue = (stixCyberObservable) => {
       return stixCyberObservable.name || stixCyberObservable.data || 'Unknown';
     case ENTITY_MEDIA_CONTENT:
       return stixCyberObservable.content || stixCyberObservable.title || stixCyberObservable.url || 'Unknown';
+    case ENTITY_PERSONA:
+      return stixCyberObservable.persona_name || 'Unknown';
     default:
       return stixCyberObservable.value || stixCyberObservable.name || 'Unknown';
   }

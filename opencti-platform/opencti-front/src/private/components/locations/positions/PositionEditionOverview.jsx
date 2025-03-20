@@ -3,13 +3,14 @@ import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import * as R from 'ramda';
+import PositionDeletion from './PositionDeletion';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
@@ -18,6 +19,7 @@ import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySet
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const positionMutationFieldPatch = graphql`
   mutation PositionEditionOverviewFieldPatchMutation(
@@ -84,8 +86,11 @@ const positionMutationRelationDelete = graphql`
 const PositionEditionOverviewComponent = (props) => {
   const { position, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable().max(5000, t_i18n('The value is too long')),
     confidence: Yup.number().nullable(),
     latitude: Yup.number()
@@ -153,10 +158,10 @@ const PositionEditionOverviewComponent = (props) => {
           editor.fieldPatch({
             variables: {
               id: position.id,
-              input: {
+              input: [{
                 key: name,
-                value: finalValue ?? '',
-              },
+                value: finalValue ?? [null],
+              }],
             },
           });
         })
@@ -197,7 +202,7 @@ const PositionEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={position} />
           <Field
             component={TextField}
@@ -238,10 +243,11 @@ const PositionEditionOverviewComponent = (props) => {
             variant="standard"
             style={{ marginTop: 20 }}
             name="latitude"
+            type="number"
             label={t_i18n('Latitude')}
             fullWidth={true}
             onFocus={editor.changeFocus}
-            onSubmit={handleSubmitField}
+            onSubmit={(name, value) => handleSubmitField(name, (value === '' ? null : value))}
             helperText={
               <SubscriptionFocus context={context} fieldName="latitude" />
             }
@@ -251,10 +257,11 @@ const PositionEditionOverviewComponent = (props) => {
             variant="standard"
             style={{ marginTop: 20 }}
             name="longitude"
+            type="number"
             label={t_i18n('Longitude')}
             fullWidth={true}
             onFocus={editor.changeFocus}
-            onSubmit={handleSubmitField}
+            onSubmit={(name, value) => handleSubmitField(name, (value === '' ? null : value))}
             helperText={
               <SubscriptionFocus context={context} fieldName="longitude" />
             }
@@ -319,16 +326,24 @@ const PositionEditionOverviewComponent = (props) => {
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={position.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <PositionDeletion
+                  positionId={position.id}
+                />
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={position.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -345,6 +360,7 @@ export default createFragmentContainer(PositionEditionOverviewComponent, {
       street_address
       postal_code
       confidence
+      entity_type
       description
       createdBy {
         ... on Identity {

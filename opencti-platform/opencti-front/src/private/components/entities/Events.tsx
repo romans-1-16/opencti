@@ -1,6 +1,7 @@
 import React from 'react';
 import { EventsLinesPaginationQuery, EventsLinesPaginationQuery$variables } from '@components/entities/events/__generated__/EventsLinesPaginationQuery.graphql';
 import { EventLineDummy } from '@components/entities/events/EventLine';
+import useHelper from 'src/utils/hooks/useHelper';
 import ListLines from '../../../components/list_lines/ListLines';
 import EventsLines, { eventsLinesQuery } from './events/EventsLines';
 import EventCreation from './events/EventCreation';
@@ -11,11 +12,16 @@ import useQueryLoading from '../../../utils/hooks/useQueryLoading';
 import { emptyFilterGroup } from '../../../utils/filters/filtersUtils';
 import { useFormatter } from '../../../components/i18n';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'events';
 
 const Events = () => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Events | Entities'));
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<EventsLinesPaginationQuery$variables>(
     LOCAL_STORAGE_KEY,
     {
@@ -86,6 +92,9 @@ const Events = () => {
         filters={filters}
         paginationOptions={paginationOptions}
         numberOfElements={numberOfElements}
+        createButton={isFABReplaced && <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <EventCreation paginationOptions={paginationOptions} />
+        </Security>}
       >
         {queryRef && (
           <React.Suspense
@@ -115,11 +124,13 @@ const Events = () => {
   };
   return (
     <>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Entities') }, { label: t_i18n('Events'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Entities') }, { label: t_i18n('Events'), current: true }]} />
       {renderLines()}
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <EventCreation paginationOptions={paginationOptions} />
-      </Security>
+      {!isFABReplaced
+        && <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <EventCreation paginationOptions={paginationOptions} />
+        </Security>
+      }
     </>
   );
 };

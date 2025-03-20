@@ -18,17 +18,27 @@ import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
+import OpenVocabField from '../../common/form/OpenVocabField';
+import ObjectParticipantField from '../../common/form/ObjectParticipantField';
+import ObjectAssigneeField from '../../common/form/ObjectAssigneeField';
 import Drawer from '../../common/drawer/Drawer';
 import ObjectMembersField from '../../common/form/ObjectMembersField';
+import ObjectOrganizationField from '../../common/form/ObjectOrganizationField';
 import CreatedByField from '../../common/form/CreatedByField';
 import Filters from '../../common/lists/Filters';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import TextField from '../../../../components/TextField';
 import { useFormatter } from '../../../../components/i18n';
-import { deserializeFilterGroupForFrontend, emptyFilterGroup, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import {
+  deserializeFilterGroupForFrontend,
+  emptyFilterGroup,
+  serializeFilterGroupForBackend,
+  stixFilters,
+  useAvailableFilterKeysForEntityTypes,
+} from '../../../../utils/filters/filtersUtils';
 import ItemIcon from '../../../../components/ItemIcon';
 import { isEmptyField, isNotEmptyField } from '../../../../utils/utils';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import ObjectLabelField from '../../common/form/ObjectLabelField';
 import StatusField from '../../common/form/StatusField';
@@ -36,7 +46,14 @@ import { capitalizeFirstLetter } from '../../../../utils/String';
 import AutocompleteField from '../../../../components/AutocompleteField';
 import useAttributes from '../../../../utils/hooks/useAttributes';
 import useFiltersState from '../../../../utils/filters/useFiltersState';
+import useEntityTranslation from '../../../../utils/hooks/useEntityTranslation';
+import SelectField from '../../../../components/fields/SelectField';
+import { fieldSpacingContainerStyle } from '../../../../utils/field';
+import TimePickerField from '../../../../components/TimePickerField';
+import { parse } from '../../../../utils/Time';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   lines: {
     padding: 0,
@@ -81,7 +98,7 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 const addComponentValidation = (t) => Yup.object().shape({
-  name: Yup.string().required(t('This field is required')),
+  name: Yup.string().trim().required(t('This field is required')),
 });
 
 const PlaybookAddComponentsContent = ({
@@ -95,11 +112,12 @@ const PlaybookAddComponentsContent = ({
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { translateEntityType } = useEntityTranslation();
   const { numberAttributes } = useAttributes();
   const currentConfig = action === 'config' ? selectedNode?.data?.configuration : null;
   const initialFilters = currentConfig?.filters ? deserializeFilterGroupForFrontend(currentConfig?.filters) : emptyFilterGroup;
+  const availableQueryFilterKeys = useAvailableFilterKeysForEntityTypes(['Stix-Core-Object', 'stix-core-relationship']);
   const [filters, helpers] = useFiltersState(initialFilters);
-
   const [actionsInputs, setActionsInputs] = useState(
     currentConfig?.actions ? currentConfig.actions : [],
   );
@@ -165,6 +183,8 @@ const PlaybookAddComponentsContent = ({
           isMultiple: true,
         },
         { label: t_i18n('Labels'), value: 'objectLabel', isMultiple: true },
+        { label: t_i18n('Assignees'), value: 'objectAssignee', isMultiple: true },
+        { label: t_i18n('Participants'), value: 'objectParticipant', isMultiple: true },
       ];
     } else if (actionsInputs[i]?.op === 'replace') {
       options = [
@@ -177,6 +197,10 @@ const PlaybookAddComponentsContent = ({
         { label: t_i18n('Author'), value: 'createdBy', isMultiple: false },
         { label: t_i18n('Confidence'), value: 'confidence', isMultiple: false },
         { label: t_i18n('Score'), value: 'x_opencti_score', isMultiple: false },
+        { label: t_i18n('Assignees'), value: 'objectAssignee', isMultiple: true },
+        { label: t_i18n('Participants'), value: 'objectParticipant', isMultiple: true },
+        { label: t_i18n('Severity'), value: 'severity', isMultiple: false },
+        { label: t_i18n('Priority'), value: 'priority', isMultiple: false },
         {
           label: t_i18n('Detection'),
           value: 'x_opencti_detection',
@@ -196,6 +220,8 @@ const PlaybookAddComponentsContent = ({
           isMultiple: true,
         },
         { label: t_i18n('Labels'), value: 'objectLabel', isMultiple: true },
+        { label: t_i18n('Assignees'), value: 'objectAssignee', isMultiple: true },
+        { label: t_i18n('Participants'), value: 'objectParticipant', isMultiple: true },
       ];
     }
     return (
@@ -223,7 +249,7 @@ const PlaybookAddComponentsContent = ({
       </Select>
     );
   };
-  const renderValuesOptions = (i) => {
+  const renderValuesOptions = (i, setFieldValue) => {
     const disabled = isEmptyField(actionsInputs[i]?.attribute);
     switch (actionsInputs[i]?.attribute) {
       case 'objectMarking':
@@ -231,6 +257,7 @@ const PlaybookAddComponentsContent = ({
           <ObjectMarkingField
             name={`actions-${i}-value`}
             disabled={disabled}
+            setFieldValue={setFieldValue}
             onChange={(_, value) => handleChangeActionInput(
               i,
               'value',
@@ -272,6 +299,42 @@ const PlaybookAddComponentsContent = ({
             ])}
           />
         );
+      case 'objectAssignee':
+        return (
+          <ObjectAssigneeField
+            name={`actions-${i}-value`}
+            disabled={disabled}
+            onChange={(_, value) => {
+              handleChangeActionInput(
+                i,
+                'value',
+                value.map((n) => ({
+                  label: n.label,
+                  value: n.value,
+                  patch_value: n.value,
+                })),
+              );
+            }}
+          />
+        );
+      case 'objectParticipant':
+        return (
+          <ObjectParticipantField
+            name={`actions-${i}-value`}
+            disabled={disabled}
+            onChange={(_, value) => {
+              handleChangeActionInput(
+                i,
+                'value',
+                value.map((n) => ({
+                  label: n.label,
+                  value: n.value,
+                  patch_value: n.value,
+                })),
+              );
+            }}
+          />
+        );
       case 'x_opencti_workflow_id':
         return (
           <StatusField
@@ -295,8 +358,29 @@ const PlaybookAddComponentsContent = ({
             label={t_i18n('Value')}
             onChange={(_, value) => handleChangeActionInput(i, 'value', [
               { label: value, value, patch_value: value },
-            ])
-                        }
+            ])}
+          />
+        );
+      case 'severity':
+        return (
+          <OpenVocabField
+            name={`actions-${i}-value`}
+            type={'case_severity_ov'}
+            containerStyle={fieldSpacingContainerStyle}
+            onChange={(_, value) => handleChangeActionInput(i, 'value', [
+              { label: value, value, patch_value: value },
+            ])}
+          />
+        );
+      case 'priority':
+        return (
+          <OpenVocabField
+            name={`actions-${i}-value`}
+            type={'case_priority_ov'}
+            containerStyle={fieldSpacingContainerStyle}
+            onChange={(_, value) => handleChangeActionInput(i, 'value', [
+              { label: value, value, patch_value: value },
+            ])}
           />
         );
       default:
@@ -327,10 +411,19 @@ const PlaybookAddComponentsContent = ({
     let finalConfig = config;
     if (configurationSchema?.properties?.filters) {
       const jsonFilters = serializeFilterGroupForBackend(filters);
-      finalConfig = { ...config, filters: jsonFilters };
+      finalConfig = { ...finalConfig, filters: jsonFilters };
+    }
+    if (configurationSchema?.properties?.triggerTime) {
+      // Important to translate to UTC before formatting
+      let triggerTime = `${parse(values.time).utc().format('HH:mm:00.000')}Z`;
+      if (values.period !== 'minute' && values.period !== 'hour' && values.period !== 'day') {
+        const day = values.day && values.day.length > 0 ? values.day : '1';
+        triggerTime = `${day}-${triggerTime}`;
+      }
+      finalConfig = { ...finalConfig, triggerTime };
     }
     if (configurationSchema?.properties?.actions) {
-      finalConfig = { ...config, actions: actionsInputs };
+      finalConfig = { ...finalConfig, actions: actionsInputs };
     }
     resetForm();
     if (
@@ -414,7 +507,7 @@ const PlaybookAddComponentsContent = ({
             values,
             setFieldValue,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"
@@ -435,6 +528,18 @@ const PlaybookAddComponentsContent = ({
                       />
                     );
                   }
+                  if (k === 'organizations') {
+                    return (
+                      <ObjectOrganizationField
+                        key={k}
+                        name="organizations"
+                        style={{ marginTop: 20, width: '100%' }}
+                        label={'Target organizations'}
+                        multiple={true}
+                        alert={false}
+                      />
+                    );
+                  }
                   if (k === 'filters') {
                     return (
                       <div key={k}>
@@ -447,41 +552,91 @@ const PlaybookAddComponentsContent = ({
                         >
                           <Filters
                             helpers={helpers}
-                            availableFilterKeys={[
-                              'entity_type',
-                              'workflow_id',
-                              'objectAssignee',
-                              'objects',
-                              'objectMarking',
-                              'objectLabel',
-                              'creator_id',
-                              'createdBy',
-                              'priority',
-                              'severity',
-                              'x_opencti_score',
-                              'x_opencti_detection',
-                              'revoked',
-                              'confidence',
-                              'indicator_types',
-                              'pattern_type',
-                              'x_opencti_main_observable_type',
-                              'fromId',
-                              'toId',
-                              'fromTypes',
-                              'toTypes',
-                            ]}
-                            searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+                            availableFilterKeys={componentId === 'PLAYBOOK_INTERNAL_DATA_CRON' ? availableQueryFilterKeys : stixFilters}
+                            searchContext={{ entityTypes: componentId === 'PLAYBOOK_INTERNAL_DATA_CRON' ? ['Stix-Core-Object', 'stix-core-relationship'] : ['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering'] }}
                           />
                         </Box>
                         <div className="clearfix" />
                         <FilterIconButton
                           filters={filters}
                           helpers={helpers}
-                          entityTypes={['Stix-Core-Object', 'stix-core-relationship']}
+                          entityTypes={componentId === 'PLAYBOOK_INTERNAL_DATA_CRON' ? ['Stix-Core-Object', 'stix-core-relationship'] : ['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering']}
+                          searchContext={{ entityTypes: componentId === 'PLAYBOOK_INTERNAL_DATA_CRON' ? ['Stix-Core-Object', 'stix-core-relationship'] : ['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering'] }}
                           styleNumber={2}
                           redirection
                         />
                         <div className="clearfix" />
+                      </div>
+                    );
+                  }
+                  if (k === 'period') {
+                    return (
+                      <Field
+                        component={SelectField}
+                        variant="standard"
+                        key={k}
+                        name={k}
+                        label={t_i18n('Period')}
+                        fullWidth={true}
+                        containerstyle={fieldSpacingContainerStyle}
+                      >
+                        <MenuItem value="hour">{t_i18n('hour')}</MenuItem>
+                        <MenuItem value="day">{t_i18n('day')}</MenuItem>
+                        <MenuItem value="week">{t_i18n('week')}</MenuItem>
+                        <MenuItem value="month">{t_i18n('month')}</MenuItem>
+                      </Field>
+                    );
+                  }
+                  if (k === 'triggerTime') {
+                    return (
+                      <div key={k}>
+                        {values.period === 'week' && (
+                          <Field
+                            component={SelectField}
+                            variant="standard"
+                            name="day"
+                            label={t_i18n('Week day')}
+                            fullWidth={true}
+                            containerstyle={fieldSpacingContainerStyle}
+                          >
+                            <MenuItem value="1">{t_i18n('Monday')}</MenuItem>
+                            <MenuItem value="2">{t_i18n('Tuesday')}</MenuItem>
+                            <MenuItem value="3">{t_i18n('Wednesday')}</MenuItem>
+                            <MenuItem value="4">{t_i18n('Thursday')}</MenuItem>
+                            <MenuItem value="5">{t_i18n('Friday')}</MenuItem>
+                            <MenuItem value="6">{t_i18n('Saturday')}</MenuItem>
+                            <MenuItem value="7">{t_i18n('Sunday')}</MenuItem>
+                          </Field>
+                        )}
+                        {values.period === 'month' && (
+                          <Field
+                            component={SelectField}
+                            variant="standard"
+                            name="day"
+                            label={t_i18n('Month day')}
+                            fullWidth={true}
+                            containerstyle={fieldSpacingContainerStyle}
+                          >
+                            {Array.from(Array(31).keys()).map((idx) => (
+                              <MenuItem key={idx} value={(idx + 1).toString()}>
+                                {(idx + 1).toString()}
+                              </MenuItem>
+                            ))}
+                          </Field>
+                        )}
+                        {values.period !== 'minute' && values.period !== 'hour' && (
+                          <Field
+                            component={TimePickerField}
+                            name="time"
+                            withMinutes={true}
+                            textFieldProps={{
+                              label: t_i18n('Time'),
+                              variant: 'standard',
+                              fullWidth: true,
+                              style: { marginTop: 20 },
+                            }}
+                          />
+                        )}
                       </div>
                     );
                   }
@@ -495,10 +650,15 @@ const PlaybookAddComponentsContent = ({
                         {Array(actionsInputs.length)
                           .fill(0)
                           .map((_, i) => (
-                            <>
-                              {(actionsInputs[i]?.op === 'remove' || (actionsInputs[i]?.op === 'replace' && ['objectMarking', 'objectLabel'].includes(actionsInputs[i]?.attribute))) && (
+                            <React.Fragment key={i}>
+                              {(actionsInputs[i]?.op === 'replace' && ['objectMarking', 'objectLabel', 'objectAssignee', 'objectParticipant'].includes(actionsInputs[i]?.attribute)) && (
                                 <Alert severity="warning" style={{ marginBottom: 20 }}>
-                                  {t_i18n('This operations will only apply on labels or markings added in the context of this playbook such as enrichment or other knowledge manipulations but not if the labels or markings are already written in the platform.')}
+                                  {t_i18n('Replace operation will effectively replace this field values added in the context of this playbook such as enrichment or other knowledge manipulations but it will only append them if values are already written in the platform.')}
+                                </Alert>
+                              )}
+                              {(actionsInputs[i]?.op === 'remove') && (
+                                <Alert severity="warning" style={{ marginBottom: 20 }}>
+                                  {t_i18n('Remove operation will only apply on field values added in the context of this playbook such as enrichment or other knowledge manipulations but not if values are already written in the platform.')}
                                 </Alert>
                               )}
                               <div key={i} className={classes.step}>
@@ -517,7 +677,7 @@ const PlaybookAddComponentsContent = ({
                                   <CancelOutlined fontSize="small" />
                                 </IconButton>
                                 <Grid container={true} spacing={3}>
-                                  <Grid item={true} xs={3}>
+                                  <Grid item xs={3}>
                                     <FormControl className={classes.formControl}>
                                       <InputLabel>{t_i18n('Action type')}</InputLabel>
                                       <Select
@@ -533,18 +693,18 @@ const PlaybookAddComponentsContent = ({
                                       </Select>
                                     </FormControl>
                                   </Grid>
-                                  <Grid item={true} xs={3}>
+                                  <Grid item xs={3}>
                                     <FormControl className={classes.formControl}>
                                       <InputLabel>{t_i18n('Field')}</InputLabel>
                                       {renderFieldOptions(i, values, setValues)}
                                     </FormControl>
                                   </Grid>
-                                  <Grid item={true} xs={6}>
-                                    {renderValuesOptions(i)}
+                                  <Grid item xs={6}>
+                                    {renderValuesOptions(i, setFieldValue)}
                                   </Grid>
                                 </Grid>
                               </div>
-                            </>
+                            </React.Fragment>
                           ))}
                         <div className={classes.add}>
                           <Button
@@ -604,20 +764,19 @@ const PlaybookAddComponentsContent = ({
                             placement="bottom-start"
                           >
                             <MenuItem value={value.const}>
-                              {value.title}
+                              {/* value might be an entity type, we try to translate it */}
+                              {translateEntityType(value.title)}
                             </MenuItem>
                           </Tooltip>
                         )}
-                        isOptionEqualToValue={(option, value) => option.const === value
-                        }
-                        onInternalChange={(name, value) => setFieldValue(name, value.const ? value.const : value)
-                        }
+                        isOptionEqualToValue={(option, value) => option.const === value }
+                        onInternalChange={(name, value) => setFieldValue(name, value.const ? value.const : value) }
                         options={v.oneOf}
                         textfieldprops={{
                           variant: 'standard',
                           label: t_i18n(v.$ref ?? k),
                         }}
-                        getOptionLabel={(option) => (option.title
+                        getOptionLabel={(option) => translateEntityType(option.title
                           ? option.title
                           : v.oneOf?.filter((n) => n.const === option)?.at(0)
                             ?.title ?? option)

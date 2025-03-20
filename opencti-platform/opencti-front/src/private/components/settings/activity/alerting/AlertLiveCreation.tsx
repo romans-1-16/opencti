@@ -11,13 +11,13 @@ import Typography from '@mui/material/Typography';
 import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig, FormikHelpers } from 'formik/dist/types';
-import React, { FunctionComponent, useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import React, { FunctionComponent } from 'react';
+import { graphql } from 'react-relay';
 import * as Yup from 'yup';
 import Box from '@mui/material/Box';
 import FilterIconButton from '../../../../../components/FilterIconButton';
 import { useFormatter } from '../../../../../components/i18n';
-import MarkdownField from '../../../../../components/MarkdownField';
+import MarkdownField from '../../../../../components/fields/MarkdownField';
 import TextField from '../../../../../components/TextField';
 import type { Theme } from '../../../../../components/Theme';
 import { handleErrorInForm } from '../../../../../relay/environment';
@@ -31,7 +31,10 @@ import Filters from '../../../common/lists/Filters';
 import { TriggersLinesPaginationQuery$variables } from '../../../profile/triggers/__generated__/TriggersLinesPaginationQuery.graphql';
 import { AlertLiveCreationActivityMutation, AlertLiveCreationActivityMutation$data } from './__generated__/AlertLiveCreationActivityMutation.graphql';
 import useFiltersState from '../../../../../utils/filters/useFiltersState';
+import useApiMutation from '../../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   drawerPaper: {
     minHeight: '100vh',
@@ -116,7 +119,7 @@ const TriggerActivityLiveCreation: FunctionComponent<TriggerLiveCreationProps> =
     handleClose?.();
     helpers.handleClearAllFilters();
   };
-  const [commitActivity] = useMutation<AlertLiveCreationActivityMutation>(triggerLiveActivityCreationMutation);
+  const [commitActivity] = useApiMutation<AlertLiveCreationActivityMutation>(triggerLiveActivityCreationMutation);
   const liveInitialValues: TriggerActivityLiveAddInput = {
     name: inputValue || '',
     description: '',
@@ -256,7 +259,7 @@ const TriggerActivityLiveCreation: FunctionComponent<TriggerLiveCreationProps> =
               setFieldValue,
               values,
             }) => (
-              <Form style={{ margin: '20px 0 20px 0' }}>
+              <Form>
                 {liveFields(setFieldValue, values)}
                 <div className={classes.buttons}>
                   <Button

@@ -12,21 +12,22 @@ import { IncidentDetails_incident$data, IncidentDetails_incident$key } from './_
 import StixCoreObjectsDonut from '../../common/stix_core_objects/StixCoreObjectsDonut';
 import ItemOpenVocab from '../../../../components/ItemOpenVocab';
 
-const useStyles = makeStyles<Theme>(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
   chip: {
     fontSize: 12,
-    height: 25,
-    marginRight: 7,
+    lineHeight: '12px',
+    backgroundColor: theme.palette.background.accent,
+    color: theme.palette.text?.primary,
     textTransform: 'uppercase',
     borderRadius: 4,
-    width: 120,
+    margin: '0 5px 5px 0',
   },
   chip2: {
     fontSize: 12,
@@ -124,16 +125,14 @@ const IncidentDetails: FunctionComponent<IncidentDetailsProps> = ({
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Incident type')}
             </Typography>
             <Chip
               classes={{ root: classes.chip }}
-              color="primary"
-              variant="outlined"
               label={incident.incident_type || t_i18n('Unknown')}
             />
             <Typography
@@ -153,7 +152,7 @@ const IncidentDetails: FunctionComponent<IncidentDetailsProps> = ({
             </Typography>
             <ExpandableMarkdown source={incident.description} limit={400} />
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Severity')}
             </Typography>
@@ -162,6 +161,7 @@ const IncidentDetails: FunctionComponent<IncidentDetailsProps> = ({
               small={true}
               type="incident_severity_ov"
               value={incident.severity}
+              displayMode={'chip'}
             />
             <Typography
               variant="h3"
@@ -193,20 +193,20 @@ const IncidentDetails: FunctionComponent<IncidentDetailsProps> = ({
             </Typography>
             <ExpandableMarkdown source={incident.objective} limit={100} />
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <StixCoreObjectsDonut
               dataSelection={entitiesDataSelection}
               parameters={{ title: t_i18n('Entities distribution') }}
               variant="inEntity"
-              height={300}
+              height={250}
             />
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <StixCoreObjectsDonut
               dataSelection={observablesDataSelection}
               parameters={{ title: t_i18n('Observables distribution') }}
               variant="inEntity"
-              height={300}
+              height={250}
             />
           </Grid>
         </Grid>

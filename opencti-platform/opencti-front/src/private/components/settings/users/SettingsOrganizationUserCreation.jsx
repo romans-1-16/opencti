@@ -16,15 +16,17 @@ import { convertGrantableGroups } from '../organizations/SettingsOrganizationEdi
 import { useFormatter } from '../../../../components/i18n';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ObjectOrganizationField from '../../common/form/ObjectOrganizationField';
 import PasswordPolicies from '../../common/form/PasswordPolicies';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import useAuth from '../../../../utils/hooks/useAuth';
 import { insertNode } from '../../../../utils/store';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   buttons: {
     marginTop: 20,
@@ -177,7 +179,7 @@ const SettingsOrganizationUserCreation = ({
           onReset={onReset}
         >
           {({ submitForm, handleReset, isSubmitting }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 name="name"
@@ -238,7 +240,11 @@ const SettingsOrganizationUserCreation = ({
               />
               <ObjectOrganizationField
                 outlined={false}
-                filters={[{ key: 'authorized_authorities', values: [me.id] }]}
+                filters={{
+                  mode: 'and',
+                  filters: [{ key: 'authorized_authorities', values: [me.id] }],
+                  filterGroups: [],
+                }}
                 name="objectOrganization"
                 label="Organizations"
                 style={fieldSpacingContainerStyle}

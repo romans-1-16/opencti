@@ -9,7 +9,7 @@ import { Biohazard, ShieldSearch } from 'mdi-material-ui';
 import { assoc, head, last, map, pluck } from 'ramda';
 import React, { Suspense } from 'react';
 import { graphql, useFragment, usePreloadedQuery } from 'react-relay';
-import DashboardSettings from './DashboardSettings';
+import DashboardSettings, { PLATFORM_DASHBOARD } from './DashboardSettings';
 import StixRelationshipsDistributionList from './common/stix_relationships/StixRelationshipsDistributionList';
 import StixRelationshipsPolarArea from './common/stix_relationships/StixRelationshipsPolarArea';
 import StixCoreObjectsList from './common/stix_core_objects/StixCoreObjectsList';
@@ -27,12 +27,16 @@ import LocationMiniMapTargets from './common/location/LocationMiniMapTargets';
 import StixRelationshipsHorizontalBars from './common/stix_relationships/StixRelationshipsHorizontalBars';
 import DashboardView from './workspaces/dashboards/Dashboard';
 import useQueryLoading from '../../utils/hooks/useQueryLoading';
+import useConnectedDocumentModifier from '../../utils/hooks/useConnectedDocumentModifier';
 
 // region styles
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   root: {
-    flexGrow: 1,
-    marginBottom: 50,
+    marginRight: -20,
+    paddingRight: 20,
+    paddingBottom: 30,
   },
   card: {
     width: '100%',
@@ -40,7 +44,7 @@ const useStyles = makeStyles((theme) => ({
     position: 'relative',
   },
   paper: {
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     overflow: 'hidden',
   },
@@ -97,8 +101,18 @@ const dashboardStixCoreRelationshipsDistributionQuery = graphql`
         ... on BasicRelationship {
           entity_type
         }
+        ... on StixObject {
+          representative {
+            main
+          }
+        }
+        ... on StixRelationship {
+          representative {
+            main
+          }
+        }
         ... on Country {
-          name
+          # nullable fields, so it will work even if the Country is Restricted
           x_opencti_aliases
           latitude
           longitude
@@ -168,7 +182,7 @@ const DefaultDashboard = ({ timeField }) => {
       )}
     >
       <Grid container={true} spacing={3}>
-        <Grid item={true} xs={3}>
+        <Grid item xs={3}>
           <Card
             classes={{ root: classes.card }}
             style={{ height: 110 }}
@@ -179,7 +193,6 @@ const DefaultDashboard = ({ timeField }) => {
               <StixCoreObjectsNumber
                 variant="inLine"
                 withoutTitle={true}
-                height={110}
                 dataSelection={[{
                   filters: {
                     mode: 'and',
@@ -200,7 +213,7 @@ const DefaultDashboard = ({ timeField }) => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item={true} xs={3}>
+        <Grid item xs={3}>
           <Card
             classes={{ root: classes.card }}
             style={{ height: 110 }}
@@ -211,7 +224,6 @@ const DefaultDashboard = ({ timeField }) => {
               <StixCoreObjectsNumber
                 variant="inLine"
                 withoutTitle={true}
-                height={110}
                 dataSelection={[{
                   filters: {
                     mode: 'and',
@@ -232,7 +244,7 @@ const DefaultDashboard = ({ timeField }) => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item={true} xs={3}>
+        <Grid item xs={3}>
           <Card
             classes={{ root: classes.card }}
             style={{ height: 110 }}
@@ -243,7 +255,6 @@ const DefaultDashboard = ({ timeField }) => {
               <StixCoreObjectsNumber
                 variant="inLine"
                 withoutTitle={true}
-                height={110}
                 dataSelection={[{
                   filters: {
                     mode: 'and',
@@ -264,7 +275,7 @@ const DefaultDashboard = ({ timeField }) => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item={true} xs={3}>
+        <Grid item xs={3}>
           <Card
             classes={{ root: classes.card }}
             style={{ height: 110 }}
@@ -275,7 +286,6 @@ const DefaultDashboard = ({ timeField }) => {
               <StixCoreObjectsNumber
                 variant="inLine"
                 withoutTitle={true}
-                height={110}
                 dataSelection={[{
                   filters: {
                     mode: 'and',
@@ -296,9 +306,9 @@ const DefaultDashboard = ({ timeField }) => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item={true} xs={3}>
+        <Grid item xs={3}>
           <StixRelationshipsHorizontalBars
-            title={t_i18n('Most active threats (3 last months)')}
+            title={t_i18n('Most active threats (Last 3 months)')}
             height={300}
             startDate={monthsAgo(3)}
             dataSelection={[{
@@ -323,9 +333,9 @@ const DefaultDashboard = ({ timeField }) => {
             }]}
           />
         </Grid>
-        <Grid item={true} xs={3}>
+        <Grid item xs={3}>
           <StixRelationshipsHorizontalBars
-            title={t_i18n('Most targeted victims (3 last months)')}
+            title={t_i18n('Most targeted victims (Last 3 months)')}
             height={300}
             startDate={monthsAgo(3)}
             dataSelection={[{
@@ -350,7 +360,7 @@ const DefaultDashboard = ({ timeField }) => {
             }]}
           />
         </Grid>
-        <Grid item={true} xs={6}>
+        <Grid item xs={6}>
           <StixRelationshipsMultiAreaChart
             title={t_i18n('Relationships created')}
             height={300}
@@ -376,9 +386,9 @@ const DefaultDashboard = ({ timeField }) => {
             }]}
           />
         </Grid>
-        <Grid item={true} xs={3} style={{ marginTop: 25 }}>
+        <Grid item xs={3} style={{ marginTop: 25 }}>
           <StixRelationshipsPolarArea
-            title={t_i18n('Most active malware (3 last months)')}
+            title={t_i18n('Most active malware (Last 3 months)')}
             height={400}
             startDate={monthsAgo(3)}
             dataSelection={[{
@@ -402,10 +412,10 @@ const DefaultDashboard = ({ timeField }) => {
             }]}
           />
         </Grid>
-        <Grid item={true} xs={3} style={{ marginTop: 25 }}>
+        <Grid item xs={3} style={{ marginTop: 25 }}>
           <StixRelationshipsDistributionList
             overflow="hidden"
-            title={t_i18n('Most active vulnerabilities (3 last months)')}
+            title={t_i18n('Most active vulnerabilities (Last 3 months)')}
             height={400}
             startDate={monthsAgo(3)}
             dataSelection={[{
@@ -430,9 +440,9 @@ const DefaultDashboard = ({ timeField }) => {
             }]}
           />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 25 }}>
+        <Grid item xs={6} style={{ marginTop: 25 }}>
           <Typography variant="h4" gutterBottom={true}>
-            {t_i18n('Targeted countries (3 last months)')}
+            {t_i18n('Targeted countries (Last 3 months)')}
           </Typography>
           <Paper
             classes={{ root: classes.paper }}
@@ -451,10 +461,11 @@ const DefaultDashboard = ({ timeField }) => {
             </Suspense>
           </Paper>
         </Grid>
-        <Grid item={true} xs={8}>
+        <Grid item xs={8}>
           <StixCoreObjectsList
             title={t_i18n('Latest reports')}
             height={410}
+            widgetId={'default_latest_reports_widget'}
             dataSelection={[{
               filters: {
                 mode: 'and',
@@ -467,12 +478,13 @@ const DefaultDashboard = ({ timeField }) => {
                 filterGroups: [],
               },
               date_attribute: timeField === 'functional' ? 'start_time' : 'created_at',
+              sort_mode: 'desc',
             }]}
           />
         </Grid>
-        <Grid item={true} xs={4}>
+        <Grid item xs={4}>
           <StixRelationshipsHorizontalBars
-            title={t_i18n('Most active labels (3 last months)')}
+            title={t_i18n('Most active labels (Last 3 months)')}
             height={410}
             startDate={monthsAgo(3)}
             parameters={{ number: 15 }}
@@ -576,6 +588,7 @@ const LOCAL_STORAGE_KEY = 'dashboard';
 
 const DashboardComponent = ({ queryRef }) => {
   const classes = useStyles();
+  const { t_i18n } = useFormatter();
   const { me: currentMe, ...context } = useAuth();
   const data = usePreloadedQuery(dashboardQuery, queryRef);
   const me = useFragment(dashboardMeFragment, data.me);
@@ -585,18 +598,21 @@ const DashboardComponent = ({ queryRef }) => {
     LOCAL_STORAGE_KEY,
     {},
   );
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Dashboard'));
   const { dashboard } = localTimeFieldPreferences;
   let defaultDashboard = default_dashboard?.id;
   if (!defaultDashboard) {
-    defaultDashboard = dashboards[0]?.id;
+    defaultDashboard = dashboards[0]?.id ?? PLATFORM_DASHBOARD;
   } else if (dashboard && dashboard !== 'default') {
     // Handle old conf
     defaultDashboard = dashboard;
   }
+
   return (
     <UserContext.Provider value={{ me: { ...currentMe, ...me }, ...context }}>
       <div className={classes.root} data-testid="dashboard-page">
-        {defaultDashboard ? (
+        {defaultDashboard !== PLATFORM_DASHBOARD ? (
           <CustomDashboard
             dashboard={defaultDashboard}
             timeField={default_time_field}

@@ -33,7 +33,6 @@ import type { StixObject } from '../types/stix-common';
 import { STIX_EXT_OCTI } from '../types/stix-extensions';
 import type { BasicStoreRelation, BasicStreamEntity, BasicTriggerEntity, BasicWorkflowStatusEntity, BasicWorkflowTemplateEntity, StoreEntity, StoreRelation } from '../types/store';
 import { executionContext, SYSTEM_USER } from '../utils/access';
-import { ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../modules/organization/organization-types';
 import { ENTITY_TYPE_MANAGER_CONFIGURATION } from '../modules/managerConfiguration/managerConfiguration-types';
 import type { BasicStoreEntityPlaybook, ComponentDefinition } from '../modules/playbook/playbook-types';
 import { ENTITY_TYPE_PLAYBOOK } from '../modules/playbook/playbook-types';
@@ -42,6 +41,8 @@ import { fromBase64, isNotEmptyField } from '../database/utils';
 import { findAllPlaybooks } from '../modules/playbook/playbook-domain';
 import { type BasicStoreEntityPublicDashboard, ENTITY_TYPE_PUBLIC_DASHBOARD, type PublicDashboardCached } from '../modules/publicDashboard/publicDashboard-types';
 import { getAllowedMarkings } from '../modules/publicDashboard/publicDashboard-domain';
+import type { BasicStoreEntityConnector } from '../types/connector';
+import { getEnterpriseEditionInfoFromPem } from '../modules/settings/licensing';
 
 const workflowStatuses = (context: AuthContext) => {
   const reloadStatuses = async () => {
@@ -50,7 +51,7 @@ const workflowStatuses = (context: AuthContext) => {
     const statuses = await listAllEntities<BasicWorkflowStatusEntity>(context, SYSTEM_USER, [ENTITY_TYPE_STATUS], args);
     return statuses.map((status) => {
       const template = templates.find((t) => t.internal_id === status.template_id);
-      return { ...status, name: template?.name ?? 'Error with template association' };
+      return { ...status, name: template?.name ?? 'Error with template association', template };
     });
   };
   return { values: null, fn: reloadStatuses };
@@ -69,6 +70,12 @@ const platformResolvedFilters = (context: AuthContext) => {
     // Trigger filters
     const triggers = await listAllEntities<BasicTriggerEntity>(context, SYSTEM_USER, [ENTITY_TYPE_TRIGGER], { connectionFormat: false });
     filteringIds.push(...triggers.map((s) => extractFilterGroupValuesToResolveForCache(JSON.parse(s.filters ?? initialFilterGroup))).flat());
+    // Connectors filters (for enrichment connectors)
+    const connectors = await listAllEntities<BasicStoreEntityConnector>(context, SYSTEM_USER, [ENTITY_TYPE_CONNECTOR], { connectionFormat: false });
+    filteringIds.push(...connectors.map((s) => {
+      const connFilters = s.connector_trigger_filters?.length > 0 ? s.connector_trigger_filters : initialFilterGroup;
+      return extractFilterGroupValuesToResolveForCache(JSON.parse(connFilters));
+    }).flat());
     // Playbook filters
     const playbooks = await listAllEntities<BasicStoreEntityPlaybook>(context, SYSTEM_USER, [ENTITY_TYPE_PLAYBOOK], { connectionFormat: false });
     const playbookFilterIds = playbooks
@@ -94,12 +101,6 @@ const platformConnectors = (context: AuthContext) => {
     return findConnectors(context, SYSTEM_USER);
   };
   return { values: null, fn: reloadConnectors };
-};
-const platformOrganizations = (context: AuthContext) => {
-  const reloadOrganizations = () => {
-    return listAllEntities(context, SYSTEM_USER, [ENTITY_TYPE_IDENTITY_ORGANIZATION], { connectionFormat: false });
-  };
-  return { values: null, fn: reloadOrganizations };
 };
 const platformRules = (context: AuthContext) => {
   const reloadRules = () => {
@@ -141,7 +142,7 @@ const platformUsers = (context: AuthContext) => {
   const reloadUsers = async () => {
     const users = await listAllEntities(context, SYSTEM_USER, [ENTITY_TYPE_USER], { connectionFormat: false });
     const allUserIds = users.map((user) => user.internal_id);
-    return Bluebird.map(allUserIds, (userId: string) => resolveUserById(context, userId), { concurrency: ES_MAX_CONCURRENCY });
+    return Bluebird.map(allUserIds, (userId: string) => resolveUserById(context, userId), { concurrency: ES_MAX_CONCURRENCY }).filter((u) => u != null);
   };
   return { values: null, fn: reloadUsers };
 };
@@ -157,8 +158,9 @@ const platformSettings = (context: AuthContext) => {
     return listAllEntities<BasicStoreSettings>(context, SYSTEM_USER, [ENTITY_TYPE_SETTINGS], { connectionFormat: false }).then((settings) => {
       return settings.map((s) => {
         const auditListenerIds = s.activity_listeners_ids ?? [];
+        const ee_info = getEnterpriseEditionInfoFromPem(s.internal_id, s.enterprise_license);
         const activity_listeners_users = auditListenerIds.map((id: string) => membersGroupMap.get(id) ?? membersOrganizationMap.get(id) ?? [id]).flat();
-        return { ...s, activity_listeners_users };
+        return { ...s, valid_enterprise_edition: ee_info.license_validated, activity_listeners_users };
       });
     });
   };
@@ -199,6 +201,7 @@ const platformPublicDashboards = (context: AuthContext) => {
       publicDashboardsForCache.push(
         {
           id: dash.id,
+          enabled: dash.enabled,
           internal_id: dash.internal_id,
           uri_key: dash.uri_key,
           dashboard_id: dash.dashboard_id,
@@ -229,7 +232,6 @@ const initCacheManager = () => {
     writeCacheForEntity(ENTITY_TYPE_PLAYBOOK, platformRunningPlaybooks(context));
     writeCacheForEntity(ENTITY_TYPE_RULE, platformRules(context));
     writeCacheForEntity(ENTITY_TYPE_DECAY_RULE, platformDecayRules(context));
-    writeCacheForEntity(ENTITY_TYPE_IDENTITY_ORGANIZATION, platformOrganizations(context));
     writeCacheForEntity(ENTITY_TYPE_RESOLVED_FILTERS, platformResolvedFilters(context));
     writeCacheForEntity(ENTITY_TYPE_STREAM_COLLECTION, platformStreams(context));
     writeCacheForEntity(ENTITY_TYPE_NOTIFIER, platformNotifiers(context));

@@ -15,8 +15,8 @@ import Slide from '@mui/material/Slide';
 import MoreVert from '@mui/icons-material/MoreVert';
 import inject18n from '../../../../components/i18n';
 import { commitMutation, QueryRenderer } from '../../../../relay/environment';
-import Loader from '../../../../components/Loader';
 import RoleEdition from './RoleEdition';
+import withRouter from '../../../../utils/compat_router/withRouter';
 
 const styles = () => ({
   container: {
@@ -106,13 +106,13 @@ class RolePopover extends Component {
       onCompleted: () => {
         this.setState({ deleting: false });
         this.handleClose();
-        this.props.history.push('/dashboard/settings/accesses/roles');
+        this.props.navigate('/dashboard/settings/accesses/roles');
       },
     });
   }
 
   render() {
-    const { classes, t, roleId } = this.props;
+    const { classes, t, roleId, disabled } = this.props;
     return (
       <div className={classes.container}>
         <IconButton
@@ -120,7 +120,8 @@ class RolePopover extends Component {
           aria-haspopup="true"
           size="large"
           style={{ marginTop: 3 }}
-          color="primary"
+          disabled={disabled}
+          color={'primary'}
         >
           <MoreVert />
         </IconButton>
@@ -149,7 +150,7 @@ class RolePopover extends Component {
                 />
               );
             }
-            return <Loader variant="inElement" />;
+            return null;
           }}
         />
         <Dialog
@@ -192,4 +193,4 @@ RolePopover.propTypes = {
   t: PropTypes.func,
 };
 
-export default compose(inject18n, withStyles(styles))(RolePopover);
+export default compose(inject18n, withRouter, withStyles(styles))(RolePopover);

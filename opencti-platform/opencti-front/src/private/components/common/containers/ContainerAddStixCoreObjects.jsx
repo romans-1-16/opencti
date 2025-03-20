@@ -15,12 +15,14 @@ import StixDomainObjectCreation from '../stix_domain_objects/StixDomainObjectCre
 import StixCyberObservableCreation from '../../observations/stix_cyber_observables/StixCyberObservableCreation';
 import useAuth from '../../../../utils/hooks/useAuth';
 import ListLines from '../../../../components/list_lines/ListLines';
-import { emptyFilterGroup } from '../../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, useBuildEntityTypeBasedFilterContext } from '../../../../utils/filters/filtersUtils';
 import Drawer from '../drawer/Drawer';
 import useAttributes from '../../../../utils/hooks/useAttributes';
 import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStorage';
 import { removeEmptyFields } from '../../../../utils/utils';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   createButton: {
     position: 'fixed',
@@ -71,6 +73,7 @@ const ContainerAddStixCoreObjects = (props) => {
     selectedText,
     openDrawer,
     handleClose,
+    enableReferences,
   } = props;
   const classes = useStyles();
   const { t_i18n } = useFormatter();
@@ -83,19 +86,6 @@ const ContainerAddStixCoreObjects = (props) => {
   const {
     platformModuleHelpers: { isRuntimeFieldEnable },
   } = useAuth();
-
-  const targetEntityTypesFilterGroup = {
-    mode: 'and',
-    filterGroups: [],
-    filters: [
-      {
-        key: 'entity_type',
-        values: targetStixCoreObjectTypes,
-        operator: 'eq',
-        mode: 'or',
-      },
-    ],
-  };
 
   const isTypeDomainObject = (types) => {
     return !types
@@ -140,10 +130,7 @@ const ContainerAddStixCoreObjects = (props) => {
       searchTerm: '',
       sortBy: '_score',
       orderAsc: false,
-      filters: targetStixCoreObjectTypes
-      && !(targetStixCoreObjectTypes.includes('Stix-Domain-Object') || targetStixCoreObjectTypes.includes('Stix-Cyber-Observable'))
-        ? targetEntityTypesFilterGroup
-        : emptyFilterGroup,
+      filters: emptyFilterGroup,
       types: [resolveAvailableTypes()],
     },
     true,
@@ -156,9 +143,21 @@ const ContainerAddStixCoreObjects = (props) => {
     filters,
     numberOfElements,
   } = viewStorage;
+  const contextFilters = useBuildEntityTypeBasedFilterContext(targetStixCoreObjectTypes, filters);
 
   const containerRef = useRef(null);
-  const keyword = mapping && (searchTerm ?? '').length === 0 ? selectedText : searchTerm;
+  const [mappingSearch, setMappingSearch] = useState(null);
+  const [currentSelectedText, setCurrentSelectedText] = useState(selectedText);
+  if (currentSelectedText !== selectedText) {
+    setMappingSearch(null);
+    setCurrentSelectedText(selectedText);
+  }
+  let keyword;
+  if (!mapping) {
+    keyword = searchTerm;
+  } else {
+    keyword = !mappingSearch ? selectedText : mappingSearch;
+  }
   const handleOpenCreateEntity = () => {
     setOpenCreateEntity(true);
     setOpenSpeedDial(false);
@@ -331,7 +330,7 @@ const ContainerAddStixCoreObjects = (props) => {
         sortBy={sortBy}
         orderAsc={orderAsc}
         dataColumns={buildColumns()}
-        handleSearch={helpers.handleSearch}
+        handleSearch={mapping ? setMappingSearch : helpers.handleSearch}
         keyword={keyword}
         handleSort={helpers.handleSort}
         handleAddFilter={helpers.handleAddFilter}
@@ -347,6 +346,9 @@ const ContainerAddStixCoreObjects = (props) => {
         disableExport={true}
         availableEntityTypes={targetStixCoreObjectTypes}
         entityTypes={targetStixCoreObjectTypes}
+        additionalFilterKeys={{
+          filterKeys: ['entity_type'],
+        }}
       >
         <QueryRenderer
           query={containerAddStixCoreObjectsLinesQuery}
@@ -365,6 +367,8 @@ const ContainerAddStixCoreObjects = (props) => {
               setNumberOfElements={helpers.handleSetNumberOfElements}
               mapping={mapping}
               containerRef={containerRef}
+              enableReferences={enableReferences}
+              onLabelClick={helpers.handleAddFilter}
             />
           )}
         />
@@ -376,6 +380,7 @@ const ContainerAddStixCoreObjects = (props) => {
   const searchPaginationOptions = removeEmptyFields({
     ...paginationOptionsNoCount,
     search: keyword,
+    filters: contextFilters,
   });
   const renderButton = () => {
     if (knowledgeGraph) {
@@ -408,7 +413,7 @@ const ContainerAddStixCoreObjects = (props) => {
     return (
       <Fab
         onClick={() => setOpen(true)}
-        color="secondary"
+        color="primary"
         aria-label="Add"
         className={withPadding ? classes.createButtonWithPadding : classes.createButton}
       >

@@ -12,11 +12,11 @@ import ItemAuthor from '../../../../components/ItemAuthor';
 import { CountryOverview_country$key } from './__generated__/CountryOverview_country.graphql';
 import ExpandableMarkdown from '../../../../components/ExpandableMarkdown';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },

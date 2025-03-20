@@ -14,10 +14,13 @@ interface EventOpts {
 
 interface CreateEventOpts extends EventOpts {
   withoutMessage?: boolean;
+  restore?: boolean;
 }
 
 interface UpdateEventOpts extends EventOpts {
   commit?: CommitContext | undefined;
+  related_restrictions?: { markings: string[] };
+  allow_only_modified?: boolean
 }
 
 interface RelationCreation {
@@ -51,6 +54,7 @@ interface UpdateEvent extends StreamDataEvent {
   context: {
     patch: Array<Operation>;
     reverse_patch: Array<Operation>;
+    related_restrictions?: { markings: string[] };
   };
 }
 

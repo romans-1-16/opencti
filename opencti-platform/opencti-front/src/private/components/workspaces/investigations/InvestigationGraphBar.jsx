@@ -11,6 +11,7 @@ import {
   LinkOutlined,
   OpenWithOutlined,
   ScatterPlotOutlined,
+  Undo,
 } from '@mui/icons-material';
 import Badge from '@mui/material/Badge';
 import Button from '@mui/material/Button';
@@ -36,26 +37,27 @@ import { AutoFix, FamilyTree, SelectAll, SelectGroup, SelectionDrag, Video3d } f
 import * as PropTypes from 'prop-types';
 import * as R from 'ramda';
 import React, { Component } from 'react';
-import TimeRange from 'react-timeline-range-slider';
 import { ResponsiveContainer, Scatter, ScatterChart, YAxis, ZAxis } from 'recharts';
+import { getPreExpansionStateList } from './utils/investigationStorage';
 import InvestigationAddStixCoreObjects from './InvestigationAddStixCoreObjects';
 import inject18n from '../../../../components/i18n';
 import SearchInput from '../../../../components/SearchInput';
 import { parseDomain } from '../../../../utils/Graph';
-import { EXPLORE_EXUPDATE } from '../../../../utils/hooks/useGranted';
+import { INVESTIGATION_INUPDATE } from '../../../../utils/hooks/useGranted';
 import Security from '../../../../utils/Security';
 import { truncate } from '../../../../utils/String';
-import { dateFormat } from '../../../../utils/Time';
+import { dateFormat, minutesBefore, now } from '../../../../utils/Time';
 import StixCoreRelationshipCreation from '../../common/stix_core_relationships/StixCoreRelationshipCreation';
 import StixCoreRelationshipEdition from '../../common/stix_core_relationships/StixCoreRelationshipEdition';
 import StixDomainObjectEdition from '../../common/stix_domain_objects/StixDomainObjectEdition';
 import StixCyberObservableEdition from '../../observations/stix_cyber_observables/StixCyberObservableEdition';
 import { UserContext } from '../../../../utils/hooks/useAuth';
 import StixSightingRelationshipEdition from '../../events/stix_sighting_relationships/StixSightingRelationshipEdition';
+import TimeRange from '../../../../components/range_slider/RangeSlider';
 
 const styles = () => ({
   bottomNav: {
-    zIndex: 1000,
+    zIndex: 1,
     display: 'flex',
     overflow: 'hidden',
   },
@@ -288,6 +290,7 @@ class InvestigationGraphBar extends Component {
       handleOpenExpandElements,
       navOpen,
       resetAllFilters,
+      handleOpenRollBackToPreExpansionStateDialog,
     } = this.props;
     const {
       openStixCoreObjectsTypes,
@@ -352,6 +355,11 @@ class InvestigationGraphBar extends Component {
         : [selectedNodes[0]];
     }
     const stixCoreObjectOrRelationshipId = (selectedNodes[0]?.id ?? null) || (selectedLinks[0]?.id ?? null);
+
+    const isRollBackToLastPreExpansionStateDisabled = !getPreExpansionStateList();
+
+    const defaultTime = now();
+
     return (
       <UserContext.Consumer>
         {({ bannerSettings }) => (
@@ -362,7 +370,9 @@ class InvestigationGraphBar extends Component {
             PaperProps={{
               variant: 'elevation',
               elevation: 1,
-              style: { bottom: bannerSettings.bannerHeightNumber },
+              style: {
+                bottom: bannerSettings.bannerHeightNumber,
+              },
             }}
           >
             <div
@@ -787,7 +797,7 @@ class InvestigationGraphBar extends Component {
                 </div>
                 {workspace && (
                   <Security
-                    needs={[EXPLORE_EXUPDATE]}
+                    needs={[INVESTIGATION_INUPDATE]}
                     hasAccess={
                       workspace.currentUserAccessRight === 'admin'
                       || workspace.currentUserAccessRight === 'edit'
@@ -865,6 +875,18 @@ class InvestigationGraphBar extends Component {
                           />
                         </>
                       )}
+                      <Tooltip title={t('Restore the state of the graphic before the last expansion')}>
+                        <span>
+                          <IconButton
+                            color="primary"
+                            disabled={isRollBackToLastPreExpansionStateDisabled }
+                            onClick={handleOpenRollBackToPreExpansionStateDialog}
+                            size="large"
+                          >
+                            <Undo />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       <Tooltip title={t('Expand')}>
                         <span>
                           <IconButton
@@ -898,8 +920,8 @@ class InvestigationGraphBar extends Component {
                           open={openCreatedRelation}
                           fromObjects={relationFromObjects}
                           toObjects={relationToObjects}
-                          startTime={lastLinkFirstSeen || null}
-                          stopTime={lastLinkLastSeen || null}
+                          startTime={lastLinkFirstSeen || minutesBefore(1, defaultTime)}
+                          stopTime={lastLinkLastSeen || defaultTime}
                           confidence={50}
                           handleClose={this.handleCloseCreateRelationship.bind(
                             this,
@@ -1072,6 +1094,7 @@ InvestigationGraphBar.propTypes = {
   handleResetLayout: PropTypes.func,
   displayTimeRange: PropTypes.bool,
   handleToggleDisplayTimeRange: PropTypes.func,
+  handleOpenRollBackToPreExpansionStateDialog: PropTypes.func,
   handleTimeRangeChange: PropTypes.func,
   timeRangeInterval: PropTypes.array,
   selectedTimeRangeInterval: PropTypes.array,

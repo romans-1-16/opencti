@@ -7,6 +7,7 @@ import inject18n from '../../../../components/i18n';
 import CampaignEditionContainer from './CampaignEditionContainer';
 import { campaignEditionOverviewFocus } from './CampaignEditionOverview';
 import Loader from '../../../../components/Loader';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 
 export const campaignEditionQuery = graphql`
   query CampaignEditionContainerQuery($id: String!) {
@@ -49,10 +50,11 @@ class CampaignEdition extends Component {
               <CampaignEditionContainer
                 campaign={props.campaign}
                 handleClose={this.handleClose.bind(this)}
+                controlledDial={EditEntityControlledDial}
               />
             );
           }
-          return <Loader variant="inElement" />;
+          return <Loader variant="inline" />;
         }}
       />
     );

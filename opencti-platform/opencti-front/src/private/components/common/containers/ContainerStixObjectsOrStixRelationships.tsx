@@ -15,10 +15,10 @@ import useAuth, { UserContext } from '../../../../utils/hooks/useAuth';
 import useGranted, { KNOWLEDGE_KNPARTICIPATE, KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import { ContainerStixObjectOrStixRelationshipLineDummy } from './ContainerStixObjectOrStixRelationshipLine';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '-5px 0 0 0',
     padding: 0,
     borderRadius: 4,
@@ -31,11 +31,12 @@ interface ContainerStixObjectsOrStixRelationshipsComponentProps {
   isSupportParticipation: boolean;
   container: ContainerStixObjectsOrStixRelationships_container$data;
   variant?: string;
+  enableReferences: boolean;
 }
 
 const ContainerStixObjectsOrStixRelationshipsComponent: FunctionComponent<
 ContainerStixObjectsOrStixRelationshipsComponentProps
-> = ({ container, isSupportParticipation = false, types, title, variant }) => {
+> = ({ container, isSupportParticipation = false, types, title, variant, enableReferences }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
   const userIsKnowledgeEditor = useGranted([KNOWLEDGE_KNUPDATE]);
@@ -102,6 +103,7 @@ ContainerStixObjectsOrStixRelationshipsComponentProps
                 container={props.container}
                 dataColumns={dataColumns}
                 paginationOptions={paginationOptions}
+                enableReferences={enableReferences}
               />
             );
           }
@@ -141,12 +143,13 @@ ContainerStixObjectsOrStixRelationshipsComponentProps
             defaultCreatedBy={container.createdBy ?? null}
             defaultMarkingDefinitions={container.objectMarking ?? []}
             confidence={container.confidence}
+            enableReferences={enableReferences}
           />
         </Security>
       )}
       <div className="clearfix" />
       {variant !== 'noPaper' ? (
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           {renderContent()}
         </Paper>
       ) : (

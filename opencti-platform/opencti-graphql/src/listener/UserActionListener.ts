@@ -8,6 +8,7 @@ interface BasicUserAction {
   user: AuthUser
   status?: 'success' | 'error' // nothing = success
   event_type: 'authentication' | 'read' | 'mutation' | 'file' | 'command'
+  event_scope: string
   event_access: 'extended' | 'administration'
   prevent_indexing?: boolean
 }
@@ -30,9 +31,19 @@ export interface ElementContextData {
   creator_ids?: string[]
   granted_refs_ids?: string[]
   object_marking_refs_ids?: string[]
+  object_marking_refs_definitions?: string[]
   created_by_ref_id?: string
   workspace_type?: string
   labels_ids?: string[]
+}
+export interface UserAnalyzeActionContextData extends ElementContextData {
+  connector_id: string
+  connector_name: string
+}
+export interface UserAnalyzeAction extends BasicUserAction {
+  event_type: 'command'
+  event_scope: 'analyze'
+  context_data: UserAnalyzeActionContextData
 }
 export interface UserEnrichActionContextData extends ElementContextData {
   connector_id: string
@@ -75,11 +86,21 @@ export interface UserExportAction extends BasicUserAction {
 export interface UserFileActionContextData extends ElementContextData {
   path: string
   file_name: string
+  input?: unknown;
 }
 export interface UserFileAction extends BasicUserAction {
   event_type: 'file'
-  event_scope: 'read' | 'create' | 'delete' | 'download'
+  event_scope: 'read' | 'create' | 'delete' | 'download';
   context_data: UserFileActionContextData
+}
+
+export interface UserDisseminateActionContextData extends ElementContextData {
+  input: unknown
+}
+export interface DisseminateAction extends BasicUserAction {
+  event_type: 'file'
+  event_scope: 'disseminate';
+  context_data: UserDisseminateActionContextData
 }
 // endregion
 
@@ -128,8 +149,8 @@ export interface UserLogoutAction extends BasicUserAction {
 }
 // endregion
 
-export type UserAction = UserReadAction | UserFileAction | UserLoginAction | UserEnrichAction | UserImportAction |
-UserLogoutAction | UserExportAction | UserModificationAction | UserForbiddenAction | UserSearchAction;
+export type UserAction = UserReadAction | UserFileAction | UserLoginAction | UserEnrichAction | UserAnalyzeAction | UserImportAction |
+UserLogoutAction | UserExportAction | UserModificationAction | UserForbiddenAction | UserSearchAction | DisseminateAction;
 
 export interface ActionListener {
   id: string
@@ -180,13 +201,15 @@ export const completeContextDataForEntity = <T extends BasicStoreCommon, C exten
   return contextData;
 };
 
-export const buildContextDataForFile = (entity: BasicStoreObject, path: string, filename: string) => {
+export const buildContextDataForFile = (entity: BasicStoreObject, path: string, filename: string, file_markings: string[] = [], input: unknown = {}) => {
   const baseData: UserFileActionContextData = {
     path,
     id: entity?.internal_id,
     entity_name: entity ? extractEntityRepresentativeName(entity) : 'global',
     entity_type: entity?.entity_type ?? 'global',
     file_name: filename,
+    object_marking_refs_ids: file_markings,
+    input,
   };
   return completeContextDataForEntity(baseData, entity);
 };

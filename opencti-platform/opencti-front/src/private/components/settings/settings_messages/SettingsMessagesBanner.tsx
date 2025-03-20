@@ -11,6 +11,7 @@ import useLocalStorage from '../../../../utils/hooks/useLocalStorage';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import { SettingsMessagesBannerQuery } from './__generated__/SettingsMessagesBannerQuery.graphql';
 import { MessageFromLocalStorage } from '../../../../utils/hooks/useLocalStorageModel';
+import { isEmptyField } from '../../../../utils/utils';
 
 export const settingsMessagesQuery = graphql`
   query SettingsMessagesBannerQuery {
@@ -43,6 +44,8 @@ const settingsSubscription = graphql`
   }
 `;
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     position: 'fixed',
@@ -51,7 +54,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
     borderLeft: '8px solid #ffc107',
     color: 'black',
     width: '100%',
-    padding: theme.spacing(1),
+    padding: 4,
   },
   message: {
     textAlign: 'center',
@@ -62,7 +65,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
   button: {
     color: '#663c00',
     position: 'absolute',
-    top: '5px',
+    top: '1px',
     right: '8px',
   },
 }));
@@ -100,11 +103,11 @@ const extractMessagesToDisplay = (
 
 const ref = React.createRef<HTMLDivElement>();
 export const useSettingsMessagesBannerHeight = () => {
-  const [bannerHeight, setBannerHeight] = useState(
-    ref.current?.clientHeight ?? 0,
+  const [bannerHeight, setBannerHeight] = useState<number>(
+    ref.current?.clientHeight as number ?? 0,
   );
   useBus(
-    BANNER_LOCAL_STORAGE_KEY,
+    `${BANNER_LOCAL_STORAGE_KEY}_bus`,
     (size: number) => {
       if ((size != null || bannerHeight != null) && bannerHeight !== size) {
         setBannerHeight(size ?? 0);
@@ -114,9 +117,9 @@ export const useSettingsMessagesBannerHeight = () => {
   );
   // At first render, some component might have finished their render while settings message send the dispatch.
   if (bannerHeight !== ref.current?.clientHeight && ref.current?.clientHeight != null) {
-    setBannerHeight(ref.current?.clientHeight);
+    setBannerHeight(ref.current?.clientHeight as number);
   }
-  return bannerHeight;
+  return isEmptyField(bannerHeight) ? 0 : bannerHeight;
 };
 
 // -- FUNCTION COMPONENT --
@@ -172,7 +175,7 @@ const SettingsMessagesBannerComponent = ({
   }, [JSON.stringify(messagesSettings)]);
   // Tell everyone that the new message is displayed
   useLayoutEffect(() => {
-    dispatch(BANNER_LOCAL_STORAGE_KEY, ref.current?.clientHeight);
+    dispatch(`${BANNER_LOCAL_STORAGE_KEY}_bus`, ref.current?.clientHeight);
   }, [JSON.stringify(messagesLocalStorage)]);
 
   // 2. No message

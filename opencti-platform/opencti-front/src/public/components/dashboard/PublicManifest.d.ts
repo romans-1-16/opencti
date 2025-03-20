@@ -1,20 +1,4 @@
-export interface PublicManifestWidget {
-  id: string
-  layout: {
-    w: number
-    h: number,
-    x: number
-    y: number
-    i: string
-    moved: boolean
-    static: boolean
-  }
-  parameters: {
-    title: string
-  }
-  perspective: 'entities' | 'relationships' | 'audits' | null
-  type: string
-}
+import type { Widget } from '../../../utils/widget/widget';
 
 export interface PublicManifestConfig {
   startDate?: string
@@ -24,5 +8,5 @@ export interface PublicManifestConfig {
 
 export interface PublicManifest {
   config?: PublicManifestConfig
-  widgets?: Record<string, PublicManifestWidget>
+  widgets?: Record<string, Widget>
 }

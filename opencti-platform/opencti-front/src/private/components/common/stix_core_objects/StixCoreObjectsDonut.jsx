@@ -1,25 +1,12 @@
 import React from 'react';
 import { graphql } from 'react-relay';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import makeStyles from '@mui/styles/makeStyles';
-import { useTheme } from '@mui/styles';
 import * as PropTypes from 'prop-types';
 import { QueryRenderer } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
-import { donutChartOptions } from '../../../../utils/Charts';
-import { defaultValue } from '../../../../utils/Graph';
-import Chart from '../charts/Chart';
-
-const useStyles = makeStyles(() => ({
-  paper: {
-    height: '100%',
-    margin: '10px 0 0 0',
-    padding: 0,
-    borderRadius: 4,
-  },
-}));
+import WidgetNoData from '../../../../components/dashboard/WidgetNoData';
+import WidgetContainer from '../../../../components/dashboard/WidgetContainer';
+import WidgetDonut from '../../../../components/dashboard/WidgetDonut';
+import Loader, { LoaderVariant } from '../../../../components/Loader';
 
 const stixCoreObjectsDonutDistributionQuery = graphql`
   query StixCoreObjectsDonutDistributionQuery(
@@ -58,136 +45,36 @@ const stixCoreObjectsDonutDistributionQuery = graphql`
       value
       entity {
         ... on BasicObject {
+          id
           entity_type
         }
         ... on BasicRelationship {
+          id
           entity_type
         }
-        ... on AttackPattern {
-          name
-          description
+        ... on StixObject {
+          representative {
+            main
+          }
         }
-        ... on Campaign {
-          name
-          description
+        ... on StixRelationship {
+          representative {
+            main
+          }
         }
-        ... on CourseOfAction {
-          name
-          description
-        }
-        ... on Individual {
-          name
-          description
-        }
-        ... on Organization {
-          name
-          description
-        }
-        ... on Sector {
-          name
-          description
-        }
-        ... on System {
-          name
-          description
-        }
-        ... on Indicator {
-          name
-          description
-        }
-        ... on Infrastructure {
-          name
-          description
-        }
-        ... on IntrusionSet {
-          name
-          description
-        }
-        ... on Position {
-          name
-          description
-        }
-        ... on City {
-          name
-          description
-        }
-        ... on AdministrativeArea {
-          name
-          description
-        }
-        ... on Country {
-          name
-          description
-        }
-        ... on Region {
-          name
-          description
-        }
-        ... on Malware {
-          name
-          description
-        }
-        ... on MalwareAnalysis {
-          result_name
-        }
-        ... on ThreatActor {
-          name
-          description
-        }
-        ... on Tool {
-          name
-          description
-        }
-        ... on Vulnerability {
-          name
-          description
-        }
-        ... on Incident {
-          name
-          description
-        }
-        ... on Event {
-          name
-          description
-        }
-        ... on Channel {
-          name
-          description
-        }
-        ... on Narrative {
-          name
-          description
-        }
-        ... on Language {
-          name
-        }
-        ... on DataComponent {
-          name
-        }
-        ... on DataSource {
-          name
-        }
-        ... on Case {
-          name
-        }
-        ... on StixCyberObservable {
-          observable_value
+        # use colors when available
+        ... on Label {
+          color
         }
         ... on MarkingDefinition {
-          definition_type
-          definition
           x_opencti_color
         }
-        ... on KillChainPhase {
-          kill_chain_name
-          phase_name
-        }
+        # objects without representative
         ... on Creator {
           name
         }
-        ... on Label {
-          value
-          color
+        ... on Group {
+          name
         }
         ... on Status {
           template {
@@ -210,8 +97,6 @@ const StixCoreObjectsDonut = ({
   withExportPopover = false,
   isReadOnly = false,
 }) => {
-  const classes = useStyles();
-  const theme = useTheme();
   const { t_i18n } = useFormatter();
   const renderContent = () => {
     const selection = dataSelection[0];
@@ -239,103 +124,31 @@ const StixCoreObjectsDonut = ({
             && props.stixCoreObjectsDistribution
             && props.stixCoreObjectsDistribution.length > 0
           ) {
-            const data = props.stixCoreObjectsDistribution;
-            const chartData = data.map((n) => n.value);
-            // eslint-disable-next-line no-nested-ternary
-            const labels = data.map((n) => (selection.attribute.endsWith('_id')
-              ? defaultValue(n.entity)
-              : selection.attribute === 'entity_type'
-                ? t_i18n(`entity_${n.label}`)
-                : n.label));
-            let chartColors = [];
-            if (data.at(0)?.entity?.color) {
-              chartColors = data.map((n) => (theme.palette.mode === 'light' && n.entity.color === '#ffffff'
-                ? '#000000'
-                : n.entity.color));
-            }
-            if (data.at(0)?.entity?.x_opencti_color) {
-              chartColors = data.map((n) => (theme.palette.mode === 'light'
-                && n.entity.x_opencti_color === '#ffffff'
-                ? '#000000'
-                : n.entity.x_opencti_color));
-            }
-            if (data.at(0)?.entity?.template?.color) {
-              chartColors = data.map((n) => (theme.palette.mode === 'light' && n.entity.template.color === '#ffffff'
-                ? '#000000'
-                : n.entity.template.color));
-            }
             return (
-              <Chart
-                options={donutChartOptions(
-                  theme,
-                  labels,
-                  'bottom',
-                  false,
-                  chartColors,
-                )}
-                series={chartData}
-                type="donut"
-                width="100%"
-                height="100%"
-                withExportPopover={withExportPopover}
-                isReadOnly={isReadOnly}
+              <WidgetDonut
+                data={props.stixCoreObjectsDistribution}
+                groupBy={selection.attribute}
+                withExport={withExportPopover}
+                readonly={isReadOnly}
               />
             );
           }
           if (props) {
-            return (
-              <div style={{ display: 'table', height: '100%', width: '100%' }}>
-                <span
-                  style={{
-                    display: 'table-cell',
-                    verticalAlign: 'middle',
-                    textAlign: 'center',
-                  }}
-                >
-                  {t_i18n('No entities of this type has been found.')}
-                </span>
-              </div>
-            );
+            return <WidgetNoData />;
           }
-          return (
-            <div style={{ display: 'table', height: '100%', width: '100%' }}>
-              <span
-                style={{
-                  display: 'table-cell',
-                  verticalAlign: 'middle',
-                  textAlign: 'center',
-                }}
-              >
-                <CircularProgress size={40} thickness={2} />
-              </span>
-            </div>
-          );
+          return <Loader variant={LoaderVariant.inElement} />;
         }}
       />
     );
   };
   return (
-    <div style={{ height: height || '100%' }}>
-      <Typography
-        variant={variant === 'inEntity' ? 'h3' : 'h4'}
-        gutterBottom={true}
-        style={{
-          margin: variant !== 'inLine' ? '0 0 10px 0' : '-10px 0 10px -7px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {parameters.title || t_i18n('Distribution of entities')}
-      </Typography>
-      {variant === 'inLine' || variant === 'inEntity' ? (
-        renderContent()
-      ) : (
-        <Paper classes={{ root: classes.paper }} variant="outlined">
-          {renderContent()}
-        </Paper>
-      )}
-    </div>
+    <WidgetContainer
+      height={height}
+      title={parameters.title ?? t_i18n('Distribution of entities')}
+      variant={variant}
+    >
+      {renderContent()}
+    </WidgetContainer>
   );
 };
 

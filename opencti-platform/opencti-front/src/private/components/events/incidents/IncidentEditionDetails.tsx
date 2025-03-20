@@ -1,8 +1,9 @@
 import React, { FunctionComponent } from 'react';
-import { graphql, useFragment, useMutation } from 'react-relay';
+import { graphql, useFragment } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import { FormikConfig } from 'formik/dist/types';
+import { useTheme } from '@mui/styles';
 import { isNone, useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
@@ -16,6 +17,8 @@ import { IncidentEditionDetails_incident$key } from './__generated__/IncidentEdi
 import { parse } from '../../../../utils/Time';
 import { GenericContext } from '../../common/model/GenericContextModel';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import type { Theme } from '../../../../components/Theme';
 
 const incidentMutationFieldPatch = graphql`
   mutation IncidentEditionDetailsFieldPatchMutation(
@@ -56,6 +59,7 @@ const incidentEditionDetailsFragment = graphql`
     objective
     is_inferred
     confidence
+    entity_type
   }
 `;
 
@@ -91,14 +95,15 @@ const IncidentEditionDetails: FunctionComponent<
 IncidentEditionDetailsProps
 > = ({ incidentRef, context, enableReferences = false, handleClose }) => {
   const { t_i18n } = useFormatter();
+  const theme = useTheme<Theme>();
 
   const incident = useFragment(incidentEditionDetailsFragment, incidentRef);
   const isInferred = incident.is_inferred;
 
-  const [commitFieldPatch] = useMutation<IncidentEditionDetailsFieldPatchMutation>(
+  const [commitFieldPatch] = useApiMutation<IncidentEditionDetailsFieldPatchMutation>(
     incidentMutationFieldPatch,
   );
-  const [commitEditionDetailsFocus] = useMutation<IncidentEditionDetailsFocusMutation>(
+  const [commitEditionDetailsFocus] = useApiMutation<IncidentEditionDetailsFocusMutation>(
     incidentEditionDetailsFocus,
   );
 
@@ -163,7 +168,7 @@ IncidentEditionDetailsProps
   };
 
   return (
-    <Formik
+    <Formik<IncidentEditionDetailsFormValues>
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={incidentEditionDetailsValidation(t_i18n)}
@@ -177,7 +182,7 @@ IncidentEditionDetailsProps
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form style={{ marginTop: theme.spacing(2) }}>
           <AlertConfidenceForEntity entity={incident} />
           <Field
             component={DateTimePickerField}

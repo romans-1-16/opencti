@@ -1,6 +1,15 @@
 import convertChannelToStix from './channel-converter';
 import { NAME_FIELD, normalizeName } from '../../schema/identifier';
-import { RELATION_AMPLIFIES, RELATION_BELONGS_TO, RELATION_DELIVERS, RELATION_DROPS, RELATION_PUBLISHES, RELATION_TARGETS, RELATION_USES } from '../../schema/stixCoreRelationship';
+import {
+  RELATION_AMPLIFIES,
+  RELATION_BELONGS_TO,
+  RELATION_DELIVERS,
+  RELATION_DERIVED_FROM,
+  RELATION_DROPS,
+  RELATION_PUBLISHES,
+  RELATION_TARGETS,
+  RELATION_USES
+} from '../../schema/stixCoreRelationship';
 import {
   ENTITY_TYPE_ATTACK_PATTERN,
   ENTITY_TYPE_IDENTITY_INDIVIDUAL,
@@ -51,6 +60,15 @@ export const CHANNEL_DEFINITION: ModuleDefinition<StoreEntityChannel, StixChanne
       },
     },
   },
+  overviewLayoutCustomization: [
+    { key: 'details', width: 6, label: 'Entity details' },
+    { key: 'basicInformation', width: 6, label: 'Basic information' },
+    { key: 'latestCreatedRelationships', width: 6, label: 'Latest created relationships' },
+    { key: 'latestContainers', width: 6, label: 'Latest containers' },
+    { key: 'externalReferences', width: 6, label: 'External references' },
+    { key: 'mostRecentHistory', width: 6, label: 'Most recent history' },
+    { key: 'notes', width: 12, label: 'Notes about this entity' },
+  ],
   attributes: [
     { name: 'name', label: 'Name', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'description', label: 'Description', type: 'string', format: 'text', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
@@ -117,6 +135,12 @@ export const CHANNEL_DEFINITION: ModuleDefinition<StoreEntityChannel, StixChanne
       name: RELATION_DROPS,
       targets: [
         { name: ENTITY_TYPE_MALWARE, type: REL_EXTENDED },
+      ]
+    },
+    {
+      name: RELATION_DERIVED_FROM,
+      targets: [
+        { name: ENTITY_TYPE_CHANNEL, type: REL_BUILT_IN },
       ]
     }
   ],

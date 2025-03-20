@@ -1,6 +1,6 @@
 import { clearIntervalAsync, setIntervalAsync } from 'set-interval-async/fixed';
 import { Promise } from 'bluebird';
-import { lockResource } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import { elList, ES_MAX_CONCURRENCY } from '../database/engine';
 import { READ_DATA_INDICES, READ_INDEX_INTERNAL_OBJECTS } from '../database/utils';
 import { prepareDate } from '../utils/format';
@@ -72,7 +72,7 @@ const expireHandler = async () => {
   let lock;
   try {
     // Lock the manager
-    lock = await lockResource([EXPIRED_MANAGER_KEY], { retryCount: 0 });
+    lock = await lockResources([EXPIRED_MANAGER_KEY], { retryCount: 0 });
     running = true;
     const context = executionContext('expiration_manager');
     const revokedInstancesPromise = revokedInstances(context);
@@ -82,7 +82,7 @@ const expireHandler = async () => {
     if (e.name === TYPE_LOCK_ERROR) {
       logApp.debug('[OPENCTI-MODULE] Expiration manager already started by another API');
     } else {
-      logApp.error(e, { manager: 'EXPIRATION_SCHEDULER' });
+      logApp.error('[OPENCTI-MODULE] Expiration manager handling error', { cause: e, manager: 'EXPIRATION_SCHEDULER' });
     }
   } finally {
     running = false;

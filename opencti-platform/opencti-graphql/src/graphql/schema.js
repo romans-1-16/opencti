@@ -1,12 +1,12 @@
+import { ApolloServerErrorCode } from '@apollo/server/errors';
+import { GraphQLError, GraphQLScalarType, Kind } from 'graphql';
 import { GraphQLDateTime } from 'graphql-scalars';
-import { mergeResolvers } from 'merge-graphql-schemas';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import { constraintDirective } from 'graphql-constraint-directive';
-// eslint-disable-next-line import/extensions
-import { GraphQLScalarType, GraphQLError, Kind } from 'graphql/index.js';
+import { constraintDirectiveTypeDefs } from 'graphql-constraint-directive';
 import { validate as uuidValidate } from 'uuid';
-import { UserInputError } from 'apollo-server-express';
 import GraphQLUpload from 'graphql-upload/GraphQLUpload.mjs';
+import { mergeResolvers } from '@graphql-tools/merge';
+import { rateLimitDirective } from 'graphql-rate-limit-directive';
 import settingsResolvers from '../resolvers/settings';
 import logResolvers from '../resolvers/log';
 import attributeResolvers from '../resolvers/attribute';
@@ -72,19 +72,21 @@ import { isSupportedStixType } from '../schema/identifier';
 import stixRefRelationshipResolvers from '../resolvers/stixRefRelationship';
 import stixMetaObjectResolvers from '../resolvers/stixMetaObject';
 import filterKeysSchemaResolver from '../resolvers/filterKeysSchema';
+import basicObjectResolvers from '../resolvers/basicObject';
+import { FunctionalError } from '../config/errors';
 
 const schemaTypeDefs = [globalTypeDefs];
 
 const validateStixId = (stixId) => {
   if (!stixId.includes('--')) {
-    throw new UserInputError(`Provided value ${stixId} is not a valid STIX ID`);
+    throw new GraphQLError(`Provided value ${stixId} is not a valid STIX ID`, { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
   }
   const [type, uuid] = stixId.split('--');
   if (!isSupportedStixType(type.replace('x-mitre-', '').replace('x-opencti-', ''))) {
-    throw new UserInputError(`Provided value ${stixId} is not a valid STIX ID (type ${type} not supported)`);
+    throw new GraphQLError(`Provided value ${stixId} is not a valid STIX ID (type ${type} not supported)`, { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
   }
   if (!uuidValidate(uuid)) {
-    throw new UserInputError(`Provided value ${stixId} is not a valid STIX ID (UUID not valid)`);
+    throw new GraphQLError(`Provided value ${stixId} is not a valid STIX ID (UUID not valid)`, { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
   }
   return stixId;
 };
@@ -99,7 +101,7 @@ const validateStixRef = (stixRef) => {
   if (uuidValidate(stixRef)) {
     return stixRef;
   }
-  throw new UserInputError('Provided value is not a valid STIX Reference');
+  throw new GraphQLError('Provided value is not a valid STIX Reference', { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
 };
 
 const parseObject = (ast) => {
@@ -144,7 +146,7 @@ const globalResolvers = {
       if (ast.kind === Kind.STRING) {
         return validateStixId(ast.value);
       }
-      throw new UserInputError('Provided value is not a valid STIX ID');
+      throw new GraphQLError('Provided value is not a valid STIX ID', { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
     },
   }),
   StixRef: new GraphQLScalarType({
@@ -160,7 +162,7 @@ const globalResolvers = {
       if (ast.kind === Kind.STRING) {
         return validateStixRef(ast.value);
       }
-      throw new UserInputError('Provided value is not a valid STIX ID');
+      throw new GraphQLError('Provided value is not a valid STIX ID', { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
     },
   }),
   Any: new GraphQLScalarType({
@@ -172,6 +174,8 @@ const globalResolvers = {
   }),
 };
 const schemaResolvers = [
+  // EXTERNAL
+  constraintDirectiveTypeDefs,
   // INTERNAL
   globalResolvers,
   taxiiResolvers,
@@ -197,6 +201,7 @@ const schemaResolvers = [
   userResolvers,
   connectorResolvers,
   // STIX OBJECT ENTITIES
+  basicObjectResolvers,
   // STIX META OBJECT ENTITIES
   stixMetaObjectResolvers,
   markingDefinitionResolvers,
@@ -260,6 +265,14 @@ export const registerGraphqlSchema = ({ schema, resolver }) => {
   schemaResolvers.push(resolver);
 };
 
+// enabling rate-limit on specific queries with directive @rateLimit
+const { rateLimitDirectiveTypeDefs, rateLimitDirectiveTransformer } = rateLimitDirective({
+  onLimit: () => {
+    throw FunctionalError('Too many requests');
+  }
+});
+schemaTypeDefs.push(rateLimitDirectiveTypeDefs);
+
 const createSchema = () => {
   const resolvers = mergeResolvers(schemaResolvers);
   const { authDirectiveTransformer } = authDirectiveBuilder('auth');
@@ -268,8 +281,7 @@ const createSchema = () => {
     resolvers,
     inheritResolversFromInterfaces: true,
   });
-  schema = constraintDirective()(schema);
-  schema = authDirectiveTransformer(schema);
+  schema = rateLimitDirectiveTransformer(authDirectiveTransformer(schema));
   return schema;
 };
 

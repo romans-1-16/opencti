@@ -5,11 +5,11 @@ import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import React, { FunctionComponent, useEffect } from 'react';
-import { graphql, PreloadedQuery, useFragment, useMutation, usePreloadedQuery } from 'react-relay';
+import { graphql, PreloadedQuery, useFragment, usePreloadedQuery } from 'react-relay';
 import Box from '@mui/material/Box';
 import FilterIconButton from '../../../../../components/FilterIconButton';
 import { useFormatter } from '../../../../../components/i18n';
-import MarkdownField from '../../../../../components/MarkdownField';
+import MarkdownField from '../../../../../components/fields/MarkdownField';
 import TextField from '../../../../../components/TextField';
 import type { Theme } from '../../../../../components/Theme';
 import { convertNotifiers } from '../../../../../utils/edition';
@@ -25,6 +25,7 @@ import { AlertLiveEdition_trigger$key } from './__generated__/AlertLiveEdition_t
 import { alertEditionQuery } from './AlertEditionQuery';
 import { liveActivityTriggerValidation } from './AlertLiveCreation';
 import useFiltersState from '../../../../../utils/filters/useFiltersState';
+import useApiMutation from '../../../../../utils/hooks/useApiMutation';
 
 interface AlertLiveEditionProps {
   handleClose: () => void;
@@ -67,6 +68,8 @@ const alertLiveEditionFieldPatch = graphql`
   }
 `;
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   header: {
     backgroundColor: theme.palette.background.nav,
@@ -101,7 +104,7 @@ const AlertLiveEdition: FunctionComponent<AlertLiveEditionProps> = ({
     data.triggerKnowledge,
   );
   const [filters, helpers] = useFiltersState(deserializeFilterGroupForFrontend(trigger?.filters ?? undefined) ?? undefined);
-  const [commitFieldPatch] = useMutation(alertLiveEditionFieldPatch);
+  const [commitFieldPatch] = useApiMutation(alertLiveEditionFieldPatch);
   useEffect(() => {
     commitFieldPatch({
       variables: {
@@ -190,7 +193,7 @@ const AlertLiveEdition: FunctionComponent<AlertLiveEditionProps> = ({
           onSubmit={onSubmit}
         >
           {() => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"

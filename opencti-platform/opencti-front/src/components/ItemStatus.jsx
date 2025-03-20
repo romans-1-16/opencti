@@ -25,21 +25,40 @@ const styles = () => ({
     borderRadius: 4,
     width: 80,
   },
+  chipInline: {
+    fontSize: 12,
+    lineHeight: '10px',
+    height: 20,
+    float: 'left',
+    textTransform: 'uppercase',
+    borderRadius: 4,
+  },
 });
 
 const ItemStatus = (props) => {
-  const { classes, t, status, variant, disabled } = props;
-  const style = variant === 'inList' ? classes.chipInList : classes.chip;
+  const { classes, t, status, variant, disabled, onClick } = props;
+  let style = classes.chip;
+  if (variant === 'inList') {
+    style = classes.chipInList;
+  } else if (variant === 'inLine') {
+    style = classes.chipInline;
+  }
   if (status && status.template) {
     return (
       <Chip
         classes={{ root: style }}
         variant="outlined"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onClick?.('workflow_id', status.id ?? null, 'eq');
+        }}
         label={status.template.name}
         style={{
           color: status.template.color,
           borderColor: status.template.color,
           backgroundColor: hexToRGB(status.template.color),
+          cursor: onClick ? 'pointer' : 'default',
         }}
       />
     );
@@ -55,6 +74,7 @@ const ItemStatus = (props) => {
 
 ItemStatus.propTypes = {
   classes: PropTypes.object.isRequired,
+  onClick: PropTypes.func,
   status: PropTypes.object,
   variant: PropTypes.string,
   t: PropTypes.func,

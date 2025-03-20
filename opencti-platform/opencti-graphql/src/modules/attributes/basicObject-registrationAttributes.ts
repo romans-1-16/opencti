@@ -1,4 +1,18 @@
-import { type AttributeDefinition, baseType, createdAt, creators, entityType, id, internalId, parentTypes, standardId, updatedAt } from '../../schema/attribute-definition';
+import {
+  type AttributeDefinition,
+  baseType,
+  createdAt,
+  creators,
+  draftChange,
+  draftIds,
+  entityType,
+  iAttributes,
+  id,
+  internalId,
+  parentTypes,
+  standardId,
+  updatedAt
+} from '../../schema/attribute-definition';
 import { schemaAttributesDefinition } from '../../schema/schema-attributes';
 import { ABSTRACT_BASIC_OBJECT } from '../../schema/general';
 
@@ -6,6 +20,9 @@ const basicObjectAttributes: Array<AttributeDefinition> = [
   id,
   internalId,
   standardId,
+  draftIds,
+  draftChange,
+  iAttributes,
   parentTypes,
   baseType,
   entityType,

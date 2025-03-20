@@ -17,7 +17,7 @@ import ItemIcon from '../../../../components/ItemIcon';
 import ItemBoolean from '../../../../components/ItemBoolean';
 import { convertFromStixType, convertToStixType } from '../../../../utils/String';
 import { useFormatter } from '../../../../components/i18n';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import { isEmptyField } from '../../../../utils/utils';
 
 const inlineStyles = {
@@ -86,7 +86,7 @@ const DynamicResolutionField = ({
               return {
                 id: firstStixDomainObject.id,
                 type: targetSelectedType,
-                name: defaultValue(firstStixDomainObject),
+                name: getMainRepresentative(firstStixDomainObject),
                 in_platform: null,
               };
             }
@@ -168,7 +168,7 @@ const DynamicResolutionField = ({
     <div style={style}>
       <Typography variant="h4">{title}</Typography>
       <Grid container={true} spacing={3}>
-        <Grid item={true} xs={5}>
+        <Grid item xs={5}>
           <TextField
             error={!R.isNil(meta.error)}
             helperText={helperText}
@@ -180,13 +180,13 @@ const DynamicResolutionField = ({
             inputProps={{ style: { lineHeight: '34px' } }}
           />
         </Grid>
-        <Grid item={true} xs={7}>
+        <Grid item xs={7}>
           {(field.value || []).length > 0 ? (
             <List style={{ marginTop: 0 }}>
               {(field.value || []).map((item) => (
                 <ListItem key={item.id} dense={true} divider={true}>
                   <ListItemIcon>
-                    <ItemIcon type={item.type} />
+                    <ItemIcon type={convertFromStixType(item.type)} />
                   </ListItemIcon>
                   <ListItemText
                     primary={
@@ -198,7 +198,7 @@ const DynamicResolutionField = ({
                             <Select
                               variant="standard"
                               labelId="type"
-                              value={item.type}
+                              value={convertFromStixType(item.type)}
                               onChange={(event) => handleChangeType(item.id, event)
                               }
                               style={{

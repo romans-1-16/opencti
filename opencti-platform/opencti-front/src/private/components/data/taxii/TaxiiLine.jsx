@@ -15,7 +15,10 @@ import TaxiiPopover from './TaxiiPopover';
 import inject18n from '../../../../components/i18n';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import ItemCopy from '../../../../components/ItemCopy';
-import { deserializeFilterGroupForFrontend } from '../../../../utils/filters/filtersUtils';
+import { deserializeFilterGroupForFrontend, isFilterGroupNotEmpty } from '../../../../utils/filters/filtersUtils';
+import { TAXIIAPI_SETCOLLECTIONS } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 
 const Transition = React.forwardRef((props, ref) => (
   <Slide direction="up" ref={ref} {...props} />
@@ -104,7 +107,7 @@ class TaxiiLineLineComponent extends Component {
                 className={classes.bodyItem}
                 style={{ width: dataColumns.description.width }}
               >
-                {node.description}
+                <FieldOrEmpty source={node.description}>{node.description}</FieldOrEmpty>
               </div>
               <div
                 className={classes.bodyItem}
@@ -116,20 +119,24 @@ class TaxiiLineLineComponent extends Component {
                 className={classes.filtersItem}
                 style={{ width: dataColumns.filters.width }}
               >
-                <FilterIconButton
-                  filters={filters}
-                  dataColumns={dataColumns}
-                  styleNumber={3}
-                />
+                {isFilterGroupNotEmpty(filters)
+                  ? <FilterIconButton
+                      filters={filters}
+                      dataColumns={dataColumns}
+                      styleNumber={3}
+                    />
+                  : '-'}
               </div>
             </>
           }
         />
         <ListItemSecondaryAction>
-          <TaxiiPopover
-            taxiiCollectionId={node.id}
-            paginationOptions={paginationOptions}
-          />
+          <Security needs={[TAXIIAPI_SETCOLLECTIONS]}>
+            <TaxiiPopover
+              taxiiCollectionId={node.id}
+              paginationOptions={paginationOptions}
+            />
+          </Security>
         </ListItemSecondaryAction>
       </ListItem>
     );

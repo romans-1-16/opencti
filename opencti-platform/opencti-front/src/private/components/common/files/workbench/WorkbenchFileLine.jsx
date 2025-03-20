@@ -1,7 +1,7 @@
-import React, { Component } from 'react';
+import React, { useState } from 'react';
 import * as PropTypes from 'prop-types';
 import { compose } from 'ramda';
-import { graphql, createFragmentContainer } from 'react-relay';
+import { createFragmentContainer } from 'react-relay';
 import withStyles from '@mui/styles/withStyles';
 import IconButton from '@mui/material/IconButton';
 import { FileOutline } from 'mdi-material-ui';
@@ -20,10 +20,13 @@ import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Slide from '@mui/material/Slide';
 import Chip from '@mui/material/Chip';
+import { WorkbenchFileLineDeleteMutation, workbenchLineFragment } from '../../../data/import/ImportWorkbenchesContent';
 import FileWork from '../FileWork';
 import inject18n from '../../../../../components/i18n';
 import { APP_BASE_PATH, commitMutation, MESSAGING$ } from '../../../../../relay/environment';
 import { toB64 } from '../../../../../utils/String';
+import useAuth from '../../../../../utils/hooks/useAuth';
+import ItemMarkings from '../../../../../components/ItemMarkings';
 
 const styles = (theme) => ({
   itemNested: {
@@ -90,10 +93,12 @@ const inlineStyles = {
     width: '20%',
   },
   labels: {
-    width: '20%',
+    width: '15%',
+    display: 'flex',
+    alignItems: 'center',
   },
   lastModified: {
-    width: '20%',
+    width: '10%',
   },
 };
 
@@ -102,46 +107,29 @@ const Transition = React.forwardRef((props, ref) => (
 ));
 Transition.displayName = 'TransitionSlide';
 
-const WorkbenchFileLineDeleteMutation = graphql`
-  mutation WorkbenchFileLineDeleteMutation($fileName: String) {
-    deleteImport(fileName: $fileName)
-  }
-`;
+const WorkbenchFileLineComponent = ({ classes, t, file, dense, directDownload, nested, nsdt }) => {
+  const { me } = useAuth();
+  const [displayDelete, setDisplayDelete] = useState(false);
 
-const WorkbenchFileLineAskDeleteMutation = graphql`
-  mutation WorkbenchFileLineAskDeleteMutation($workId: ID!) {
-    workEdit(id: $workId) {
-      delete
-    }
-  }
-`;
+  const handleOpenDelete = () => {
+    setDisplayDelete(true);
+  };
 
-class WorkbenchFileLineComponent extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { displayDelete: false };
-  }
+  const handleCloseDelete = () => {
+    setDisplayDelete(false);
+  };
 
-  handleOpenDelete() {
-    this.setState({ displayDelete: true });
-  }
-
-  handleCloseDelete() {
-    this.setState({ displayDelete: false });
-  }
-
-  executeRemove(mutation, variables) {
-    const { t } = this.props;
+  const executeRemove = (mutation, variables) => {
     commitMutation({
       mutation,
       variables,
       optimisticUpdater: (store) => {
-        const fileStore = store.get(this.props.file.id);
+        const fileStore = store.get(file.id);
         fileStore.setValue(0, 'lastModifiedSinceMin');
         fileStore.setValue('progress', 'uploadStatus');
       },
       updater: (store) => {
-        const fileStore = store.get(this.props.file.id);
+        const fileStore = store.get(file.id);
         fileStore.setValue(0, 'lastModifiedSinceMin');
         fileStore.setValue('progress', 'uploadStatus');
       },
@@ -149,146 +137,136 @@ class WorkbenchFileLineComponent extends Component {
         MESSAGING$.notifySuccess(t('File successfully removed'));
       },
     });
-  }
+  };
 
-  handleRemoveFile(name) {
-    this.executeRemove(WorkbenchFileLineDeleteMutation, { fileName: name });
-    this.setState({ displayDelete: false });
-  }
+  const handleRemoveFile = (name) => {
+    executeRemove(WorkbenchFileLineDeleteMutation, { fileName: name });
+    setDisplayDelete(false);
+  };
 
-  handleRemoveJob(id) {
-    this.executeRemove(WorkbenchFileLineAskDeleteMutation, { workId: id });
-  }
-
-  render() {
-    const { classes, t, file, dense, directDownload, nested, nsdt } = this.props;
-    const { displayDelete } = this.state;
-    const { uploadStatus, metaData } = file;
-    const { errors } = metaData;
-    const isFail = errors && errors.length > 0;
-    const isProgress = uploadStatus === 'progress' || uploadStatus === 'wait';
-    const isOutdated = uploadStatus === 'timeout';
-    return (
-      <>
-        <ListItem
-          divider={true}
-          dense={dense === true}
-          classes={{ root: nested ? classes.itemNested : classes.item }}
-          button={true}
-          component={isOutdated ? null : Link}
-          disabled={isProgress}
-          to={`/dashboard/data/import/pending/${toB64(file.id)}`}
-        >
-          <ListItemIcon>
-            {isProgress && (
-              <CircularProgress
-                size={20}
-                color={nested ? 'primary' : 'inherit'}
-              />
-            )}
-            {!isProgress && (isFail || isOutdated) && (
-              <WarningOutlined
-                color={nested ? 'primary' : 'inherit'}
-                style={{ fontSize: 15, color: '#f44336' }}
-              />
-            )}
-            {!isProgress && !isFail && !isOutdated && (
-              <FileOutline color={nested ? 'primary' : 'inherit'} />
-            )}
-          </ListItemIcon>
-          <ListItemText
-            style={{ paddingRight: 10 }}
-            primary={
-              <>
-                <div className={classes.bodyItem} style={inlineStyles.name}>
-                  {file.name.replace('.json', '')}
-                </div>
-                <div
-                  className={classes.bodyItem}
-                  style={inlineStyles.creator_name}
-                >
-                  {file.metaData.creator?.name || t('Unknown')}
-                </div>
-                <div className={classes.bodyItem} style={inlineStyles.labels}>
-                  {(file.metaData.labels || []).map((n) => (
-                    <Chip
-                      key={n}
-                      classes={{ root: classes.chipInList }}
-                      color="primary"
-                      variant="outlined"
-                      label={n}
-                    />
-                  ))}
-                </div>
-                <div
-                  className={classes.bodyItem}
-                  style={inlineStyles.lastModified}
-                >
-                  {nsdt(file.lastModified)}
-                </div>
-              </>
-            }
+  const { uploadStatus, metaData } = file;
+  const { errors } = metaData;
+  const isFail = errors && errors.length > 0;
+  const isProgress = uploadStatus === 'progress' || uploadStatus === 'wait';
+  const isOutdated = uploadStatus === 'timeout';
+  const file_markings = (file.objectMarking ?? []).map((o) => o.id);
+  const fileMarkings = me.allowed_marking?.filter(({ id }) => (file_markings ?? []).includes(id)) ?? [];
+  return (
+    <>
+      <ListItem
+        divider={true}
+        dense={dense === true}
+        classes={{ root: nested ? classes.itemNested : classes.item }}
+        button={true}
+        component={isOutdated ? null : Link}
+        disabled={isProgress}
+        to={`/dashboard/data/import/pending/${toB64(file.id)}`}
+      >
+        <ListItemIcon>
+          {isProgress && (
+          <CircularProgress
+            size={20}
+            color={nested ? 'primary' : 'inherit'}
           />
-          <ListItemSecondaryAction>
-            {!directDownload && !isFail && (
-              <Tooltip title={t('Download this file')}>
-                <span>
-                  <IconButton
-                    disabled={isProgress}
-                    href={`${APP_BASE_PATH}/storage/get/${encodeURIComponent(
-                      file.id,
-                    )}`}
-                    aria-haspopup="true"
-                    color={nested ? 'inherit' : 'primary'}
-                    size="small"
-                  >
-                    <GetAppOutlined fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-            <Tooltip title={t('Delete this workbench')}>
-              <span>
-                <IconButton
-                  disabled={isProgress}
-                  color={nested ? 'inherit' : 'primary'}
-                  onClick={this.handleOpenDelete.bind(this)}
-                  size="small"
-                >
-                  <DeleteOutlined fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </ListItemSecondaryAction>
-        </ListItem>
-        <FileWork file={file} />
-        <Dialog
-          PaperProps={{ elevation: 1 }}
-          open={displayDelete}
-          TransitionComponent={Transition}
-          onClose={this.handleCloseDelete.bind(this)}
-        >
-          <DialogContent>
-            <DialogContentText>
-              {t('Do you want to delete this workbench?')}
-            </DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={this.handleCloseDelete.bind(this)}>
-              {t('Cancel')}
-            </Button>
-            <Button
-              onClick={this.handleRemoveFile.bind(this, file.id)}
-              color="secondary"
-            >
-              {t('Delete')}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </>
-    );
-  }
-}
+          )}
+          {!isProgress && (isFail || isOutdated) && (
+          <WarningOutlined
+            color={nested ? 'primary' : 'inherit'}
+            style={{ fontSize: 15, color: '#f44336' }}
+          />
+          )}
+          {!isProgress && !isFail && !isOutdated && (
+          <FileOutline color={nested ? 'primary' : 'inherit'} />
+          )}
+        </ListItemIcon>
+        <ListItemText
+          primary={
+            <>
+              <div className={classes.bodyItem} style={inlineStyles.name}>
+                {file.name.replace('.json', '')}
+              </div>
+              <div className={classes.bodyItem} style={inlineStyles.creator_name}>
+                {file.metaData.creator?.name || t('Unknown')}
+              </div>
+              <div className={classes.bodyItem} style={inlineStyles.labels}>
+                {file.metaData.labels_text ? file.metaData.labels_text.split(';').map((label, index) => (
+                  <Chip
+                    key={index}
+                    classes={{ root: classes.chipInList }}
+                    color="primary"
+                    variant="outlined"
+                    label={label.trim()}
+                  />
+                )) : null}
+              </div>
+              <div className={classes.bodyItem} style={inlineStyles.labels}>
+                <ItemMarkings variant="inList" markingDefinitions={fileMarkings} limit={1} />
+              </div>
+              <div className={classes.bodyItem} style={inlineStyles.lastModified}>
+                {nsdt(file.lastModified)}
+              </div>
+            </>
+            }
+        />
+        <ListItemSecondaryAction>
+          {!directDownload && !isFail && (
+          <Tooltip title={t('Download this file')}>
+            <span>
+              <IconButton
+                disabled={isProgress}
+                href={`${APP_BASE_PATH}/storage/get/${encodeURIComponent(
+                  file.id,
+                )}`}
+                aria-haspopup="true"
+                color={nested ? 'inherit' : 'primary'}
+                size="small"
+              >
+                <GetAppOutlined fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          )}
+          <Tooltip title={t('Delete this workbench')}>
+            <span>
+              <IconButton
+                disabled={isProgress}
+                color={nested ? 'inherit' : 'primary'}
+                onClick={handleOpenDelete}
+                size="small"
+              >
+                <DeleteOutlined fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </ListItemSecondaryAction>
+      </ListItem>
+      <FileWork file={file} />
+      <Dialog
+        PaperProps={{ elevation: 1 }}
+        open={displayDelete}
+        TransitionComponent={Transition}
+        onClose={handleCloseDelete}
+      >
+        <DialogContent>
+          <DialogContentText>
+            {t('Do you want to delete this workbench?')}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDelete}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            onClick={() => handleRemoveFile(file.id)}
+            color="secondary"
+          >
+            {t('Delete')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
 
 WorkbenchFileLineComponent.propTypes = {
   t: PropTypes.func,
@@ -298,112 +276,11 @@ WorkbenchFileLineComponent.propTypes = {
   connectors: PropTypes.array,
   dense: PropTypes.bool,
   directDownload: PropTypes.bool,
-  handleOpenImport: PropTypes.func,
   nested: PropTypes.bool,
 };
 
 const WorkbenchFileLine = createFragmentContainer(WorkbenchFileLineComponent, {
-  file: graphql`
-    fragment WorkbenchFileLine_file on File {
-      id
-      name
-      uploadStatus
-      lastModified
-      lastModifiedSinceMin
-      metaData {
-        mimetype
-        list_filters
-        labels
-        messages {
-          timestamp
-          message
-        }
-        errors {
-          timestamp
-          message
-        }
-        creator {
-          name
-        }
-        entity_id
-        entity {
-          ... on AttackPattern {
-            name
-          }
-          ... on Campaign {
-            name
-          }
-          ... on Report {
-            name
-          }
-          ... on Grouping {
-            name
-          }
-          ... on CourseOfAction {
-            name
-          }
-          ... on Individual {
-            name
-          }
-          ... on Organization {
-            name
-          }
-          ... on Sector {
-            name
-          }
-          ... on System {
-            name
-          }
-          ... on Indicator {
-            name
-          }
-          ... on Infrastructure {
-            name
-          }
-          ... on IntrusionSet {
-            name
-          }
-          ... on Position {
-            name
-          }
-          ... on City {
-            name
-          }
-          ... on AdministrativeArea {
-            name
-          }
-          ... on Country {
-            name
-          }
-          ... on Region {
-            name
-          }
-          ... on Malware {
-            name
-          }
-          ... on ThreatActor {
-            name
-          }
-          ... on Tool {
-            name
-          }
-          ... on Vulnerability {
-            name
-          }
-          ... on Incident {
-            name
-          }
-          ... on StixCyberObservable {
-            observable_value
-          }
-        }
-      }
-      works {
-        id
-      }
-      ...FileWork_file
-    }
-  `,
+  file: workbenchLineFragment,
 });
 
 export default compose(inject18n, withStyles(styles))(WorkbenchFileLine);

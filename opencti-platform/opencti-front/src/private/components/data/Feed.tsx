@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom-v5-compat';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import { FeedLinesPaginationQuery$data } from '@components/data/feeds/__generated__/FeedLinesPaginationQuery.graphql';
-import { useHistory } from 'react-router-dom';
 import { QueryRenderer } from '../../../relay/environment';
 import { buildViewParamsFromUrlAndStorage, saveViewParameters } from '../../../utils/ListParameters';
 import ListLines from '../../../components/list_lines/ListLines';
@@ -12,14 +11,19 @@ import SharingMenu from './SharingMenu';
 import { OrderMode, PaginationOptions } from '../../../components/list_lines';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { useFormatter } from '../../../components/i18n';
+import { TAXIIAPI_SETCOLLECTIONS } from '../../../utils/hooks/useGranted';
+import Security from '../../../utils/Security';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const Feed = () => {
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('CSV Feeds | Data sharing | Data'));
   const LOCAL_STORAGE_KEY = 'feed';
-  const history = useHistory();
+  const navigate = useNavigate();
   const location = useLocation();
   const params = buildViewParamsFromUrlAndStorage(
-    history,
+    navigate,
     location,
     LOCAL_STORAGE_KEY,
   );
@@ -32,7 +36,7 @@ const Feed = () => {
 
   function saveView() {
     saveViewParameters(
-      history,
+      navigate,
       location,
       LOCAL_STORAGE_KEY,
       feedState,
@@ -116,10 +120,12 @@ const Feed = () => {
       padding: '0 200px 50px 0',
     }}
     >
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Data') }, { label: t_i18n('Data sharing') }, { label: t_i18n('CSV feeds'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Data') }, { label: t_i18n('Data sharing') }, { label: t_i18n('CSV feeds'), current: true }]} />
       <SharingMenu/>
       {feedState.view === 'lines' ? renderLines(paginationOptions) : ''}
-      <FeedCreation paginationOptions={paginationOptions}/>
+      <Security needs={[TAXIIAPI_SETCOLLECTIONS]}>
+        <FeedCreation paginationOptions={paginationOptions} />
+      </Security>
     </Box>
   );
 };

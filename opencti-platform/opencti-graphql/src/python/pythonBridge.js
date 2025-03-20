@@ -1,18 +1,24 @@
 import { PythonShell } from 'python-shell';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME } from '@opentelemetry/semantic-conventions';
 import * as nodecallspython from 'node-calls-python';
 import nconf from 'nconf';
 import { DEV_MODE, logApp } from '../config/conf';
 import { UnknownError, UnsupportedError } from '../config/errors';
 import { telemetry } from '../config/tracing';
 import { cleanupIndicatorPattern, STIX_PATTERN_TYPE } from '../utils/syntax';
-import { isEmptyField } from '../database/utils';
+import { isEmptyField, isNotEmptyField } from '../database/utils';
 
 const PYTHON_EXECUTOR = nconf.get('app:python_execution') ?? 'native';
+const PYTHON_VENV = nconf.get('app:python_execution_venv');
 const USE_NATIVE_EXEC = PYTHON_EXECUTOR === 'native';
+const SUPPORTED_CHECKED_PATTERN_TYPES = ['stix', 'yara', 'sigma', 'snort', 'suricata', 'eql'];
 
 // Importing python runtime scripts
 const py = nodecallspython.interpreter;
+// In a venv is available import the site-packages
+if (DEV_MODE && isNotEmptyField(PYTHON_VENV)) {
+  py.addImportPath(PYTHON_VENV);
+}
 const pyCheckIndicator = py.importSync('./src/python/runtime/check_indicator.py');
 const CHECK_INDICATOR_SCRIPT = { fn: 'check_indicator', py: pyCheckIndicator };
 
@@ -45,7 +51,7 @@ export const execChildPython = async (context, user, scriptPath, scriptName, arg
         }
       });
       shell.on('stderr', (stderr) => {
-        logApp.error(`[stderr] ${stderr}`);
+        logApp.error('[PYTHON BRIDGE] Error executing python', { stderr });
         messages.push(stderr);
         //* v8 ignore if */
         if (DEV_MODE && stderr.startsWith('ERROR:')) {
@@ -69,7 +75,7 @@ export const execChildPython = async (context, user, scriptPath, scriptName, arg
     });
   };
   return telemetry(context, user, `PYTHON ${scriptName}`, {
-    [SemanticAttributes.DB_NAME]: 'python_testing_engine',
+    [SEMATTRS_DB_NAME]: 'python_testing_engine',
   }, execPythonTestingProcessFn);
 };
 const createChildStixPattern = async (context, user, observableType, observableValue) => {
@@ -83,7 +89,7 @@ const createChildStixPattern = async (context, user, observableType, observableV
     );
     return result.data;
   } catch (err) {
-    logApp.warn(err);
+    logApp.warn('[BRIDGE] createChildStixPattern', { cause: err });
     return null;
   }
 };
@@ -98,7 +104,7 @@ const checkChildIndicatorSyntax = async (context, user, patternType, indicatorVa
     );
     return result.data;
   } catch (err) {
-    logApp.warn(err);
+    logApp.warn('[BRIDGE] checkChildIndicatorSyntax', { cause: err });
     return null;
   }
 };
@@ -118,18 +124,18 @@ const execNativePython = async (context, user, script, ...args) => {
     throw UnknownError('[BRIDGE] execNativePython error', result);
   };
   return telemetry(context, user, `PYTHON ${script.fn}`, {
-    [SemanticAttributes.DB_NAME]: 'python_runtime_engine',
+    [SEMATTRS_DB_NAME]: 'python_runtime_engine',
   }, execNativePythonFn);
 };
 const createNativeStixPattern = async (context, user, observableType, observableValue) => {
   return execNativePython(context, user, CREATE_PATTERN_SCRIPT, observableType, observableValue).catch((err) => {
-    logApp.warn(err);
+    logApp.warn('[BRIDGE] createNativeStixPattern', { cause: err });
     return null;
   });
 };
 const checkNativeIndicatorSyntax = async (context, user, patternType, indicatorValue) => {
   return execNativePython(context, user, CHECK_INDICATOR_SCRIPT, patternType, indicatorValue).catch((err) => {
-    logApp.warn(err);
+    logApp.warn('[BRIDGE] checkNativeIndicatorSyntax', { cause: err });
     return null;
   });
 };
@@ -145,6 +151,9 @@ export const createStixPattern = async (context, user, observableType, observabl
   return cleanupIndicatorPattern(STIX_PATTERN_TYPE, stixPattern);
 };
 export const checkIndicatorSyntax = async (context, user, patternType, indicatorValue) => {
+  if (!SUPPORTED_CHECKED_PATTERN_TYPES.includes(patternType)) {
+    return true;
+  }
   if (USE_NATIVE_EXEC) {
     return checkNativeIndicatorSyntax(context, user, patternType, indicatorValue);
   }

@@ -1,14 +1,15 @@
 import { Field, Form, Formik } from 'formik';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import React from 'react';
 import * as Yup from 'yup';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import { Option } from '../../common/form/ReferenceField';
 import { CaseTemplateTasksLine_node$data } from './__generated__/CaseTemplateTasksLine_node.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 const caseTemplateMutationFieldPatch = graphql`
     mutation CaseTemplateTasksEditionFieldPatchMutation($id: ID!$input: [EditInput!]!) {
@@ -22,11 +23,11 @@ const CaseTemplateTasksEdition = ({ task }: { task: CaseTemplateTasksLine_node$d
   const { t_i18n } = useFormatter();
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable().max(5000, t_i18n('The value is too long')),
   };
   const taskValidator = useSchemaEditionValidation('Task', basicShape);
-  const [commitFieldPatch] = useMutation(caseTemplateMutationFieldPatch);
+  const [commitFieldPatch] = useApiMutation(caseTemplateMutationFieldPatch);
   const onSubmit = (name: string, value: Option | Option[] | string) => {
     taskValidator
       .validateAt(name, { [name]: value })
@@ -48,7 +49,7 @@ const CaseTemplateTasksEdition = ({ task }: { task: CaseTemplateTasksLine_node$d
       validationSchema={taskValidator}
     >
       {() => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             style={{ marginBottom: 20 }}
             component={TextField}

@@ -9,6 +9,8 @@ import FilterAutocomplete from './FilterAutocomplete';
 import type { Theme } from '../../../../components/Theme';
 import { HandleAddFilter } from '../../../../utils/hooks/useLocalStorage';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   helpertext: {
     display: 'inline-block',
@@ -88,7 +90,7 @@ const FiltersElement: FunctionComponent<FiltersElementProps> = ({
     <>
       <Grid container={true} spacing={2}>
         {variant === FiltersVariant.dialog && (
-          <Grid item={true} xs={12}>
+          <Grid item xs={12}>
             <TextField
               label={t_i18n('Global keyword')}
               variant="outlined"
@@ -107,7 +109,7 @@ const FiltersElement: FunctionComponent<FiltersElementProps> = ({
             return (
               <Grid
                 key={`${filterKey}_${index}`}
-                item={true}
+                item
                 xs={6}
               >
                 <FilterDate
@@ -120,7 +122,7 @@ const FiltersElement: FunctionComponent<FiltersElementProps> = ({
               </Grid>);
           }
           return (
-            <Grid key={filterKey} item={true} xs={6}>
+            <Grid key={filterKey} item xs={6}>
               <FilterAutocomplete
                 filterKey={filterKey}
                 searchContext={searchContext}
@@ -138,8 +140,7 @@ const FiltersElement: FunctionComponent<FiltersElementProps> = ({
         })}
       </Grid>
       <div className={classes.helpertext}>
-        {t_i18n('Use')} <code>alt</code> + <code>click</code> {t_i18n('to exclude items')}
-        .
+        {t_i18n('Use Alt + click to exclude items')}
       </div>
     </>
   );

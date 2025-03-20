@@ -12,11 +12,13 @@ import Chart from '../../common/charts/Chart';
 import { QueryRenderer } from '../../../../relay/environment';
 import inject18n from '../../../../components/i18n';
 import { donutChartOptions } from '../../../../utils/Charts';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
-const styles = () => ({
+const styles = (theme) => ({
   paper: {
     height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     borderRadius: 4,
   },
   updateButton: {
@@ -219,11 +221,9 @@ class EntityStixSightingRelationshipsDonut extends Component {
                 (n) => R.assoc(
                   'label',
                   `${
-                    toTypes.length > 1
-                      ? `[${t(`entity_${n.entity.entity_type}`)}] ${
-                        n.entity.name
-                      }`
-                      : `${n.entity.name}`
+                    toTypes.length > 1 && n.entity
+                      ? `[${t(`entity_${n.entity.entity_type}`)}] ${n.entity.name}`
+                      : `${getMainRepresentative(n.entity) || n.label}`
                   }`,
                   n,
                 ),
@@ -256,7 +256,7 @@ class EntityStixSightingRelationshipsDonut extends Component {
                     textAlign: 'center',
                   }}
                 >
-                  {t('No entities of this type has been found.')}
+                  {t(NO_DATA_WIDGET_MESSAGE)}
                 </span>
               </div>
             );

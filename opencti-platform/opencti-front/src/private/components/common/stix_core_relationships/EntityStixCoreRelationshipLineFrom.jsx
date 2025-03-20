@@ -13,14 +13,14 @@ import Skeleton from '@mui/material/Skeleton';
 import { AutoFix } from 'mdi-material-ui';
 import Tooltip from '@mui/material/Tooltip';
 import Checkbox from '@mui/material/Checkbox';
-import Chip from '@mui/material/Chip';
 import inject18n from '../../../../components/i18n';
 import ItemIcon from '../../../../components/ItemIcon';
 import ItemConfidence from '../../../../components/ItemConfidence';
 import StixCoreRelationshipPopover from './StixCoreRelationshipPopover';
-import { defaultValue } from '../../../../utils/Graph';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import ItemMarkings from '../../../../components/ItemMarkings';
+import ItemEntityType from '../../../../components/ItemEntityType';
+import { DraftChip } from '../draft/DraftChip';
 
 const styles = (theme) => ({
   item: {
@@ -50,13 +50,6 @@ const styles = (theme) => ({
     display: 'inline-block',
     height: '1em',
     backgroundColor: theme.palette.grey[700],
-  },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    textTransform: 'uppercase',
-    borderRadius: 4,
   },
 });
 
@@ -115,46 +108,19 @@ class EntityStixCoreRelationshipLineFromComponent extends Component {
                 className={classes.bodyItem}
                 style={{ width: dataColumns.relationship_type.width }}
               >
-                <Chip
-                  variant="outlined"
-                  classes={{ root: classes.chipInList }}
-                  style={{ width: 120 }}
-                  color="primary"
-                  label={t(`relationship_${node.relationship_type}`)}
+                <ItemEntityType
+                  entityType={node.relationship_type}
                 />
               </div>
               <div
                 className={classes.bodyItem}
                 style={{ width: dataColumns.entity_type.width }}
               >
-                <Chip
-                  classes={{ root: classes.chipInList }}
-                  style={{
-                    width: 140,
-                    backgroundColor: hexToRGB(
-                      itemColor(
-                        !restricted ? node.to.entity_type : 'Restricted',
-                      ),
-                      0.08,
-                    ),
-                    color: itemColor(
-                      !restricted ? node.to.entity_type : 'Restricted',
-                    ),
-                    border: `1px solid ${itemColor(
-                      !restricted ? node.to.entity_type : 'Restricted',
-                    )}`,
-                  }}
-                  label={
-                    <>
-                      <ItemIcon
-                        variant="inline"
-                        type={!restricted ? node.to.entity_type : 'restricted'}
-                      />
-                      {!restricted
-                        ? t(`entity_${node.to.entity_type}`)
-                        : t('Restricted')}
-                    </>
-                  }
+                <ItemEntityType
+                  entityType={node.to.entity_type}
+                  isRestricted={!node.to}
+                  size='large'
+                  showIcon
                 />
               </div>
               <div
@@ -165,7 +131,8 @@ class EntityStixCoreRelationshipLineFromComponent extends Component {
                     : dataColumns.observable_value.width,
                 }}
               >
-                {!restricted ? defaultValue(node.to) : t('Restricted')}
+                {!restricted ? getMainRepresentative(node.to) : t('Restricted')}
+                {node.to.draftVersion && (<DraftChip/>)}
               </div>
               <div
                 className={classes.bodyItem}
@@ -295,6 +262,10 @@ const EntityStixCoreRelationshipLineFromFragment = createFragmentContainer(
         to {
           ... on StixCoreObject {
             id
+            draftVersion {
+              draft_id
+              draft_operation
+            }
             entity_type
             parent_types
             created_at

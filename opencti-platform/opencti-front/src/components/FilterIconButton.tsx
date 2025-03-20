@@ -1,16 +1,16 @@
 import React, { FunctionComponent, useEffect, useRef } from 'react';
 import { ChipOwnProps } from '@mui/material/Chip/Chip';
 import { DataColumns } from './list_lines';
-import { Filter, FilterGroup, GqlFilterGroup, isFilterGroupNotEmpty, removeIdFromFilterGroupObject, RestrictedFiltersConfig } from '../utils/filters/filtersUtils';
+import { GqlFilterGroup, isFilterGroupNotEmpty, removeIdFromFilterGroupObject, FiltersRestrictions, FilterSearchContext } from '../utils/filters/filtersUtils';
 import useQueryLoading from '../utils/hooks/useQueryLoading';
 import FilterIconButtonContainer from './FilterIconButtonContainer';
-import { handleFilterHelpers } from '../utils/hooks/useLocalStorage';
 import { filterValuesContentQuery } from './FilterValuesContent';
 import { FilterValuesContentQuery } from './__generated__/FilterValuesContentQuery.graphql';
+import { Filter, FilterGroup, handleFilterHelpers } from '../utils/filters/filtersHelpers-types';
 
-interface FilterIconButtonProps {
+export interface FilterIconButtonProps {
   availableFilterKeys?: string[];
-  filters?: FilterGroup;
+  filters?: FilterGroup | null;
   handleRemoveFilter?: (key: string, op?: string) => void;
   handleSwitchGlobalMode?: () => void;
   handleSwitchLocalMode?: (filter: Filter) => void;
@@ -22,7 +22,11 @@ interface FilterIconButtonProps {
   helpers?: handleFilterHelpers;
   availableRelationFilterTypes?: Record<string, string[]>;
   entityTypes?: string[];
-  restrictedFiltersConfig?: RestrictedFiltersConfig;
+  filtersRestrictions?: FiltersRestrictions;
+  searchContext?: FilterSearchContext;
+  availableEntityTypes?: string[];
+  availableRelationshipTypes?: string[];
+  fintelTemplatesContext?: boolean;
 }
 
 interface FilterIconButtonIfFiltersProps extends FilterIconButtonProps {
@@ -44,7 +48,11 @@ const FilterIconButtonWithRepresentativesQuery: FunctionComponent<FilterIconButt
   hasRenderedRef,
   setHasRenderedRef,
   entityTypes,
-  restrictedFiltersConfig,
+  filtersRestrictions,
+  searchContext,
+  availableEntityTypes,
+  availableRelationshipTypes,
+  fintelTemplatesContext,
 }) => {
   const filtersRepresentativesQueryRef = useQueryLoading<FilterValuesContentQuery>(
     filterValuesContentQuery,
@@ -71,7 +79,11 @@ const FilterIconButtonWithRepresentativesQuery: FunctionComponent<FilterIconButt
             setHasRenderedRef={setHasRenderedRef}
             availableRelationFilterTypes={availableRelationFilterTypes}
             entityTypes={entityTypes}
-            restrictedFiltersConfig={restrictedFiltersConfig}
+            filtersRestrictions={filtersRestrictions}
+            searchContext={searchContext}
+            availableEntityTypes={availableEntityTypes}
+            availableRelationshipTypes={availableRelationshipTypes}
+            fintelTemplatesContext={fintelTemplatesContext}
           />
         </React.Suspense>
       )}
@@ -86,6 +98,9 @@ const EmptyFilter: FunctionComponent<{ setHasRenderedRef: () => void }> = ({ set
   return null;
 };
 
+// availableEntityTypes
+// availableRelationshipTypes
+
 const FilterIconButton: FunctionComponent<FilterIconButtonProps> = ({
   availableFilterKeys,
   filters,
@@ -99,16 +114,22 @@ const FilterIconButton: FunctionComponent<FilterIconButtonProps> = ({
   helpers,
   availableRelationFilterTypes,
   entityTypes,
-  restrictedFiltersConfig,
+  filtersRestrictions,
+  searchContext,
+  availableEntityTypes,
+  availableRelationshipTypes,
+  fintelTemplatesContext,
 }) => {
   const hasRenderedRef = useRef(false);
   const setHasRenderedRef = () => {
     hasRenderedRef.current = true;
   };
-  const displayedFilters = filters ? {
-    ...filters,
-    filters:
-      filters.filters.filter((f) => !availableFilterKeys || availableFilterKeys?.some((k) => f.key === k)) } : undefined;
+  const displayedFilters = filters
+    ? {
+      ...filters,
+      filters:
+        filters.filters.filter((f) => !availableFilterKeys || availableFilterKeys?.some((k) => f.key === k)),
+    } : undefined;
   if (displayedFilters && isFilterGroupNotEmpty(displayedFilters)) { // to avoid running the FiltersRepresentatives query if filters are empty
     return (
       <FilterIconButtonWithRepresentativesQuery
@@ -125,7 +146,11 @@ const FilterIconButton: FunctionComponent<FilterIconButtonProps> = ({
         hasRenderedRef={hasRenderedRef.current}
         setHasRenderedRef={setHasRenderedRef}
         entityTypes={entityTypes}
-        restrictedFiltersConfig={restrictedFiltersConfig}
+        filtersRestrictions={filtersRestrictions}
+        searchContext={searchContext}
+        availableEntityTypes={availableEntityTypes}
+        availableRelationshipTypes={availableRelationshipTypes}
+        fintelTemplatesContext={fintelTemplatesContext}
       />
     );
   }

@@ -42,6 +42,7 @@ generates:
         ThreatActorIndividual: ../modules/threatActorIndividual/threatActorIndividual-types#BasicStoreEntityThreatActorIndividual
         IngestionRss: ../modules/ingestion/ingestion-types#BasicStoreEntityIngestionRss
         IngestionTaxii: ../modules/ingestion/ingestion-types#BasicStoreEntityIngestionTaxii
+        IngestionTaxiiCollection: ../modules/ingestion/ingestion-types#BasicStoreEntityIngestionTaxiiCollection
         Indicator: ../modules/indicator/indicator-types#BasicStoreEntityIndicator
         IngestionCsv: ../modules/ingestion/ingestion-types#BasicStoreEntityIngestionCsv
         DecayRule: ../modules/decayRule/decayRule-types#BasicStoreEntityDecayRule
@@ -49,6 +50,11 @@ generates:
         CsvMapper: ../modules/internal/csvMapper/csvMapper-types#BasicStoreEntityCsvMapper
         Playbook: ../modules/playbook/playbook-types#BasicStoreEntityPlaybook
         PublicDashboard: ../modules/publicDashboard/publicDashboard-types#BasicStoreEntityPublicDashboard
+        DeleteOperation: ../modules/deleteOperation/deleteOperation-types#BasicStoreEntityDeleteOperation
+        SupportPackage: ../modules/support/support-types#BasicStoreEntitySupportPackage
+        DraftWorkspace: ../modules/draftWorkspace/draftWorkspace-types#BasicStoreEntityDraftWorkspace
+        ExclusionList: ../modules/exclusionList/exclusionList-types#BasicStoreEntityExclusionList
+        FintelTemplate: ../modules/fintelTemplate/fintelTemplate-types#BasicStoreEntityFintelTemplate
   ./graphql.schema.json:
     plugins:
       - "introspection"

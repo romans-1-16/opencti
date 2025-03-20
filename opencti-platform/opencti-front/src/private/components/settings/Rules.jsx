@@ -20,6 +20,8 @@ const Transition = React.forwardRef((props, ref) => (
 ));
 Transition.displayName = 'TransitionSlide';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -27,7 +29,6 @@ const useStyles = makeStyles(() => ({
   },
   parameters: {
     float: 'left',
-    marginTop: -10,
   },
 }));
 
@@ -41,7 +42,7 @@ const Rules = () => {
   return (
     <div className={classes.container}>
       <CustomizationMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Rules engine'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Rules engine'), current: true }]} />
       <UserContext.Consumer>
         {({ platformModuleHelpers }) => {
           if (!platformModuleHelpers.isRuleEngineEnable()) {

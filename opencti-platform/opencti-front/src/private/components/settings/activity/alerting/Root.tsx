@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -17,7 +17,6 @@ import React, { FunctionComponent } from 'react';
 import { graphql, PreloadedQuery, usePreloadedQuery } from 'react-relay';
 import useQueryLoading from '../../../../../utils/hooks/useQueryLoading';
 import Loader, { LoaderVariant } from '../../../../../components/Loader';
-import { isEmptyField } from '../../../../../utils/utils';
 import EnterpriseEdition from '../../../common/entreprise_edition/EnterpriseEdition';
 import { RootAlertingQuery } from './__generated__/RootAlertingQuery.graphql';
 import Alerting from './Alerting';
@@ -27,7 +26,9 @@ export const rootQuery = graphql`
   query RootAlertingQuery {
     settings {
       id
-      enterprise_edition
+      platform_enterprise_edition {
+        license_validated
+      }
     }
   }
 `;
@@ -44,7 +45,7 @@ const AlertingComponent: FunctionComponent<ConfigurationComponentProps> = ({
     queryRef,
   );
   const { t_i18n } = useFormatter();
-  if (isEmptyField(settings.enterprise_edition)) {
+  if (!settings.platform_enterprise_edition.license_validated) {
     return <EnterpriseEdition feature={t_i18n('Activity')} />;
   }
   return <Alerting />;

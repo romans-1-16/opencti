@@ -1,7 +1,7 @@
 import Grid from '@mui/material/Grid';
-import makeStyles from '@mui/styles/makeStyles';
 import React from 'react';
 import { graphql, useFragment } from 'react-relay';
+import useHelper from 'src/utils/hooks/useHelper';
 import StixCoreObjectOrStixCoreRelationshipNotes from '../../analyses/notes/StixCoreObjectOrStixCoreRelationshipNotes';
 import StixCoreObjectLatestHistory from '../../common/stix_core_objects/StixCoreObjectLatestHistory';
 import StixDomainObjectOverview from '../../common/stix_domain_objects/StixDomainObjectOverview';
@@ -11,12 +11,7 @@ import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import Security from '../../../../utils/Security';
 import TaskEdition from './TaskEdition';
 import ContainerStixObjectsOrStixRelationships from '../../common/containers/ContainerStixObjectsOrStixRelationships';
-
-const useStyles = makeStyles(() => ({
-  gridContainer: {
-    marginBottom: 20,
-  },
-}));
+import useOverviewLayoutCustomization from '../../../../utils/hooks/useOverviewLayoutCustomization';
 
 export const taskFragment = graphql`
   fragment Tasks_tasks on Task {
@@ -27,6 +22,10 @@ export const taskFragment = graphql`
     description
     workflowEnabled
     revoked
+    created_at
+    updated_at
+    created
+    modified
     creators {
       id
       name
@@ -72,45 +71,85 @@ export const taskFragment = graphql`
   }
 `;
 
-const TaskComponent = ({ data }: { data: Tasks_tasks$key }) => {
-  const classes = useStyles();
-  const task = useFragment(taskFragment, data);
+interface TaskProps {
+  taskData: Tasks_tasks$key
+  enableReferences: boolean
+}
+
+const Task: React.FC<TaskProps> = ({ taskData, enableReferences }) => {
+  const task = useFragment(taskFragment, taskData);
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const overviewLayoutCustomization = useOverviewLayoutCustomization('Task');
+
   return (
     <>
       <Grid
         container={true}
         spacing={3}
-        classes={{ container: classes.gridContainer }}
+        style={{ marginBottom: 20 }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <TaskDetails tasksData={task} />
-        </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <StixDomainObjectOverview
-            stixDomainObject={task}
-            displayAssignees
-            displayParticipants
-          />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <ContainerStixObjectsOrStixRelationships
-            isSupportParticipation={false}
-            container={task}
-          />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <StixCoreObjectLatestHistory stixCoreObjectId={task.id} />
-        </Grid>
+        {
+          overviewLayoutCustomization.map(({ key, width }) => {
+            switch (key) {
+              case 'details':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <TaskDetails
+                      tasksData={task}
+                    />
+                  </Grid>
+                );
+              case 'basicInformation':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixDomainObjectOverview
+                      stixDomainObject={task}
+                      displayAssignees
+                      displayParticipants
+                    />
+                  </Grid>
+                );
+              case 'relatedEntities':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <ContainerStixObjectsOrStixRelationships
+                      isSupportParticipation={false}
+                      container={task}
+                      enableReferences={enableReferences}
+                    />
+                  </Grid>
+                );
+              case 'mostRecentHistory':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixCoreObjectLatestHistory
+                      stixCoreObjectId={task.id}
+                    />
+                  </Grid>
+                );
+              case 'notes':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixCoreObjectOrStixCoreRelationshipNotes
+                      stixCoreObjectOrStixCoreRelationshipId={task.id}
+                      defaultMarkings={task.objectMarking ?? []}
+                    />
+                  </Grid>
+                );
+              default:
+                return null;
+            }
+          })
+        }
       </Grid>
-      <StixCoreObjectOrStixCoreRelationshipNotes
-        stixCoreObjectOrStixCoreRelationshipId={task.id}
-        defaultMarkings={task.objectMarking ?? []}
-      />
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <TaskEdition caseId={task.id} />
-      </Security>
+      {!isFABReplaced && (
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <TaskEdition caseId={task.id} />
+        </Security>
+      )}
     </>
   );
 };
 
-export default TaskComponent;
+export default Task;

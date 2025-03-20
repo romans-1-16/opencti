@@ -2,19 +2,21 @@ import React, { FunctionComponent } from 'react';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import * as R from 'ramda';
 import makeStyles from '@mui/styles/makeStyles';
 import { FormikConfig } from 'formik/dist/types';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
+import useHelper from 'src/utils/hooks/useHelper';
+import { IncidentsLinesQuery$variables } from '@components/events/incidents/__generated__/IncidentsLinesQuery.graphql';
 import { useFormatter } from '../../../../components/i18n';
 import { handleErrorInForm } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectLabelField from '../../common/form/ObjectLabelField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
 import { insertNode } from '../../../../utils/store';
@@ -24,12 +26,15 @@ import { isEmptyField } from '../../../../utils/utils';
 import ObjectAssigneeField from '../../common/form/ObjectAssigneeField';
 import type { Theme } from '../../../../components/Theme';
 import { Option } from '../../common/form/ReferenceField';
-import { IncidentsLinesPaginationQuery$variables } from './__generated__/IncidentsLinesPaginationQuery.graphql';
 import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -46,6 +51,9 @@ const IncidentMutation = graphql`
       id
       standard_id
       name
+      representative {
+        main
+      }
       description
       entity_type
       parent_types
@@ -93,9 +101,13 @@ export const IncidentCreationForm: FunctionComponent<IncidentCreationProps> = ({
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const [commit] = useMutation(IncidentMutation);
+  const [commit] = useApiMutation(
+    IncidentMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Incident')} ${t_i18n('successfully created')}` },
+  );
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     confidence: Yup.number().nullable(),
     incident_type: Yup.string().nullable(),
     severity: Yup.string().nullable(),
@@ -173,7 +185,7 @@ export const IncidentCreationForm: FunctionComponent<IncidentCreationProps> = ({
       onReset={onReset}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"
@@ -209,7 +221,7 @@ export const IncidentCreationForm: FunctionComponent<IncidentCreationProps> = ({
             fullWidth={true}
             multiline={true}
             rows="4"
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
           />
           <Field
             component={TextField}
@@ -217,7 +229,7 @@ export const IncidentCreationForm: FunctionComponent<IncidentCreationProps> = ({
             name="source"
             label={t_i18n('Source')}
             fullWidth={true}
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
           />
           <ObjectAssigneeField
             name="objectAssignee"
@@ -241,6 +253,7 @@ export const IncidentCreationForm: FunctionComponent<IncidentCreationProps> = ({
           <ObjectMarkingField
             name="objectMarking"
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
@@ -277,14 +290,20 @@ export const IncidentCreationForm: FunctionComponent<IncidentCreationProps> = ({
 const IncidentCreation = ({
   paginationOptions,
 }: {
-  paginationOptions: IncidentsLinesPaginationQuery$variables;
+  paginationOptions: IncidentsLinesQuery$variables;
 }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
   const updater = (store: RecordSourceSelectorProxy) => insertNode(store, 'Pagination_incidents', paginationOptions, 'incidentAdd');
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const CreateIncidentControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Incident' {...props} />
+  );
   return (
     <Drawer
       title={t_i18n('Create an incident')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateIncidentControlledDial : undefined}
     >
       {({ onClose }) => (
         <IncidentCreationForm

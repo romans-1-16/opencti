@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -13,48 +13,24 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 */
 
-import * as R from 'ramda';
-import { listAllToEntitiesThroughRelations, storeLoadById } from '../../database/middleware-loader';
-import { ABSTRACT_STIX_CORE_OBJECT, ABSTRACT_STIX_CORE_RELATIONSHIP, ENTITY_TYPE_CONTAINER } from '../../schema/general';
-import { RELATION_OBJECT } from '../../schema/stixRefRelationship';
-import { extractEntityRepresentativeName, extractRepresentativeDescription } from '../../database/entity-representative';
+import { storeLoadById } from '../../database/middleware-loader';
+import { ABSTRACT_STIX_CORE_OBJECT, ENTITY_TYPE_CONTAINER } from '../../schema/general';
+import { RELATION_EXTERNAL_REFERENCE } from '../../schema/stixRefRelationship';
 import type { AuthContext, AuthUser } from '../../types/user';
-import type { BasicStoreEntity, BasicStoreRelation } from '../../types/store';
+import type { BasicStoreEntity } from '../../types/store';
 import type { InputMaybe, MutationAiContainerGenerateReportArgs, MutationAiSummarizeFilesArgs } from '../../generated/graphql';
-import { isEmptyField, isNotEmptyField } from '../../database/utils';
-import { FROM_START_STR, UNTIL_END_STR } from '../../utils/format';
-import { compute } from '../../database/ai-llm';
-import {
-  RELATION_AMPLIFIES,
-  RELATION_ATTRIBUTED_TO,
-  RELATION_COMPROMISES,
-  RELATION_COOPERATES_WITH,
-  RELATION_HAS,
-  RELATION_LOCATED_AT,
-  RELATION_TARGETS,
-  RELATION_USES
-} from '../../schema/stixCoreRelationship';
+import { Format, Tone } from '../../generated/graphql';
+import { isEmptyField } from '../../database/utils';
+import { queryAi } from '../../database/ai-llm';
 import { ENTITY_TYPE_CONTAINER_REPORT } from '../../schema/stixDomainObject';
 import { ENTITY_TYPE_CONTAINER_CASE_INCIDENT } from '../case/case-incident/case-incident-types';
-import { getEntityFromCache } from '../../database/cache';
-import type { BasicStoreSettings } from '../../types/settings';
-import { SYSTEM_USER } from '../../utils/access';
-import { ENTITY_TYPE_SETTINGS } from '../../schema/internalObject';
-import { UnsupportedError } from '../../config/errors';
-import { Format, Tone } from '../../generated/graphql';
 import { paginatedForPathWithEnrichment } from '../internal/document/document-domain';
 import { elSearchFiles } from '../../database/file-search';
 import type { BasicStoreEntityDocument } from '../internal/document/document-types';
+import { checkEnterpriseEdition } from '../../enterprise-edition/ee';
+import { getContainerKnowledge } from '../../utils/ai/dataResolutionHelpers';
 
-const RESOLUTION_LIMIT = 200;
-
-export const checkEnterpriseEdition = async (context: AuthContext) => {
-  const settings = await getEntityFromCache<BasicStoreSettings>(context, SYSTEM_USER, ENTITY_TYPE_SETTINGS);
-  const enterpriseEditionEnabled = isNotEmptyField(settings?.enterprise_edition);
-  if (!enterpriseEditionEnabled) {
-    throw UnsupportedError('Enterprise edition is not enabled');
-  }
-};
+const SYSTEM_PROMPT = 'You are an assistant helping cyber threat intelligence analysts to generate text about cyber threat intelligence information or from a cyber threat intelligence knowledge graph based on the STIX 2.1 model.';
 
 export const fixSpelling = async (context: AuthContext, user: AuthUser, id: string, content: string, format: InputMaybe<Format> = Format.Text) => {
   await checkEnterpriseEdition(context);
@@ -63,16 +39,16 @@ export const fixSpelling = async (context: AuthContext, user: AuthUser, id: stri
   }
   const prompt = `
   # Instructions
-  - Examine the provided English text for any spelling mistakes and correct them accordingly.
+  - Examine the provided text for any spelling mistakes and correct them accordingly in the original language of the text.
   - Ensure that all words are accurately spelled and that the grammar is correct.
   - If no mistake is detected, just return the original text without anything else.
   - Do NOT change the length of the text.
-  - Your response should match the provided content format which is ${format}. Be sure to respect this format and to NOT output anything else than the format.
+  - Your response should match the provided content format which is ${format}. Be sure to respect this format and to NOT output anything else than the format and the intended content.
 
   # Content
   ${content}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
@@ -83,8 +59,8 @@ export const makeShorter = async (context: AuthContext, user: AuthUser, id: stri
   }
   const prompt = `
   # Instructions
-  - Examine the provided English text related to cybersecurity and cyber threat intelligence and make it shorter by dividing by 2 the size / length of the text or the number of paragraphs.
-  - Make it shorter by dividing by 2 the number of lines but you should keep the main ideas and concepts.
+  - Examine the provided text related to cybersecurity and cyber threat intelligence and make it shorter by dividing by 2 the size / length of the text or the number of paragraphs.
+  - Make it shorter by dividing by 2 the number of lines but you should keep the main ideas and concepts as well as original language of the text.
   - Do NOT summarize nor enumerate points.
   - Ensure that all words are accurately spelled and that the grammar is correct. 
   - Your response should match the provided content format which is ${format}. Be sure to respect this format and to NOT output anything else than the format.
@@ -92,7 +68,7 @@ export const makeShorter = async (context: AuthContext, user: AuthUser, id: stri
   # Content
   ${content}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
@@ -103,8 +79,9 @@ export const makeLonger = async (context: AuthContext, user: AuthUser, id: strin
   }
   const prompt = `
   # Instructions
-  - Examine the provided English text related to cybersecurity and cyber threat intelligence and make it longer by doubling the size / length of the text or the number of paragraphs.
+  - Examine the provided text related to cybersecurity and cyber threat intelligence and make it longer by doubling the size / length of the text or the number of paragraphs.
   - Make it longer by doubling the number of lines by explaining concepts and developing the ideas but NOT too long, the final size should be twice the initial one.
+  - Respect the original language of the text.
   - Do NOT summarize nor enumerate points. 
   - Ensure that all words are accurately spelled and that the grammar is correct. 
   - Your response should match the provided content format which is ${format}. Be sure to respect this format and to NOT output anything else than the format.
@@ -112,7 +89,7 @@ export const makeLonger = async (context: AuthContext, user: AuthUser, id: strin
   # Content
   ${content}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
@@ -124,7 +101,7 @@ export const changeTone = async (context: AuthContext, user: AuthUser, id: strin
   }
   const prompt = `
   # Instructions
-  - Examine the provided English text related to cybersecurity and cyber threat intelligence and change its tone to be more ${tone}.
+  - Examine the provided text related to cybersecurity and cyber threat intelligence and change its tone to be more ${tone}.
   - Do NOT change the length of the text, the size of the output should be the same as the input.
   - Do NOT summarize nor enumerate points. 
   - Ensure that all words are accurately spelled and that the grammar is correct. 
@@ -133,7 +110,7 @@ export const changeTone = async (context: AuthContext, user: AuthUser, id: strin
   # Content
   ${content}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
@@ -144,7 +121,7 @@ export const summarize = async (context: AuthContext, user: AuthUser, id: string
   }
   const prompt = `
   # Instructions
-  - Examine the provided English text related to cybersecurity and cyber threat intelligence and summarize it with main ideas and concepts.
+  - Examine the provided text related to cybersecurity and cyber threat intelligence and summarize it with main ideas and concepts.
   - Make it shorter and summarize key points highlighting the deep meaning of the text.
   - Ensure that all words are accurately spelled and that the grammar is correct. 
   - Your response should match the provided content format which is ${format}. Be sure to respect this format and to NOT output anything else than the format.
@@ -152,7 +129,7 @@ export const summarize = async (context: AuthContext, user: AuthUser, id: string
   # Content
   ${content}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
@@ -163,68 +140,24 @@ export const explain = async (context: AuthContext, user: AuthUser, id: string, 
   }
   const prompt = `
   # Instructions
-  - Examine the provided English text related to cybersecurity and cyber threat intelligence and explain it.
+  - Examine the provided text related to cybersecurity and cyber threat intelligence and explain it.
   - Popularize the text to enlighten non-specialist by explaining key concepts and overall meaning.
   - Ensure that all words are accurately spelled and that the grammar is correct. 
-  - Your response should be done in plain text english regardless of the original format.
+  - Your response should be done in plain text regardless of the original format.
 
   # Content
   ${content}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
 export const generateContainerReport = async (context: AuthContext, user: AuthUser, args: MutationAiContainerGenerateReportArgs) => {
   await checkEnterpriseEdition(context);
-  const { id, containerId, paragraphs = 10, tone = 'technical', format = 'HTML' } = args;
+  const { id, containerId, paragraphs = 10, tone = 'technical', format = 'HTML', language = 'en-us' } = args;
   const paragraphsNumber = !paragraphs || paragraphs > 20 ? 20 : paragraphs;
   const container = await storeLoadById(context, user, containerId, ENTITY_TYPE_CONTAINER) as BasicStoreEntity;
-  const elements = await listAllToEntitiesThroughRelations(context, user, containerId, RELATION_OBJECT, [ABSTRACT_STIX_CORE_OBJECT, ABSTRACT_STIX_CORE_RELATIONSHIP]);
-  // generate mappings
-  const relationships = R.take(RESOLUTION_LIMIT, elements.filter((n) => n.parent_types.includes(ABSTRACT_STIX_CORE_RELATIONSHIP))) as Array<BasicStoreRelation>;
-  const entities = R.take(RESOLUTION_LIMIT, elements.filter((n) => n.parent_types.includes(ABSTRACT_STIX_CORE_OBJECT))) as Array<BasicStoreEntity>;
-  const indexedEntities = R.indexBy(R.prop('id'), entities);
-  if (entities.length < 3) {
-    return 'AI model unable to generate a report for containers with less than 3 entities.';
-  }
-  // generate entities involved
-  const entitiesInvolved = R.values(indexedEntities).map((n) => {
-    return `
-      -------------------
-      - The ${n.entity_type} ${extractEntityRepresentativeName(n)} described / detailed with the description: ${extractRepresentativeDescription(n)}.
-      -------------------
-    `;
-  });
-  // generate relationships sentences
-  const meaningfulRelationships = [
-    RELATION_TARGETS,
-    RELATION_USES,
-    RELATION_ATTRIBUTED_TO,
-    RELATION_AMPLIFIES,
-    RELATION_COMPROMISES,
-    RELATION_COOPERATES_WITH,
-    RELATION_LOCATED_AT,
-    RELATION_HAS
-  ];
-  const relationshipsSentences = relationships.filter((n) => meaningfulRelationships.includes(n.relationship_type)).map((n) => {
-    const from = indexedEntities[n.fromId];
-    const to = indexedEntities[n.toId];
-    if (isNotEmptyField(from) && isNotEmptyField(to)) {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-expect-error
-      const startTime = n.start_time === FROM_START_STR ? 'unknown date' : n.start_time;
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-expect-error
-      const stopTime = n.stop_time === UNTIL_END_STR ? 'unknown date' : n.stop_time;
-      return `
-        -------------------
-        - The ${from.entity_type} ${extractEntityRepresentativeName(from)} ${n.relationship_type} the ${to.entity_type} ${extractEntityRepresentativeName(to)} from ${startTime} to ${stopTime} (${n.description}).
-        -------------------
-      `;
-    }
-    return '';
-  });
+  const { relationshipsSentences, entitiesInvolved } = await getContainerKnowledge(context, user, containerId);
   // Meaningful type
   let meaningfulType = '';
   if (container.entity_type === ENTITY_TYPE_CONTAINER_REPORT) {
@@ -245,25 +178,29 @@ export const generateContainerReport = async (context: AuthContext, user: AuthUs
     
     # Formatting
     - The report should be in ${format?.toUpperCase() ?? 'TEXT'} format.
+    - The report should be in ${language} language.
+    - Just output the report without anything else.
     - For all found technical indicators of compromise and or observables, you must generate a table with all of them at the end of the report, including file hashes, IP addresses, domain names, etc.
     
     # Facts
-    ${relationshipsSentences.join('')}
+    ${relationshipsSentences}
     
     # Contextual information about the above facts
-    ${entitiesInvolved.join('')}
+    ${entitiesInvolved}
   `;
-  const response = await compute(id, prompt, user);
-  return response;
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
+  return response.replace('```html', '').replace('```markdown', '').replace('```', '').trim();
 };
 
+// TODO This function is deprecated (AI Insights)
 export const summarizeFiles = async (context: AuthContext, user: AuthUser, args: MutationAiSummarizeFilesArgs) => {
   await checkEnterpriseEdition(context);
-  const { id, elementId, paragraphs = 10, fileIds, tone = 'technical', format = 'HTML' } = args;
+  const { id, elementId, paragraphs = 10, fileIds, tone = 'technical', format = 'HTML', language = 'en-us' } = args;
   const paragraphsNumber = !paragraphs || paragraphs > 20 ? 20 : paragraphs;
   const stixCoreObject = await storeLoadById(context, user, elementId, ABSTRACT_STIX_CORE_OBJECT) as BasicStoreEntity;
-  let finalFilesIds = fileIds;
+  let finalFilesIds = fileIds ?? [];
   if (isEmptyField(fileIds)) {
+    // get content files
     const opts = {
       first: 20,
       prefixMimeTypes: undefined,
@@ -272,6 +209,19 @@ export const summarizeFiles = async (context: AuthContext, user: AuthUser, args:
     };
     const importFiles = await paginatedForPathWithEnrichment(context, user, `import/${stixCoreObject.entity_type}/${stixCoreObject.id}`, stixCoreObject.id, opts);
     finalFilesIds = importFiles.edges.map((n) => n.node.id);
+    // get external ref files
+    const refs = stixCoreObject[RELATION_EXTERNAL_REFERENCE] ?? [];
+    await Promise.all(refs.map(async (ref) => {
+      const optsRef = {
+        first: 20,
+        prefixMimeTypes: undefined,
+        entity_id: ref,
+        entity_type: 'External-Reference'
+      };
+      const importRefFiles = await paginatedForPathWithEnrichment(context, user, `import/External-Reference/${ref}`, ref, optsRef);
+      const refFilesIds = importRefFiles.edges.map((n) => n.node.id);
+      refFilesIds.forEach((refFileId) => finalFilesIds.push(refFileId));
+    }));
   }
   if (isEmptyField(finalFilesIds) || finalFilesIds?.length === 0) {
     return 'Unable to summarize files as no file is associated to this entity.';
@@ -292,14 +242,16 @@ export const summarizeFiles = async (context: AuthContext, user: AuthUser, args:
   - The summary should have ${paragraphsNumber} of approximately 5 lines each.
   - Ensure that all words are accurately spelled and that the grammar is correct. 
   - Your response should in the given format which is ${format}, be sure to respect this format.
+  - Your response should be in ${language} language.
   
   # Content
   ${filesContent.join('')}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };
 
+// TODO This function is deprecated (NLP)
 export const convertFilesToStix = async (context: AuthContext, user: AuthUser, args: MutationAiSummarizeFilesArgs) => {
   await checkEnterpriseEdition(context);
   const { id, elementId, fileIds } = args;
@@ -334,11 +286,11 @@ export const convertFilesToStix = async (context: AuthContext, user: AuthUser, a
   - Do your best to convert even if it is challenging and not accurate.
   - Your response should be in JSON STIX 2.1 format. Just output the JSON and nothing else.
   - Always consider threat actors as intrusion sets, the bundle should not contain any threat actor.
-  - Response should only contain the JSON output with no other sentences in English nor explanation.
+  - Response should only contain the JSON output with no other sentences nor explanation.
   
   # Content
   ${filesContent.join('')}
   `;
-  const response = await compute(id, prompt, user);
+  const response = await queryAi(id, SYSTEM_PROMPT, prompt, user);
   return response;
 };

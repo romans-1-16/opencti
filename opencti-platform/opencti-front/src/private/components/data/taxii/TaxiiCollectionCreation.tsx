@@ -18,7 +18,7 @@ import { useFormatter } from '../../../../components/i18n';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import Filters from '../../common/lists/Filters';
-import { emptyFilterGroup, isFilterGroupNotEmpty, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import { useAvailableFilterKeysForEntityTypes, emptyFilterGroup, isFilterGroupNotEmpty, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import Drawer, { DrawerVariant } from '../../common/drawer/Drawer';
@@ -31,11 +31,15 @@ interface TaxiiCollectionCreationProps {
 
 interface TaxiiCollectionCreationForm {
   authorized_members: Option[]
-  taxii_public?: boolean
-  name: string
   description: string
+  include_inferences?: boolean
+  name: string
+  taxii_public?: boolean
+  score_to_confidence?: boolean
 }
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -67,6 +71,8 @@ const taxiiCollectionCreationValidation = (requiredSentence: string) => Yup.obje
   description: Yup.string().nullable(),
   authorized_members: Yup.array().nullable(),
   taxii_public: Yup.bool().nullable(),
+  include_inferences: Yup.bool().nullable(),
+  score_to_confidence: Yup.bool().nullable(),
 });
 
 const sharedUpdater = (store: RecordSourceSelectorProxy, userId: string, paginationOptions: PaginationOptions, newEdge: RecordProxy) => {
@@ -85,6 +91,7 @@ const TaxiiCollectionCreation: FunctionComponent<TaxiiCollectionCreationProps> =
   const { t_i18n } = useFormatter();
   const classes = useStyles();
   const [filters, helpers] = useFiltersState(emptyFilterGroup);
+
   const onSubmit: FormikConfig<TaxiiCollectionCreationForm>['onSubmit'] = (values, { setSubmitting, resetForm }) => {
     const jsonFilters = serializeFilterGroupForBackend(filters);
     const authorized_members = values.authorized_members.map(({ value }) => ({
@@ -117,6 +124,7 @@ const TaxiiCollectionCreation: FunctionComponent<TaxiiCollectionCreationProps> =
       setSubmitting,
     });
   };
+  const availableFilterKeys = useAvailableFilterKeysForEntityTypes(['Stix-Core-Object', 'stix-core-relationship']);
   return (
     <Drawer
       title={t_i18n('Create a TAXII collection')}
@@ -124,18 +132,21 @@ const TaxiiCollectionCreation: FunctionComponent<TaxiiCollectionCreationProps> =
       onClose={helpers.handleClearAllFilters}
     >
       {({ onClose }) => (
-        <Formik
+        <Formik<TaxiiCollectionCreationForm>
           initialValues={{
             name: '',
             description: '',
             authorized_members: [],
+            taxii_public: false,
+            include_inferences: true,
+            score_to_confidence: false,
           }}
           validationSchema={taxiiCollectionCreationValidation(t_i18n('This field is required'))}
           onSubmit={onSubmit}
           onReset={onClose}
         >
           {({ values, setFieldValue, submitForm, handleReset, isSubmitting }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"
@@ -159,7 +170,7 @@ const TaxiiCollectionCreation: FunctionComponent<TaxiiCollectionCreationProps> =
                 style={{ position: 'relative' }}
               >
                 <AlertTitle>
-                  {t_i18n('Make this taxii collection public and available to anyone')}
+                  {t_i18n('Make this TAXII collection public and available to anyone')}
                 </AlertTitle>
                 <FormControlLabel
                   control={<Switch />}
@@ -168,44 +179,44 @@ const TaxiiCollectionCreation: FunctionComponent<TaxiiCollectionCreationProps> =
                   onChange={(_, checked) => setFieldValue('taxii_public', checked)}
                   label={t_i18n('Public collection')}
                 />
-                {!values?.taxii_public && (
+                {!values.taxii_public && (
                   <ObjectMembersField
                     label={'Accessible for'}
                     style={fieldSpacingContainerStyle}
-                    helpertext={t_i18n('Let the field empty to grant all authenticated users')}
+                    helpertext={t_i18n('Leave the field empty to grant all authenticated users')}
                     multiple={true}
                     name="authorized_members"
                   />
                 )}
               </Alert>
-              <Box sx={{ paddingTop: 4,
+              <Box sx={{ display: 'flex', alignItems: 'center', marginTop: '20px' }}>
+                <FormControlLabel
+                  control={<Switch />}
+                  style={{ marginLeft: 1 }}
+                  checked={values.include_inferences}
+                  name="include_inferences"
+                  onChange={(_, checked) => setFieldValue('include_inferences', checked)}
+                  label={t_i18n('Include inferences')}
+                />
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', marginTop: '20px' }}>
+                <FormControlLabel
+                  control={<Switch />}
+                  style={{ marginLeft: 1 }}
+                  checked={values.score_to_confidence}
+                  name="score_to_confidence"
+                  onChange={(_, checked) => setFieldValue('score_to_confidence', checked)}
+                  label={t_i18n('Copy OpenCTI scores to confidence level for indicators')}
+                />
+              </Box>
+              <Box sx={{
+                paddingTop: 4,
                 display: 'flex',
-                gap: 1 }}
+                gap: 1,
+              }}
               >
                 <Filters
-                  availableFilterKeys={[
-                    'entity_type',
-                    'workflow_id',
-                    'objectAssignee',
-                    'objects',
-                    'objectMarking',
-                    'objectLabel',
-                    'creator_id',
-                    'createdBy',
-                    'priority',
-                    'severity',
-                    'x_opencti_score',
-                    'x_opencti_detection',
-                    'x_opencti_main_observable_type',
-                    'revoked',
-                    'confidence',
-                    'indicator_types',
-                    'pattern_type',
-                    'fromId',
-                    'toId',
-                    'fromTypes',
-                    'toTypes',
-                  ]}
+                  availableFilterKeys={availableFilterKeys}
                   helpers={helpers}
                   searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
                 />
@@ -215,6 +226,7 @@ const TaxiiCollectionCreation: FunctionComponent<TaxiiCollectionCreationProps> =
                 helpers={helpers}
                 styleNumber={2}
                 redirection
+                searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
               />
               <div className={classes.buttons}>
                 <Button

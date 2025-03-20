@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -66,11 +66,11 @@ export const elIndexFiles = async (context, user, files) => {
         await elIndex(INDEX_FILES, documentBody, { pipeline: 'attachment' });
       } catch (err) {
         // catch & log error
-        const documentWithoutFileData = R.dissoc('file_data', documentBody);
-        logApp.error('Error on file indexing', { message: err.message, causeStack: err.data?.cause?.stack, stack: err.stack, body: documentWithoutFileData });
+        logApp.error('Error on file indexing', { cause: err, file_id });
         // try to index without file content
+        const documentWithoutFileData = R.dissoc('file_data', documentBody);
         await elIndex(INDEX_FILES, documentWithoutFileData).catch((e) => {
-          logApp.error('Error in fallback file indexing', { message: e.message, cause: e.cause, body: documentWithoutFileData });
+          logApp.error('Error in fallback file indexing', { message: e.message, cause: e, file_id });
         });
       }
     }
@@ -100,6 +100,29 @@ export const elUpdateFilesWithEntityRestrictions = async (entity) => {
     },
   }).catch((err) => {
     throw DatabaseError('Files entity restrictions indexing fail', { cause: err, entityId: entity.internal_id });
+  });
+};
+
+export const elUpdateRemovedFiles = async (entity, removed = true) => {
+  if (!entity) {
+    return null;
+  }
+  const params = { removed };
+  const source = 'ctx._source["removed"] = params.removed;';
+  return elRawUpdateByQuery({
+    index: READ_INDEX_FILES,
+    refresh: true,
+    conflicts: 'proceed',
+    body: {
+      script: { source, params },
+      query: {
+        term: {
+          'entity_id.keyword': entity.internal_id
+        }
+      },
+    },
+  }).catch((err) => {
+    throw DatabaseError('Files entity removed update fail', { cause: err, entityId: entity.internal_id });
   });
 };
 
@@ -142,7 +165,7 @@ const decodeSearch = (search) => {
 };
 const elBuildSearchFilesQueryBody = async (context, user, options = {}) => {
   const { search = null, fileIds = [], entityIds = [] } = options; // search options
-  const { includeAuthorities = false } = options;
+  const { includeAuthorities = false, excludeRemoved = true } = options;
   const dataRestrictions = await buildDataRestrictions(context, user, { includeAuthorities });
   const must = [...dataRestrictions.must];
   const mustNot = [...dataRestrictions.must_not];
@@ -161,6 +184,18 @@ const elBuildSearchFilesQueryBody = async (context, user, options = {}) => {
   }
   if (entityIds?.length > 0) {
     must.push({ terms: { 'entity_id.keyword': entityIds } });
+  }
+  // exclude removed files (logical deletion)
+  if (excludeRemoved) {
+    const excludeRemovedQuery = {
+      bool: {
+        should: [
+          { term: { removed: { value: false } } },
+          { bool: { must_not: [{ exists: { field: 'removed' } }] } }
+        ]
+      }
+    };
+    must.push(excludeRemovedQuery);
   }
   return {
     query: {

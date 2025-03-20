@@ -9,10 +9,14 @@ import Skeleton from '@mui/material/Skeleton';
 import makeStyles from '@mui/styles/makeStyles';
 import { Theme } from '@mui/material/styles/createTheme';
 import { EventLine_node$key } from '@components/entities/events/__generated__/EventLine_node.graphql';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import ItemIcon from '../../../../components/ItemIcon';
 import { useFormatter } from '../../../../components/i18n';
 import { DataColumns } from '../../../../components/list_lines';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -50,6 +54,10 @@ const eventLineFragment = graphql`
         modified
         start_time
         stop_time
+        draftVersion {
+            draft_id
+            draft_operation
+        }
         objectMarking {
             id
             definition_type
@@ -86,12 +94,13 @@ export const EventLine: FunctionComponent<EventLineProps> = ({
               style={{ width: dataColumns.name.width }}
             >
               {data.name}
+              {data.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}
               style={{ width: dataColumns.event_types.width }}
             >
-              {data.event_types?.join(', ')}
+              <FieldOrEmpty source={data.event_types}>{data.event_types?.join(', ')}</FieldOrEmpty>
             </div>
             <div
               className={classes.bodyItem}

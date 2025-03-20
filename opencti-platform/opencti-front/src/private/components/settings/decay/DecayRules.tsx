@@ -17,9 +17,12 @@ import { DecayRulesLine_node$data } from './__generated__/DecayRulesLine_node.gr
 import useAuth from '../../../../utils/hooks/useAuth';
 import { INDICATOR_DECAY_MANAGER } from '../../../../utils/platformModulesHelper';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'view-decay-rules';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>(() => ({
   container: {
     margin: 0,
@@ -29,6 +32,8 @@ const useStyles = makeStyles<Theme>(() => ({
 const DecayRules = () => {
   const classes = useStyles();
   const { fd, t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Decay Rules | Customization | Settings'));
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<DecayRulesLinesPaginationQuery$variables>(
     LOCAL_STORAGE_KEY,
     {
@@ -152,7 +157,7 @@ const DecayRules = () => {
   return (
     <div className={classes.container}>
       <CustomizationMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Decay rules'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Decay rules'), current: true }]} />
       {renderLines()}
       <DecayRuleCreation paginationOptions={queryPaginationOptions} />
     </div>

@@ -21,12 +21,14 @@ import {
 import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 import ImageCarousel, { ImagesData } from '../../../../components/ImageCarousel';
 import ThreatActorIndividualLocation from './ThreatActorIndividualLocation';
+import ThreatActorIndividualDetailsChips from './ThreatActorIndividualDetailsChips';
+import CardLabel from '../../../../components/CardLabel';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -48,7 +50,8 @@ const useStyles = makeStyles<Theme>((theme) => ({
 }));
 
 const ThreatActorIndividualDetailsFragment = graphql`
-  fragment ThreatActorIndividualDetails_ThreatActorIndividual on ThreatActorIndividual {
+  fragment ThreatActorIndividualDetails_ThreatActorIndividual on ThreatActorIndividual
+  {
     id
     first_seen
     last_seen
@@ -61,6 +64,25 @@ const ThreatActorIndividualDetailsFragment = graphql`
     secondary_motivations
     goals
     roles
+    stixCoreRelationships {
+      edges {
+        node {
+          id
+          relationship_type
+          to {
+            ... on Individual {
+              id
+              name
+            }
+            ... on Persona {
+              id
+              observable_value
+              persona_type
+            }
+          }
+        }
+      }
+    }
     images: importFiles(prefixMimeType: "image/") {
       edges {
         node {
@@ -92,27 +114,29 @@ ThreatActorIndividualDetailsProps
     ThreatActorIndividualDetailsFragment,
     threatActorIndividualData,
   );
+
   const imagesCarousel: { images: ImagesData } = {
     images: {
       edges: (data.images?.edges ?? []).filter((n) => n?.node?.metaData?.inCarousel),
     } as ImagesData,
   };
   const hasImages = imagesCarousel.images?.edges ? imagesCarousel.images.edges.length > 0 : false;
+
   return (
-    <div style={{ height: '100%' }}>
-      <Typography variant="h4" gutterBottom={true}>
+    <>
+      <Typography variant="h4">
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={hasImages ? 7 : 6}>
+          <Grid item xs={hasImages ? 7 : 6}>
             <Grid container={true} spacing={3}>
               {hasImages && (
-                <Grid item={true} xs={4}>
+                <Grid item xs={4}>
                   <ImageCarousel data={imagesCarousel} />
                 </Grid>
               )}
-              <Grid item={true} xs={hasImages ? 8 : 12}>
+              <Grid item xs={hasImages ? 8 : 12}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Threat actor types')}
                 </Typography>
@@ -139,28 +163,28 @@ ThreatActorIndividualDetailsProps
               </Grid>
             </Grid>
           </Grid>
-          <Grid item={true} xs={hasImages ? 5 : 6}>
+          <Grid item xs={hasImages ? 5 : 6}>
+            <ThreatActorIndividualDetailsChips
+              data={data}
+              relType='known-as'
+            />
+            <ThreatActorIndividualDetailsChips
+              data={data}
+              relType='impersonates'
+            />
             <ThreatActorIndividualLocation threatActorIndividual={data} />
-            <Typography
-              variant="h3"
-              gutterBottom={true}
-              style={{ marginTop: 20 }}
-            >
+            <CardLabel style={{ marginTop: 20 }}>
               {t_i18n('First seen')}
-            </Typography>
+            </CardLabel>
             {fldt(data.first_seen)}
-            <Typography
-              variant="h3"
-              gutterBottom={true}
-              style={{ marginTop: 20 }}
-            >
+            <CardLabel style={{ marginTop: 20 }}>
               {t_i18n('Last seen')}
-            </Typography>
+            </CardLabel>
             {fldt(data.last_seen)}
           </Grid>
         </Grid>
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={4}>
+          <Grid item xs={4}>
             <Typography
               variant="h3"
               gutterBottom={true}
@@ -168,13 +192,15 @@ ThreatActorIndividualDetailsProps
             >
               {t_i18n('Sophistication')}
             </Typography>
-            <ItemOpenVocab
-              type="threat-actor-individual-sophistication-ov"
-              value={data.sophistication}
-              small
-            />
+            <FieldOrEmpty source={data.sophistication}>
+              <ItemOpenVocab
+                type="threat-actor-individual-sophistication-ov"
+                value={data.sophistication}
+                small
+              />
+            </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
+          <Grid item xs={4}>
             <Typography
               variant="h3"
               gutterBottom={true}
@@ -182,13 +208,15 @@ ThreatActorIndividualDetailsProps
             >
               {t_i18n('Resource level')}
             </Typography>
-            <ItemOpenVocab
-              type="attack-resource-level-ov"
-              value={data.resource_level}
-              small
-            />
+            <FieldOrEmpty source={data.resource_level}>
+              <ItemOpenVocab
+                type="attack-resource-level-ov"
+                value={data.resource_level}
+                small
+              />
+            </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
+          <Grid item xs={4}>
             <Typography
               variant="h3"
               gutterBottom={true}
@@ -196,20 +224,18 @@ ThreatActorIndividualDetailsProps
             >
               {t_i18n('Primary motivation')}
             </Typography>
-            <ItemOpenVocab
-              type="attack-motivation-ov"
-              value={data.primary_motivation}
-              small
-            />
+            <FieldOrEmpty source={data.primary_motivation}>
+              <ItemOpenVocab
+                type="attack-motivation-ov"
+                value={data.primary_motivation}
+                small
+              />
+            </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography
-              variant="h3"
-              gutterBottom={true}
-              style={{ marginTop: 20 }}
-            >
+          <Grid item xs={4}>
+            <CardLabel style={{ marginTop: 20 }}>
               {t_i18n('Roles')}
-            </Typography>
+            </CardLabel>
             <FieldOrEmpty source={data.roles}>
               {data.roles && (
                 <List>
@@ -233,14 +259,10 @@ ThreatActorIndividualDetailsProps
               )}
             </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography
-              variant="h3"
-              gutterBottom={true}
-              style={{ marginTop: 20 }}
-            >
+          <Grid item xs={4}>
+            <CardLabel style={{ marginTop: 20 }}>
               {t_i18n('Goals')}
-            </Typography>
+            </CardLabel>
             <FieldOrEmpty source={data.goals}>
               {data.goals && (
                 <List>
@@ -258,14 +280,10 @@ ThreatActorIndividualDetailsProps
               )}
             </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography
-              variant="h3"
-              gutterBottom={true}
-              style={{ marginTop: 20 }}
-            >
+          <Grid item xs={4}>
+            <CardLabel style={{ marginTop: 20 }}>
               {t_i18n('Secondary motivations')}
-            </Typography>
+            </CardLabel>
             <FieldOrEmpty source={data.secondary_motivations}>
               {data.secondary_motivations && (
                 <List>
@@ -293,14 +311,10 @@ ThreatActorIndividualDetailsProps
               )}
             </FieldOrEmpty>
           </Grid>
-          <Grid item={true} xs={4}>
-            <Typography
-              variant="h3"
-              gutterBottom={true}
-              style={{ marginTop: 20 }}
-            >
+          <Grid item xs={4}>
+            <CardLabel style={{ marginTop: 20 }}>
               {t_i18n('Personal motivations')}
-            </Typography>
+            </CardLabel>
             <FieldOrEmpty source={data.personal_motivations}>
               {data.personal_motivations && (
                 <List>
@@ -330,7 +344,7 @@ ThreatActorIndividualDetailsProps
           </Grid>
         </Grid>
       </Paper>
-    </div>
+    </>
   );
 };
 

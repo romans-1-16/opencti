@@ -8,6 +8,7 @@ import Skeleton from '@mui/material/Skeleton';
 import { graphql, useFragment } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import * as R from 'ramda';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import type { Theme } from '../../../../components/Theme';
 import { useFormatter } from '../../../../components/i18n';
 import { CountryLine_node$key } from './__generated__/CountryLine_node.graphql';
@@ -15,6 +16,8 @@ import { DataColumns } from '../../../../components/list_lines';
 import { APP_BASE_PATH } from '../../../../relay/environment';
 import ItemIcon from '../../../../components/ItemIcon';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -50,6 +53,10 @@ const countryLineFragment = graphql`
     x_opencti_aliases
     created
     modified
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     objectMarking {
       id
       definition_type
@@ -102,6 +109,7 @@ export const CountryLineComponent: FunctionComponent<CountryLineProps> = ({
               style={{ width: dataColumns.name.width }}
             >
               {data.name}
+              {data.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}

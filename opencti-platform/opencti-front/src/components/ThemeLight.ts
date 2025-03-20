@@ -1,3 +1,4 @@
+import { buttonClasses } from '@mui/material/Button';
 import type { ExtendedThemeOptions } from './Theme';
 import { fileUri } from '../relay/environment';
 import LogoText from '../static/images/logo_text_light.png';
@@ -9,34 +10,49 @@ const EE_COLOR = '#0c7e69';
 export const THEME_LIGHT_DEFAULT_BACKGROUND = '#f8f8f8';
 const THEME_LIGHT_DEFAULT_PRIMARY = '#001bda';
 const THEME_LIGHT_DEFAULT_SECONDARY = '#0c7e69';
-const THEME_LIGHT_DEFAULT_ACCENT = '#d9d9d9';
+const THEME_LIGHT_DEFAULT_ACCENT = '#eeeeee';
 const THEME_LIGHT_DEFAULT_PAPER = '#ffffff';
 const THEME_LIGHT_DEFAULT_NAV = '#ffffff';
 
 const ThemeLight = (
-  logo: string | null,
-  logo_collapsed: string | null,
-  background: string | null,
-  paper: string | null,
-  nav: string | null,
-  primary: string | null,
-  secondary: string | null,
-  accent: string | null,
+  logo: string | null = null,
+  logo_collapsed: string | null = null,
+  background: string | null = null,
+  paper: string | null = null,
+  nav: string | null = null,
+  primary: string | null = null,
+  secondary: string | null = null,
+  accent: string | null = null,
 ): ExtendedThemeOptions => ({
   logo: logo || fileUri(LogoText),
   logo_collapsed: logo_collapsed || fileUri(LogoCollapsed),
   borderRadius: 4,
   palette: {
     mode: 'light',
-    common: { white: '#ffffff' },
+    common: { white: '#ffffff', grey: '#494A50', lightGrey: 'rgba(0, 0, 0, 0.6)' },
     error: {
       main: '#f44336',
       dark: '#c62828',
     },
-    success: { main: '#03A847' },
-    primary: { main: THEME_LIGHT_DEFAULT_PRIMARY || '#0066ff' },
+    warn: {
+      main: '#ffa726',
+    },
+    dangerZone: { main: '#f6685e', light: '#fbc2be', dark: '#d1584f', contrastText: 'black', text: { primary: '#d1584f' } },
+    success: { main: '#03a847' },
+    primary: { main: primary || THEME_LIGHT_DEFAULT_PRIMARY },
     secondary: { main: secondary || THEME_LIGHT_DEFAULT_SECONDARY },
+    border: {
+      lightBackground: hexToRGB('#000000', 0.15),
+      primary: hexToRGB((primary || THEME_LIGHT_DEFAULT_PRIMARY), 0.3),
+      secondary: hexToRGB((secondary || THEME_LIGHT_DEFAULT_SECONDARY), 0.3),
+      pagination: hexToRGB('#000000', 0.5),
+    },
+    pagination: {
+      main: '#000000',
+    },
     chip: { main: '#000000' },
+    ai: { main: '#9c27b0', light: '#ba68c8', dark: '#7b1fa2', contrastText: 'black', text: { primary: '#673ab7' } },
+    xtmhub: { main: '#001BDA', light: '#0FBCFF' },
     ee: {
       main: EE_COLOR,
       background: hexToRGB(EE_COLOR, 0.2),
@@ -55,6 +71,7 @@ const ThemeLight = (
     fontFamily: '"IBM Plex Sans", sans-serif',
     body2: {
       fontSize: '0.8rem',
+      lineHeight: '1.2rem',
     },
     body1: {
       fontSize: '0.9rem',
@@ -67,7 +84,7 @@ const ThemeLight = (
       padding: 0,
       fontWeight: 400,
       fontSize: 22,
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     h2: {
       margin: '0 0 10px 0',
@@ -75,7 +92,7 @@ const ThemeLight = (
       fontWeight: 500,
       fontSize: 16,
       textTransform: 'uppercase',
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     h3: {
       margin: '0 0 10px 0',
@@ -83,9 +100,10 @@ const ThemeLight = (
       color: '#757575',
       fontWeight: 400,
       fontSize: 13,
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     h4: {
+      height: 15,
       margin: '0 0 10px 0',
       padding: 0,
       textTransform: 'uppercase',
@@ -103,7 +121,7 @@ const ThemeLight = (
       fontWeight: 400,
       fontSize: 18,
       color: primary || THEME_LIGHT_DEFAULT_PRIMARY,
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     subtitle2: {
       fontWeight: 400,
@@ -116,6 +134,24 @@ const ThemeLight = (
       defaultProps: {
         TransitionProps: {
           unmountOnExit: true,
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          [`&.${buttonClasses.outlined}.${buttonClasses.sizeSmall}`]: {
+            padding: '4px 9px',
+          },
+          '&.icon-outlined': {
+            borderColor: hexToRGB('#000000', 0.15),
+            padding: 7,
+            minWidth: 0,
+            '&:hover': {
+              borderColor: hexToRGB('#000000', 0.15),
+              backgroundColor: hexToRGB('#000000', 0.05),
+            },
+          },
         },
       },
     },
@@ -165,7 +201,7 @@ const ThemeLight = (
             WebkitTextFillColor: '#000000 !important',
             caretColor: 'transparent !important',
             WebkitBoxShadow:
-              '0 0 0 1000px rgba(4, 8, 17, 0.88) inset !important',
+                '0 0 0 1000px rgba(4, 8, 17, 0.88) inset !important',
             borderTopLeftRadius: 'inherit',
             borderTopRightRadius: 'inherit',
           },
@@ -274,11 +310,11 @@ const ThemeLight = (
           },
           '&.Mui-selected': {
             boxShadow: `2px 0 ${primary || THEME_LIGHT_DEFAULT_PRIMARY} inset`,
-            backgroundColor: hexToRGB(primary || THEME_LIGHT_DEFAULT_PRIMARY, 0.08),
+            backgroundColor: hexToRGB(primary || THEME_LIGHT_DEFAULT_PRIMARY, 0.12),
           },
           '&.Mui-selected:hover': {
             boxShadow: `2px 0 ${primary || THEME_LIGHT_DEFAULT_PRIMARY} inset`,
-            backgroundColor: hexToRGB(primary || THEME_LIGHT_DEFAULT_PRIMARY, 0.12),
+            backgroundColor: hexToRGB(primary || THEME_LIGHT_DEFAULT_PRIMARY, 0.16),
           },
         },
       },

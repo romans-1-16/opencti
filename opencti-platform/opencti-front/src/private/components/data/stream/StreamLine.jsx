@@ -15,7 +15,10 @@ import inject18n from '../../../../components/i18n';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import ItemCopy from '../../../../components/ItemCopy';
 import ItemBoolean from '../../../../components/ItemBoolean';
-import { deserializeFilterGroupForFrontend } from '../../../../utils/filters/filtersUtils';
+import { deserializeFilterGroupForFrontend, isFilterGroupNotEmpty } from '../../../../utils/filters/filtersUtils';
+import Security from '../../../../utils/Security';
+import { TAXIIAPI_SETCOLLECTIONS } from '../../../../utils/hooks/useGranted';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 
 const Transition = React.forwardRef((props, ref) => (
   <Slide direction="up" ref={ref} {...props} />
@@ -97,7 +100,7 @@ class StreamLineLineComponent extends Component {
                 className={classes.bodyItem}
                 style={{ width: dataColumns.description.width }}
               >
-                {node.description}
+                <FieldOrEmpty source={node.description}>{node.description}</FieldOrEmpty>
               </div>
               <div
                 className={classes.bodyItem}
@@ -129,20 +132,25 @@ class StreamLineLineComponent extends Component {
                 className={classes.filtersItem}
                 style={{ width: dataColumns.filters.width }}
               >
-                <FilterIconButton
-                  filters={filters}
-                  dataColumns={dataColumns}
-                  styleNumber={3}
-                />
+                {isFilterGroupNotEmpty(filters)
+                  ? <FilterIconButton
+                      filters={filters}
+                      dataColumns={dataColumns}
+                      styleNumber={3}
+                      entityTypes={['Stix-Filtering']}
+                    />
+                  : '-'}
               </div>
             </>
           }
         />
         <ListItemSecondaryAction>
-          <StreamPopover
-            streamCollection={node}
-            paginationOptions={paginationOptions}
-          />
+          <Security needs={[TAXIIAPI_SETCOLLECTIONS]}>
+            <StreamPopover
+              streamCollection={node}
+              paginationOptions={paginationOptions}
+            />
+          </Security>
         </ListItemSecondaryAction>
       </ListItem>
     );

@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import gql from 'graphql-tag';
 import { ADMIN_USER, queryAsAdmin, testContext } from '../../utils/testQuery';
-import { addMarkingDefinition } from '../../../src/domain/markingDefinition';
+import { addAllowedMarkingDefinition } from '../../../src/domain/markingDefinition';
 import { distributionRelations } from '../../../src/database/middleware';
 import { ENTITY_TYPE_MARKING_DEFINITION } from '../../../src/schema/stixMetaObject';
 import { RELATION_OBJECT_MARKING } from '../../../src/schema/stixRefRelationship';
 import { ABSTRACT_INTERNAL_OBJECT, ABSTRACT_STIX_CORE_OBJECT, ENTITY_TYPE_CONTAINER, ENTITY_TYPE_LOCATION, ID_INTERNAL } from '../../../src/schema/general';
 import { ENTITY_TYPE_CONTAINER_REPORT, ENTITY_TYPE_INTRUSION_SET, ENTITY_TYPE_MALWARE } from '../../../src/schema/stixDomainObject';
-import { COMPUTED_RELIABILITY_FILTER, IDS_FILTER, SOURCE_RELIABILITY_FILTER } from '../../../src/utils/filtering/filtering-constants';
+import {
+  COMPUTED_RELIABILITY_FILTER,
+  IDS_FILTER,
+  INSTANCE_RELATION_FILTER,
+  INSTANCE_RELATION_TYPES_FILTER,
+  RELATION_FROM_TYPES_FILTER,
+  RELATION_TO_TYPES_FILTER,
+  SOURCE_RELIABILITY_FILTER
+} from '../../../src/utils/filtering/filtering-constants';
 import { storeLoadById } from '../../../src/database/middleware-loader';
 
 // test queries involving dynamic filters
@@ -49,6 +57,23 @@ const LIST_QUERY = gql`
                 node {
                     id
                     entity_type
+                }
+            }
+        }
+    }
+`;
+
+const RELATIONSHIP_QUERY = gql`
+    query stixCoreRelationships(
+        $filters: FilterGroup
+    ) {
+        stixCoreRelationships(filters: $filters) {
+            edges {
+                node {
+                    id
+                    relationship_type
+                    start_time
+                    stop_time
                 }
             }
         }
@@ -108,10 +133,10 @@ describe('Complex filters combinations for elastic queries', () => {
       definition: 'TEST:2',
       x_opencti_order: 2,
     };
-    const marking1 = await addMarkingDefinition(testContext, ADMIN_USER, marking1Input);
+    const marking1 = await addAllowedMarkingDefinition(testContext, ADMIN_USER, marking1Input);
     marking1StixId = marking1.standard_id;
     marking1Id = marking1.id;
-    const marking2 = await addMarkingDefinition(testContext, ADMIN_USER, marking2Input);
+    const marking2 = await addAllowedMarkingDefinition(testContext, ADMIN_USER, marking2Input);
     marking2StixId = marking2.standard_id;
     marking2Id = marking2.id;
     // Create the reports
@@ -150,6 +175,7 @@ describe('Complex filters combinations for elastic queries', () => {
     const REPORT4 = {
       input: {
         name: 'Report4',
+        description: '', // empty string
         stix_id: report4StixId,
         published: '2023-09-15T00:51:35.000Z',
         objectMarking: [marking2StixId],
@@ -634,7 +660,7 @@ describe('Complex filters combinations for elastic queries', () => {
     expect(queryResult.data.reports.edges.map((n) => n.node.name).includes('Report1')).toBeTruthy();
     expect(queryResult.data.reports.edges.map((n) => n.node.name)).includes('A demo report for testing purposes').toBeTruthy();
   });
-  it('should list entities according to filters: filter with \'nil\' operator', async () => {
+  it('should list entities according to filters: filter with \'nil\' and \'not_nil\' operators on arrays', async () => {
     // test for 'nil': objectMarking is empty
     let queryResult = await queryAsAdmin({
       query: REPORT_LIST_QUERY,
@@ -677,6 +703,117 @@ describe('Complex filters combinations for elastic queries', () => {
     });
     expect(queryResult.data.reports.edges.length).toEqual(4);
     expect(queryResult.data.reports.edges.map((n) => n.node.name).includes('Report3')).toBeFalsy();
+  });
+  it('should list entities according to filters: \'nil\' / \'not_nil\' operators on strings', async () => {
+    // description is empty
+    let queryResult = await queryAsAdmin({
+      query: REPORT_LIST_QUERY,
+      variables: {
+        first: 10,
+        filters: {
+          mode: 'and',
+          filters: [
+            {
+              key: 'description',
+              operator: 'nil',
+              values: [],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.reports.edges.length).toEqual(2);
+    expect(queryResult.data.reports.edges.map((n) => n.node.name).includes('Report3')).toBeTruthy(); // description is empty string
+    expect(queryResult.data.reports.edges.map((n) => n.node.name).includes('Report4')).toBeTruthy(); // description is null
+    // description is not empty
+    queryResult = await queryAsAdmin({
+      query: REPORT_LIST_QUERY,
+      variables: {
+        first: 10,
+        filters: {
+          mode: 'and',
+          filters: [
+            {
+              key: 'description',
+              operator: 'not_nil',
+              values: [],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.reports.edges.length).toEqual(3); // 'Report1', 'Report2', 'A demo for testing purpose'
+    expect(queryResult.data.reports.edges.map((n) => n.node.name).includes('Report1')).toBeTruthy();
+    expect(queryResult.data.reports.edges.map((n) => n.node.name).includes('Report2')).toBeTruthy();
+  });
+  it('should list entities according to filters: \'nil\' / \'not_nil\' operators on dates', async () => {
+    // start_time is empty
+    let queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 10,
+        filters: {
+          mode: 'and',
+          filters: [
+            {
+              key: 'start_time',
+              operator: 'nil',
+              values: [],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    // 4 relationships with no start_time + 4 relationships with start_time <= '1970-01-01T01:00:00.000Z'
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(8);
+    // stop_time is empty
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 10,
+        filters: {
+          mode: 'and',
+          filters: [
+            {
+              key: 'stop_time',
+              operator: 'nil',
+              values: [],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    // 4 relationships with no stop_time + 3 with stop_time <= '1970-01-01T01:00:00.000Z' + 1 with stop_time = '5138-11-16T09:46:40.000Z'
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(8);
+    // stop_time is not empty
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 10,
+        filters: {
+          mode: 'and',
+          filters: [
+            {
+              key: 'stop_time',
+              operator: 'not_nil',
+              values: [],
+              mode: 'or',
+            },
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    // 24 relationships - 8 with empty stop_time
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(16);
   });
   it('should list entities according to filters: aggregation with filters', async () => {
     // count the number of entities with each marking
@@ -821,7 +958,7 @@ describe('Complex filters combinations for elastic queries', () => {
       }
     });
     expect(queryResult.data.globalSearch.edges.length).toEqual(5); // 5 reports
-    // (entity_type = Report AND container AND Stix-Core-Object)
+    // (entity_type = Report AND Container AND Stix-Core-Object)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
       variables: {
@@ -832,7 +969,7 @@ describe('Complex filters combinations for elastic queries', () => {
             {
               key: 'entity_type',
               operator: 'eq',
-              values: [ABSTRACT_STIX_CORE_OBJECT, ENTITY_TYPE_CONTAINER_REPORT, ENTITY_TYPE_CONTAINER, ABSTRACT_INTERNAL_OBJECT],
+              values: [ABSTRACT_STIX_CORE_OBJECT, ENTITY_TYPE_CONTAINER_REPORT, ENTITY_TYPE_CONTAINER],
               mode: 'and',
             }
           ],
@@ -841,6 +978,26 @@ describe('Complex filters combinations for elastic queries', () => {
       }
     });
     expect(queryResult.data.globalSearch.edges.length).toEqual(5); // 5 reports
+    // (entity_type = Report AND Container AND Internal-Object)
+    queryResult = await queryAsAdmin({
+      query: LIST_QUERY,
+      variables: {
+        first: 10,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: 'entity_type',
+              operator: 'eq',
+              values: [ENTITY_TYPE_CONTAINER_REPORT, ENTITY_TYPE_CONTAINER, ABSTRACT_INTERNAL_OBJECT],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.globalSearch.edges.length).toEqual(0); // reports are not internal objects
     // (entity_type = Malware OR Software)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1100,7 +1257,7 @@ describe('Complex filters combinations for elastic queries', () => {
         filters: undefined,
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(41);
+    expect(queryResult.data.globalSearch.edges.length).toEqual(44);
     // (source_reliability is empty)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1120,7 +1277,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(32); // 41 entities - 9 entities with a source reliability = 32
+    expect(queryResult.data.globalSearch.edges.length).toEqual(33); // 44 entities - 11 entities with a source reliability = 33
     // (source_reliability is not empty)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1140,7 +1297,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(9); // 9 entities with a source reliability
+    expect(queryResult.data.globalSearch.edges.length).toEqual(11); // 11 entities with a source reliability
     // (source_reliability = A - Completely reliable)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1180,7 +1337,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(35); // 41 entities - 6 entities with source reliability equals to A = 35
+    expect(queryResult.data.globalSearch.edges.length).toEqual(38); // 44 entities - 6 entities with source reliability equals to A = 38
     // (source_reliability = A - Completely reliable OR B - Usually reliable)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1200,7 +1357,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(9); // 6 entities with source_reliability A + 3 with source_reliability B
+    expect(queryResult.data.globalSearch.edges.length).toEqual(11); // 6 entities with source_reliability A + 5 with source_reliability B
     // (source_reliability = A - Completely reliable AND B - Usually reliable)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1261,7 +1418,7 @@ describe('Complex filters combinations for elastic queries', () => {
       }
     });
     const numberOfEntitiesWithSourceReliabilityNotAOrNotB = queryResult.data.globalSearch.edges.length;
-    expect(numberOfEntitiesWithSourceReliabilityNotAOrNotB - numberOfEntitiesWithSourceReliabilityNotAAndNotB).toEqual(9); // number of entities with source_reliability A or B
+    expect(numberOfEntitiesWithSourceReliabilityNotAOrNotB - numberOfEntitiesWithSourceReliabilityNotAAndNotB).toEqual(11); // number of entities with source_reliability A or B
   });
   it('should list entities according to filters: combinations of operators and modes with the special filter key \'computed_reliability\'', async () => {
     // (computed_reliability is empty)
@@ -1283,7 +1440,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(30); // 41 - 9 with a source reliability - 2 with a reliability (and no source reliability) = 30
+    expect(queryResult.data.globalSearch.edges.length).toEqual(31); // 44 - 11 with a source reliability - 2 with a reliability (and no source reliability) = 31
     // (computed_reliability is not empty)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1303,7 +1460,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(11); // 9 entities with a source reliability + 2 entities with a reliability = 11
+    expect(queryResult.data.globalSearch.edges.length).toEqual(13); // 11 entities with a source reliability + 2 entities with a reliability = 13
     // (computed_reliability = A - Completely reliable)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1343,7 +1500,7 @@ describe('Complex filters combinations for elastic queries', () => {
         },
       }
     });
-    expect(queryResult.data.globalSearch.edges.length).toEqual(11); // 6 with source_reliability A + 3 with source_reliability B + 1 with reliability A + 1 with reliability B
+    expect(queryResult.data.globalSearch.edges.length).toEqual(13); // 6 with source_reliability A + 3 with source_reliability B + 1 with reliability A + 1 with reliability B
     // (computed_reliability = A - Completely reliable AND B - Usually reliable)
     queryResult = await queryAsAdmin({
       query: LIST_QUERY,
@@ -1412,6 +1569,325 @@ describe('Complex filters combinations for elastic queries', () => {
     expect(queryResult.data.globalSearch.edges.length).toEqual(1); // 1 intrusion-set targets this location
     expect(queryResult.data.globalSearch.edges[0].node.id).toEqual(intrusionSetInternalId);
   });
+  it(`should list relationships according to filters: combinations of operators and modes with the special filter key ${INSTANCE_RELATION_TYPES_FILTER}`, async () => {
+    // all stix core relationships
+    let queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: undefined,
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(24); // 24 stix core relationships
+    // (fromOrToTypes = Malware)
+    // <-> fromType = Malware OR toType = Malware
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Malware'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(4); // 4 relationship with fromType = Malware or toType = Malware
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: RELATION_FROM_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Malware'],
+              mode: 'or',
+            },
+            {
+              key: RELATION_TO_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Malware'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(4); // 4 relationship with fromType = Malware or toType = Malware
+    // (fromOrToTypes != Malware-Analysis)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'not_eq',
+              values: ['Malware-Analysis'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    // 24 relationships - 1 relationship (relationship--642f6fca-6c5a-495c-9419-9ee0a4a599ee) involving a Malware-Analysis
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(23);
+    // (fromTypes != Malware-Analysis)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: RELATION_FROM_TYPES_FILTER,
+              operator: 'not_eq',
+              values: ['Malware-Analysis'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    // 24 relationships - 1 relationship (relationship--642f6fca-6c5a-495c-9419-9ee0a4a599ee) with a Malware-Analysis as source ref
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(23);
+    // (fromTypes = Malware)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: RELATION_FROM_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Malware'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(2); // 2 relationships with a Malware as source ref
+    // (fromTypes = Malware OR Malware-Analysis)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: RELATION_FROM_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Malware', 'Malware-Analysis'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(3); // 2 relationships with a Malware as source ref + 1 with Malware-Analysis
+    // (fromTypes = Malware AND Malware-Analysis)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: RELATION_FROM_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Malware', 'Malware-Analysis'],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(0); // 0 relationships with a Malware and a Malware-Analysis as source ref
+    // (toTypes != Malware-Analysis)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: RELATION_TO_TYPES_FILTER,
+              operator: 'not_eq',
+              values: ['Malware-Analysis'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(24); // all the relationships have no malware analysis as target ref
+    // (fromOrToTypes = Attack-Pattern OR Malware)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Attack-Pattern', 'Malware'],
+              mode: 'or',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(5);
+    // (fromOrToTypes = Attack-Pattern AND Malware)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'eq',
+              values: ['Attack-Pattern', 'Malware'],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(2);
+    // (fromOrToTypes != Attack-Pattern AND Malware)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'not_eq',
+              values: ['Attack-Pattern', 'Malware'],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(19); // (24 relationships) - (5 relationships involving malware or attack pattern) = 19
+    // (fromOrToTypes is empty)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'nil',
+              values: [],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(0);
+    // (fromOrToId is empty)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_FILTER,
+              operator: 'nil',
+              values: [],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(0);
+    // (fromOrToTypes is not empty)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_TYPES_FILTER,
+              operator: 'not_nil',
+              values: [],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(24);
+    // (fromOrToId is not empty)
+    queryResult = await queryAsAdmin({
+      query: RELATIONSHIP_QUERY,
+      variables: {
+        first: 20,
+        filters: {
+          mode: 'or',
+          filters: [
+            {
+              key: INSTANCE_RELATION_FILTER,
+              operator: 'not_nil',
+              values: [],
+              mode: 'and',
+            }
+          ],
+          filterGroups: [],
+        },
+      }
+    });
+    expect(queryResult.data.stixCoreRelationships.edges.length).toEqual(24);
+  });
   it('should list entities according to filters: filters with not supported keys', async () => {
     // bad_filter_key = XX
     const queryResult = await queryAsAdmin({ query: LIST_QUERY,
@@ -1459,7 +1935,7 @@ describe('Complex filters combinations for elastic queries', () => {
           mode: 'and',
           filters: [{
             key: 'description',
-            // Look for this description value'Report for testing purposes (random data).'
+            // Look for this description value 'Report for testing purposes (random data).'
             values: ['for rt testing (rando purposes '],
             operator: 'search',
             mode: 'or',

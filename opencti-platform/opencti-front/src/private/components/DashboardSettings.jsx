@@ -10,7 +10,7 @@ import ListSubheader from '@mui/material/ListSubheader';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import React, { useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import makeStyles from '@mui/styles/makeStyles';
@@ -19,11 +19,14 @@ import { createStyles } from '@mui/styles';
 import { useFormatter } from '../../components/i18n';
 import { QueryRenderer } from '../../relay/environment';
 import useAuth from '../../utils/hooks/useAuth';
-import { EXPLORE } from '../../utils/hooks/useGranted';
+import useGranted, { EXPLORE, KNOWLEDGE } from '../../utils/hooks/useGranted';
 import Security from '../../utils/Security';
 import ItemIcon from '../../components/ItemIcon';
 import Transition from '../../components/Transition';
+import useApiMutation from '../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => createStyles({
   muiSelect: {
     display: 'flex',
@@ -38,6 +41,8 @@ const useStyles = makeStyles(() => createStyles({
     right: 30,
   }),
 }));
+
+export const PLATFORM_DASHBOARD = 'cf093b57-713f-404b-a210-a1c5c8cb3791';
 
 export const dashboardSettingsDashboardsQuery = graphql`
   query DashboardSettingsDashboardsQuery(
@@ -71,9 +76,8 @@ const dashboardSettingsMutation = graphql`
 `;
 
 const DashboardSettings = () => {
-  const {
-    bannerSettings: { bannerHeightNumber },
-  } = useAuth();
+  const { bannerSettings: { bannerHeightNumber } } = useAuth();
+  const hasKnowledgeAccess = useGranted([KNOWLEDGE]);
   const classes = useStyles({ bannerHeightNumber });
   const { t_i18n } = useFormatter();
   const {
@@ -84,17 +88,17 @@ const DashboardSettings = () => {
     },
   } = useAuth();
   const [open, setOpen] = useState(false);
-  const [updateDashboard] = useMutation(dashboardSettingsMutation);
+  const [updateDashboard] = useApiMutation(dashboardSettingsMutation);
   const handleUpdate = (name, newValue) => {
     let value = newValue;
-    if (value === 'default') {
+    if (value === 'automatic') {
       value = '';
     }
     updateDashboard({ variables: { input: [{ key: name, value }] } });
   };
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
-  return (
+  return hasKnowledgeAccess ? (
     <>
       <Fab
         onClick={handleOpen}
@@ -180,7 +184,7 @@ const DashboardSettings = () => {
                         </InputLabel>
                         <Select
                           labelId="dashboard"
-                          value={dashboard?.id ?? 'default'}
+                          value={dashboard?.id ?? 'automatic'}
                           onChange={(event) => handleUpdate(
                             'default_dashboard',
                             event.target.value,
@@ -191,15 +195,18 @@ const DashboardSettings = () => {
                             select: classes.muiSelect,
                           }}
                         >
-                          <MenuItem value="default">
-                            <em>{t_i18n('Automatic')}</em>
+                          <MenuItem value="automatic">
+                            <em>{t_i18n('Default dashboard')}</em>
                           </MenuItem>
-                          {dashboards?.length > 0 && (
+                          <MenuItem value={PLATFORM_DASHBOARD}>
+                            <em>{t_i18n('Platform dashboard')}</em>
+                          </MenuItem>
+                          {dashboards.length > 0 && (
                             <ListSubheader>
-                              {t_i18n('Recommended dashboards')}
+                              {t_i18n('Dashboards from your groups & organizations')}
                             </ListSubheader>
                           )}
-                          {dashboards?.map(({ id, name }) => (
+                          {dashboards.map(({ id, name }) => (
                             <MenuItem key={id} value={id}>
                               <ListItemIcon classes={{
                                 root: classes.muiSelectIcon,
@@ -211,7 +218,7 @@ const DashboardSettings = () => {
                             </MenuItem>
                           ))}
                           {workspaces?.length > 0 && (
-                            <ListSubheader>{t_i18n('Dashboards')}</ListSubheader>
+                            <ListSubheader>{t_i18n('Other custom dashboards')}</ListSubheader>
                           )}
                           {workspaces?.map(({ node }) => (
                             <MenuItem key={node.id} value={node.id}>
@@ -239,7 +246,7 @@ const DashboardSettings = () => {
         </DialogActions>
       </Dialog>
     </>
-  );
+  ) : <></>;
 };
 
 export default DashboardSettings;

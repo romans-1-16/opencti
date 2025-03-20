@@ -14,8 +14,9 @@ import {
   FilterAltOffOutlined,
   FilterListOutlined,
   GestureOutlined,
+  HubOutlined,
   LinkOutlined,
-  ReadMoreOutlined,
+  PolylineOutlined,
   ScatterPlotOutlined,
   VisibilityOutlined,
 } from '@mui/icons-material';
@@ -29,19 +30,26 @@ import Checkbox from '@mui/material/Checkbox';
 import Drawer from '@mui/material/Drawer';
 import Popover from '@mui/material/Popover';
 import Divider from '@mui/material/Divider';
-import TimeRange from 'react-timeline-range-slider';
 import { ResponsiveContainer, Scatter, ScatterChart, YAxis, ZAxis } from 'recharts';
 import Badge from '@mui/material/Badge';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Slide from '@mui/material/Slide';
+import { Form, Formik } from 'formik';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
+import FormGroup from '@mui/material/FormGroup';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import { ToggleButtonGroup } from '@mui/material';
+import ToggleButton from '@mui/material/ToggleButton';
+import CommitMessage from '../../common/form/CommitMessage';
+import StixNestedRefRelationshipCreationFromKnowledgeGraph from '../../common/stix_nested_ref_relationships/StixNestedRefRelationshipCreationFromKnowledgeGraph';
 import inject18n from '../../../../components/i18n';
-import ContainerAddStixCoreObjects from '../../common/containers/ContainerAddStixCoreObjects';
 import StixCoreRelationshipCreation from '../../common/stix_core_relationships/StixCoreRelationshipCreation';
-import { dateFormat } from '../../../../utils/Time';
+import { dateFormat, minutesBefore, now } from '../../../../utils/Time';
 import { truncate } from '../../../../utils/String';
 import StixCoreRelationshipEdition from '../../common/stix_core_relationships/StixCoreRelationshipEdition';
 import StixDomainObjectEdition from '../../common/stix_domain_objects/StixDomainObjectEdition';
@@ -55,10 +63,12 @@ import StixCyberObservableEdition from '../../observations/stix_cyber_observable
 import { isStixNestedRefRelationship } from '../../../../utils/Relation';
 import { convertCreatedBy, convertMarkings } from '../../../../utils/edition';
 import { UserContext } from '../../../../utils/hooks/useAuth';
+import ContainerAddStixCoreObjectsInGraph from '../../common/containers/ContainerAddStixCoreObjectsInGraph';
+import TimeRange from '../../../../components/range_slider/RangeSlider';
 
 const styles = () => ({
   bottomNav: {
-    zIndex: 1000,
+    zIndex: 1,
     display: 'flex',
     overflow: 'hidden',
   },
@@ -93,12 +103,15 @@ class GroupingKnowledgeGraphBar extends Component {
       relationReversed: false,
       sightingReversed: false,
       nestedReversed: false,
+      nestedRelationExist: false,
       openEditRelation: false,
       openEditSighting: false,
       openEditNested: false,
       openEditDomainObject: false,
       openEditObservable: false,
       displayRemove: false,
+      deleteObject: false,
+      referenceDialogOpened: false,
     };
   }
 
@@ -113,7 +126,11 @@ class GroupingKnowledgeGraphBar extends Component {
   }
 
   handleCloseRemove() {
-    this.setState({ displayRemove: false });
+    this.setState({ displayRemove: false, deleteObject: false });
+  }
+
+  handleToggleDeleteObject() {
+    this.setState({ deleteObject: !this.state.deleteObject });
   }
 
   handleOpenStixCoreObjectsTypes(event) {
@@ -171,7 +188,7 @@ class GroupingKnowledgeGraphBar extends Component {
   }
 
   handleCloseCreateRelationship() {
-    this.setState({ openCreatedRelation: false });
+    this.setState({ openCreatedRelation: false, relationReversed: null });
     this.props.handleCloseRelationCreation();
   }
 
@@ -196,11 +213,15 @@ class GroupingKnowledgeGraphBar extends Component {
   }
 
   handleCloseCreateNested() {
-    this.setState({ openCreatedNested: false });
+    this.setState({ openCreatedNested: false, nestedReversed: null });
   }
 
   handleReverseNested() {
     this.setState({ nestedReversed: !this.state.nestedReversed });
+  }
+
+  handleSetNestedRelationExist(val) {
+    this.setState({ nestedRelationExist: val });
   }
 
   handleOpenEditItem() {
@@ -289,10 +310,34 @@ class GroupingKnowledgeGraphBar extends Component {
     this.handleCloseSelectByType();
   }
 
+  closeReferencesPopup() {
+    this.setState({ referenceDialogOpened: false });
+  }
+
+  submitReference(values, { setSubmitting, resetForm }) {
+    const { handleDeleteSelected } = this.props;
+    const { deleteObject } = this.state;
+    const references = (values.references || []).map((ref) => ref.value);
+    this.handleCloseRemove();
+    handleDeleteSelected(deleteObject, values.message, references, setSubmitting, resetForm);
+  }
+
+  handleSubmitRemoveElements() {
+    const { enableReferences, handleDeleteSelected } = this.props;
+    const { deleteObject } = this.state;
+    if (enableReferences) {
+      this.setState({ referenceDialogOpened: true });
+    } else {
+      this.handleCloseRemove();
+      handleDeleteSelected(deleteObject);
+    }
+  }
+
   render() {
     const {
       t,
       classes,
+      currentQueryMode,
       currentMode3D,
       currentModeTree,
       currentModeFixed,
@@ -301,6 +346,7 @@ class GroupingKnowledgeGraphBar extends Component {
       currentStixCoreObjectsTypes,
       currentSelectRectangleModeFree,
       currentSelectModeFree,
+      handleToggleQueryMode,
       handleToggle3DMode,
       handleToggleTreeMode,
       handleToggleFixedMode,
@@ -336,6 +382,7 @@ class GroupingKnowledgeGraphBar extends Component {
       navOpen,
       resetAllFilters,
       selectModeFreeReady,
+      enableReferences,
     } = this.props;
     const {
       openStixCoreObjectsTypes,
@@ -357,6 +404,8 @@ class GroupingKnowledgeGraphBar extends Component {
       openEditDomainObject,
       openEditObservable,
       openEditNested,
+      deleteObject,
+      referenceDialogOpened,
     } = this.state;
     const isInferred = selectedNodes.filter((n) => n.inferred).length > 0
       || selectedLinks.filter((n) => n.inferred).length > 0;
@@ -413,6 +462,9 @@ class GroupingKnowledgeGraphBar extends Component {
         : [selectedNodes[0]];
     }
     const stixCoreObjectOrRelationshipId = (selectedNodes[0]?.id ?? null) || (selectedLinks[0]?.id ?? null);
+
+    const defaultTime = now();
+
     return (
       <UserContext.Consumer>
         {({ bannerSettings }) => (
@@ -846,7 +898,7 @@ class GroupingKnowledgeGraphBar extends Component {
                     }}
                   >
                     {onAdd && (
-                      <ContainerAddStixCoreObjects
+                      <ContainerAddStixCoreObjectsInGraph
                         containerId={grouping.id}
                         containerStixCoreObjects={grouping.objects.edges}
                         knowledgeGraph={true}
@@ -859,7 +911,43 @@ class GroupingKnowledgeGraphBar extends Component {
                         onAdd={onAdd}
                         onDelete={onDelete}
                         confidence={grouping.confidence}
+                        enableReferences={enableReferences}
                       />
+                    )}
+                    {handleToggleQueryMode && (
+                      <ToggleButtonGroup
+                        size="small"
+                        value={currentQueryMode}
+                        exclusive
+                        onChange={handleToggleQueryMode}
+                        sx={{
+                          padding: '6px 8px',
+                          marginBottom: '3px',
+                        }}
+                      >
+                        <Tooltip title={t('Show all correlated entities')}>
+                          <ToggleButton
+                            value="all-entities"
+                            selected={currentQueryMode === 'all-entities'}
+                          >
+                            <HubOutlined
+                              fontSize="small"
+                              color={currentQueryMode === 'all-entities' ? 'secondary' : 'primary'}
+                            />
+                          </ToggleButton>
+                        </Tooltip>
+                        <Tooltip title={t('Show only correlated observables and indicators')}>
+                          <ToggleButton
+                            value="indicators-and-observables"
+                            selected={currentQueryMode === 'indicators-and-observables'}
+                          >
+                            <PolylineOutlined
+                              fontSize="small"
+                              color={currentQueryMode === 'indicators-and-observables' ? 'secondary' : 'primary'}
+                            />
+                          </ToggleButton>
+                        </Tooltip>
+                      </ToggleButtonGroup>
                     )}
                     <Tooltip title={t('Edit the selected item')}>
                       <span>
@@ -942,10 +1030,10 @@ class GroupingKnowledgeGraphBar extends Component {
                         fromObjects={relationFromObjects}
                         toObjects={relationToObjects}
                         startTime={
-                          lastLinkFirstSeen || dateFormat(grouping.published)
+                          lastLinkFirstSeen || minutesBefore(1, defaultTime)
                         }
                         stopTime={
-                          lastLinkLastSeen || dateFormat(grouping.published)
+                          lastLinkLastSeen || defaultTime
                         }
                         confidence={grouping.confidence}
                         handleClose={this.handleCloseCreateRelationship.bind(
@@ -960,18 +1048,15 @@ class GroupingKnowledgeGraphBar extends Component {
                       />
                     )}
                     {onAddRelation && (
-                      <Tooltip title={t('Create a nested relationship')}>
-                        <span>
-                          <IconButton
-                            color="primary"
-                            onClick={this.handleOpenCreateNested.bind(this)}
-                            disabled={!nestedEnabled}
-                            size="large"
-                          >
-                            <ReadMoreOutlined />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <StixNestedRefRelationshipCreationFromKnowledgeGraph
+                        nestedRelationExist={this.state.nestedRelationExist}
+                        openCreateNested={this.state.openCreateNested}
+                        nestedEnabled={nestedEnabled}
+                        relationFromObjects={relationFromObjects}
+                        relationToObjects={relationToObjects}
+                        handleSetNestedRelationExist={this.handleSetNestedRelationExist.bind(this)}
+                        handleOpenCreateNested={this.handleOpenCreateNested.bind(this)}
+                      />
                     )}
                     {onAddRelation && (
                       <StixNestedRefRelationshipCreation
@@ -1053,27 +1138,72 @@ class GroupingKnowledgeGraphBar extends Component {
                       onClose={this.handleCloseRemove.bind(this)}
                     >
                       <DialogContent>
-                        <DialogContentText>
+                        <Typography variant="body">
                           {t(
                             'Do you want to remove these elements from this grouping?',
                           )}
-                        </DialogContentText>
+                        </Typography>
+                        <Alert
+                          severity="warning"
+                          variant="outlined"
+                          style={{ marginTop: 20 }}
+                        >
+                          <AlertTitle>{t('Cascade delete')}</AlertTitle>
+                          <FormGroup>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={deleteObject}
+                                  onChange={this.handleToggleDeleteObject.bind(
+                                    this,
+                                  )}
+                                />
+                                      }
+                              label={t(
+                                'Delete the element if no other containers contain it',
+                              )}
+                            />
+                          </FormGroup>
+                        </Alert>
                       </DialogContent>
                       <DialogActions>
                         <Button onClick={this.handleCloseRemove.bind(this)}>
                           {t('Cancel')}
                         </Button>
                         <Button
-                          onClick={() => {
-                            this.handleCloseRemove();
-                            handleDeleteSelected();
-                          }}
+                          onClick={this.handleSubmitRemoveElements.bind(this)}
                           color="secondary"
                         >
                           {t('Remove')}
                         </Button>
                       </DialogActions>
                     </Dialog>
+                    {enableReferences && (
+                    <Formik
+                      initialValues={{ message: '', references: [] }}
+                      onSubmit={this.submitReference.bind(this)}
+                    >
+                      {({
+                        submitForm,
+                        isSubmitting,
+                        setFieldValue,
+                        values,
+                      }) => (
+                        <Form>
+                          <CommitMessage
+                            handleClose={this.closeReferencesPopup.bind(this)}
+                            open={referenceDialogOpened}
+                            submitForm={submitForm}
+                            disabled={isSubmitting}
+                            setFieldValue={setFieldValue}
+                            values={values.references}
+                            id={grouping.id}
+                            noStoreUpdate={true}
+                          />
+                        </Form>
+                      )}
+                    </Formik>
+                    )}
                   </div>
                 )}
                 <div className="clearfix" />
@@ -1151,6 +1281,8 @@ GroupingKnowledgeGraphBar.propTypes = {
   classes: PropTypes.object,
   t: PropTypes.func,
   grouping: PropTypes.object,
+  handleToggleQueryMode: PropTypes.func,
+  currentQueryMode: PropTypes.string,
   handleToggle3DMode: PropTypes.func,
   currentMode3D: PropTypes.bool,
   handleToggleTreeMode: PropTypes.func,
@@ -1190,6 +1322,7 @@ GroupingKnowledgeGraphBar.propTypes = {
   timeRangeValues: PropTypes.array,
   theme: PropTypes.object,
   navOpen: PropTypes.bool,
+  enableReferences: PropTypes.bool,
 };
 
 export default R.compose(

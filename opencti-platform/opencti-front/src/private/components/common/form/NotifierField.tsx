@@ -10,6 +10,8 @@ import { NotifierFieldSearchQuery$data } from './__generated__/NotifierFieldSear
 import { Option } from './ReferenceField';
 import ItemIcon from '../../../../components/ItemIcon';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   icon: {
     paddingTop: 4,
@@ -26,10 +28,12 @@ const useStyles = makeStyles(() => ({
 }));
 
 interface NotifierFieldProps {
+  label?: string
   name: string;
   style?: { marginTop: number };
   helpertext?: string;
   onChange: (name: string, value: Option[]) => void;
+  required?: boolean
 }
 
 export const NotifierFieldQuery = graphql`
@@ -46,10 +50,12 @@ export const NotifierFieldQuery = graphql`
 `;
 
 const NotifierField: FunctionComponent<NotifierFieldProps> = ({
+  label,
   name,
   style,
   helpertext,
   onChange,
+  required = false,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
@@ -82,10 +88,11 @@ const NotifierField: FunctionComponent<NotifierFieldProps> = ({
         style={fieldSpacingContainerStyle ?? style}
         textfieldprops={{
           variant: 'standard',
-          label: t_i18n('Notifiers'),
+          label: label ?? t_i18n('Notifiers'),
           helperText: helpertext,
           onFocus: searchNotifiers,
         }}
+        required={required}
         noOptionsText={t_i18n('No available options')}
         options={notifiersTemplates}
         onInputChange={searchNotifiers}

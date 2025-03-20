@@ -1,15 +1,22 @@
 /* eslint-disable no-underscore-dangle */
+import { defaultProvider } from '@aws-sdk/credential-provider-node';
+import { getDefaultRoleAssumerWithWebIdentity } from '@aws-sdk/client-sts';
 import { Client as ElkClient } from '@elastic/elasticsearch';
 import { Client as OpenClient } from '@opensearch-project/opensearch';
+/* eslint-disable import/no-unresolved */
+import { AwsSigv4Signer } from '@opensearch-project/opensearch/aws';
 import { Promise as BluePromise } from 'bluebird';
 import * as R from 'ramda';
 import semver from 'semver';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION, SEMATTRS_DB_STATEMENT } from '@opentelemetry/semantic-conventions';
 import * as jsonpatch from 'fast-json-patch';
 import {
   buildPagination,
   cursorToOffset,
   ES_INDEX_PREFIX,
+  getIndicesToQuery,
+  INDEX_DELETED_OBJECTS,
+  INDEX_DRAFT_OBJECTS,
   INDEX_INTERNAL_OBJECTS,
   inferIndexFromConceptType,
   isEmptyField,
@@ -19,7 +26,10 @@ import {
   offsetToCursor,
   pascalize,
   READ_DATA_INDICES,
+  READ_DATA_INDICES_WITHOUT_INFERRED,
+  READ_DATA_INDICES_WITHOUT_INTERNAL_WITHOUT_INFERRED,
   READ_ENTITIES_INDICES,
+  READ_ENTITIES_INDICES_WITHOUT_INFERRED,
   READ_INDEX_INFERRED_ENTITIES,
   READ_INDEX_INFERRED_RELATIONSHIPS,
   READ_INDEX_INTERNAL_OBJECTS,
@@ -33,12 +43,13 @@ import {
   READ_INDEX_STIX_SIGHTING_RELATIONSHIPS,
   READ_PLATFORM_INDICES,
   READ_RELATIONSHIPS_INDICES,
+  READ_RELATIONSHIPS_INDICES_WITHOUT_INFERRED,
   UPDATE_OPERATION_ADD,
   waitInSec,
   WRITE_PLATFORM_INDICES
 } from './utils';
-import conf, { booleanConf, loadCert, logApp } from '../config/conf';
-import { ComplexSearchError, ConfigurationError, DatabaseError, EngineShardsError, FunctionalError, UnsupportedError } from '../config/errors';
+import conf, { booleanConf, extendedErrors, loadCert, logApp, logMigration } from '../config/conf';
+import { ComplexSearchError, ConfigurationError, DatabaseError, EngineShardsError, FunctionalError, LockTimeoutError, TYPE_LOCK_ERROR, UnsupportedError } from '../config/errors';
 import {
   isStixRefRelationship,
   RELATION_CREATED_BY,
@@ -48,6 +59,7 @@ import {
   RELATION_OBJECT_LABEL,
   RELATION_OBJECT_MARKING,
   RELATION_OBJECT_PARTICIPANT,
+  STIX_REF_RELATIONSHIP_TYPES
 } from '../schema/stixRefRelationship';
 import {
   ABSTRACT_BASIC_RELATIONSHIP,
@@ -60,13 +72,12 @@ import {
   ID_INTERNAL,
   ID_STANDARD,
   IDS_STIX,
-  INTERNAL_IDS_ALIASES,
   isAbstract,
   REL_INDEX_PREFIX,
-  RULE_PREFIX,
+  RULE_PREFIX
 } from '../schema/general';
 import { isModifiedObject, isUpdatedAtObject, } from '../schema/fieldDataAdapter';
-import { getParentTypes, keepMostRestrictiveTypes } from '../schema/schemaUtils';
+import { generateInternalType, getParentTypes, keepMostRestrictiveTypes } from '../schema/schemaUtils';
 import {
   ATTRIBUTE_ABSTRACT,
   ATTRIBUTE_ALIASES,
@@ -76,23 +87,44 @@ import {
   ATTRIBUTE_EXPLANATION,
   ATTRIBUTE_NAME,
   ENTITY_TYPE_IDENTITY_INDIVIDUAL,
+  ENTITY_TYPE_IDENTITY_SECTOR,
   ENTITY_TYPE_IDENTITY_SYSTEM,
+  ENTITY_TYPE_LOCATION_CITY,
   ENTITY_TYPE_LOCATION_COUNTRY,
+  ENTITY_TYPE_LOCATION_REGION,
   isStixDomainObject,
-  isStixObjectAliased,
+  STIX_ORGANIZATIONS_RESTRICTED,
   STIX_ORGANIZATIONS_UNRESTRICTED
 } from '../schema/stixDomainObject';
 import { isBasicObject, isStixCoreObject, isStixObject } from '../schema/stixCoreObject';
 import { isBasicRelationship, isStixRelationship } from '../schema/stixRelationship';
-import { isStixCoreRelationship, RELATION_INDICATES, STIX_CORE_RELATIONSHIPS } from '../schema/stixCoreRelationship';
-import { INTERNAL_FROM_FIELD, INTERNAL_TO_FIELD } from '../schema/identifier';
-import { BYPASS, computeUserMemberAccessIds, executionContext, INTERNAL_USERS, isBypassUser, MEMBER_ACCESS_ALL, SYSTEM_USER } from '../utils/access';
+import {
+  isStixCoreRelationship,
+  RELATION_INDICATES,
+  RELATION_LOCATED_AT,
+  RELATION_PUBLISHES,
+  RELATION_RELATED_TO,
+  RELATION_TARGETS,
+  STIX_CORE_RELATIONSHIPS
+} from '../schema/stixCoreRelationship';
+import { generateInternalId, INTERNAL_FROM_FIELD, INTERNAL_TO_FIELD } from '../schema/identifier';
+import {
+  BYPASS,
+  computeUserMemberAccessIds,
+  controlUserRestrictDeleteAgainstElement,
+  executionContext,
+  INTERNAL_USERS,
+  isBypassUser,
+  MEMBER_ACCESS_ALL,
+  SYSTEM_USER,
+  userFilterStoreElements
+} from '../utils/access';
 import { isSingleRelationsRef, } from '../schema/stixEmbeddedRelationship';
 import { now, runtimeFieldObservableValueScript } from '../utils/format';
 import { ENTITY_TYPE_KILL_CHAIN_PHASE, ENTITY_TYPE_MARKING_DEFINITION, isStixMetaObject } from '../schema/stixMetaObject';
 import { getEntitiesListFromCache, getEntityFromCache } from './cache';
 import { ENTITY_TYPE_MIGRATION_STATUS, ENTITY_TYPE_SETTINGS, ENTITY_TYPE_STATUS, ENTITY_TYPE_USER, isInternalObject } from '../schema/internalObject';
-import { telemetry } from '../config/tracing';
+import { meterManager, telemetry } from '../config/tracing';
 import {
   isBooleanAttribute,
   isDateAttribute,
@@ -104,7 +136,7 @@ import {
   validateDataBeforeIndexing
 } from '../schema/schema-attributes';
 import { convertTypeToStixType } from './stix-converter';
-import { extractEntityRepresentativeName } from './entity-representative';
+import { extractEntityRepresentativeName, extractRepresentative } from './entity-representative';
 import { ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../modules/organization/organization-types';
 import { checkAndConvertFilters, isFilterGroupNotEmpty } from '../utils/filtering/filtering-utils';
 import {
@@ -112,9 +144,9 @@ import {
   complexConversionFilterKeys,
   COMPUTED_RELIABILITY_FILTER,
   IDS_FILTER,
-  INSTANCE_FILTER_TARGET_TYPES,
   INSTANCE_REGARDING_OF,
   INSTANCE_RELATION_FILTER,
+  INSTANCE_RELATION_TYPES_FILTER,
   RELATION_FROM_FILTER,
   RELATION_FROM_ROLE_FILTER,
   RELATION_FROM_TYPES_FILTER,
@@ -129,30 +161,56 @@ import {
   X_OPENCTI_WORKFLOW_ID
 } from '../utils/filtering/filtering-constants';
 import { FilterMode } from '../generated/graphql';
-import { booleanMapping, dateMapping, longStringFormats, numericMapping, shortMapping, shortStringFormats, textMapping } from '../schema/attribute-definition';
+import {
+  booleanMapping,
+  dateMapping,
+  iAliasedIds,
+  internalId,
+  longStringFormats,
+  numericMapping,
+  shortMapping,
+  shortStringFormats,
+  standardId,
+  textMapping,
+  xOpenctiStixIds
+} from '../schema/attribute-definition';
 import { schemaTypesDefinition } from '../schema/schema-types';
 import { INTERNAL_RELATIONSHIPS, isInternalRelationship } from '../schema/internalRelationship';
 import { isStixSightingRelationship, STIX_SIGHTING_RELATIONSHIP } from '../schema/stixSightingRelationship';
 import { rule_definitions } from '../rules/rules-definition';
+import { buildElasticSortingForAttributeCriteria } from '../utils/sorting';
+import { ENTITY_TYPE_DELETE_OPERATION } from '../modules/deleteOperation/deleteOperation-types';
+import { buildEntityData } from './data-builder';
+import { buildDraftFilter, isDraftSupportedEntity } from './draft-utils';
+import { controlUserConfidenceAgainstElement } from '../utils/confidence-level';
+import { getDraftContext } from '../utils/draftContext';
+import { enrichWithRemoteCredentials } from '../config/credentials';
+import { ENTITY_TYPE_DRAFT_WORKSPACE } from '../modules/draftWorkspace/draftWorkspace-types';
+import { ENTITY_IPV4_ADDR, ENTITY_IPV6_ADDR, isStixCyberObservable } from '../schema/stixCyberObservable';
+import { lockResources } from '../lock/master-lock';
+import { DRAFT_OPERATION_CREATE, DRAFT_OPERATION_DELETE, DRAFT_OPERATION_DELETE_LINKED, DRAFT_OPERATION_UPDATE_LINKED } from '../modules/draftWorkspace/draftOperations';
 
 const ELK_ENGINE = 'elk';
 const OPENSEARCH_ENGINE = 'opensearch';
 export const ES_MAX_CONCURRENCY = conf.get('elasticsearch:max_concurrency');
 export const ES_DEFAULT_WILDCARD_PREFIX = booleanConf('elasticsearch:search_wildcard_prefix', false);
 export const ES_DEFAULT_FUZZY = booleanConf('elasticsearch:search_fuzzy', false);
+export const ES_INIT_MAPPING_MIGRATION = conf.get('elasticsearch:internal_init_mapping_migration') || 'off'; // off / old / standard
+export const ES_IS_OLD_MAPPING = ES_INIT_MAPPING_MIGRATION === 'old';
+export const ES_IS_INIT_MIGRATION = ES_INIT_MAPPING_MIGRATION === 'standard' || ES_IS_OLD_MAPPING;
 export const ES_MINIMUM_FIXED_PAGINATION = 20; // When really low pagination is better by default
 export const ES_DEFAULT_PAGINATION = conf.get('elasticsearch:default_pagination_result') || 500;
 export const ES_MAX_PAGINATION = conf.get('elasticsearch:max_pagination_result') || 5000;
 export const MAX_BULK_OPERATIONS = conf.get('elasticsearch:max_bulk_operations') || 5000;
 export const MAX_RUNTIME_RESOLUTION_SIZE = conf.get('elasticsearch:max_runtime_resolutions') || 5000;
 export const MAX_RELATED_CONTAINER_RESOLUTION = conf.get('elasticsearch:max_container_resolutions') || 1000;
-const ES_INDEX_PATTERN_SUFFIX = conf.get('elasticsearch:index_creation_pattern');
+export const MAX_RELATED_CONTAINER_OBJECT_RESOLUTION = conf.get('elasticsearch:max_container_object_resolutions') || 100000;
+export const ES_INDEX_PATTERN_SUFFIX = conf.get('elasticsearch:index_creation_pattern');
 const ES_MAX_RESULT_WINDOW = conf.get('elasticsearch:max_result_window') || 100000;
 const ES_INDEX_SHARD_NUMBER = conf.get('elasticsearch:number_of_shards');
 const ES_INDEX_REPLICA_NUMBER = conf.get('elasticsearch:number_of_replicas');
 
 const ES_PRIMARY_SHARD_SIZE = conf.get('elasticsearch:max_primary_shard_size') || '50gb';
-const ES_MAX_AGE = conf.get('elasticsearch:max_age') || '365d';
 const ES_MAX_DOCS = conf.get('elasticsearch:max_docs') || 75000000;
 
 const TOO_MANY_CLAUSES = 'too_many_nested_clauses';
@@ -172,48 +230,52 @@ export const UNIMPACTED_ENTITIES_ROLE = [
   `${RELATION_GRANTED_TO}_${ROLE_TO}`,
   `${RELATION_OBJECT_LABEL}_${ROLE_TO}`,
   `${RELATION_KILL_CHAIN_PHASE}_${ROLE_TO}`,
+  `${RELATION_PUBLISHES}_${ROLE_FROM}`,
   // RELATION_OBJECT
   // RELATION_EXTERNAL_REFERENCE
   `${RELATION_INDICATES}_${ROLE_TO}`,
 ];
-export const isImpactedTypeAndSide = (type, side) => {
+const LOCATED_AT_CLEANED = [ENTITY_TYPE_LOCATION_REGION, ENTITY_TYPE_LOCATION_COUNTRY];
+const UNSUPPORTED_LOCATED_AT = [ENTITY_IPV4_ADDR, ENTITY_IPV6_ADDR, ENTITY_TYPE_LOCATION_CITY];
+export const isSpecialNonImpactedCases = (relationshipType, fromType, toType, side) => {
+  // The relationship is a related-to from an observable to "something" (generally, it is an intrusion set, a malware, etc.)
+  // This is to avoid for instance Emotet having 200K related-to.
+  // As a consequence, no entities view on the observable side.
+  if (side === ROLE_TO && relationshipType === RELATION_RELATED_TO && isStixCyberObservable(fromType)) {
+    return true;
+  }
+  // This relationship is a located-at from IPv4 / IPv6 / City to a country or a region
+  // This is to avoid having too big region entities
+  // As a consequence, no entities view in city / knowledge / regions,
+  if (side === ROLE_TO && relationshipType === RELATION_LOCATED_AT && UNSUPPORTED_LOCATED_AT.includes(fromType) && LOCATED_AT_CLEANED.includes(toType)) {
+    return true;
+  }
+  // Rel on the "to" side with targets from any threat to region / country / sector
+  if (side === ROLE_TO && relationshipType === RELATION_TARGETS && [ENTITY_TYPE_LOCATION_REGION, ENTITY_TYPE_LOCATION_COUNTRY, ENTITY_TYPE_IDENTITY_SECTOR].includes(toType)) {
+    return true;
+  }
+  return false;
+};
+export const isImpactedTypeAndSide = (type, fromType, toType, side) => {
+  if (isSpecialNonImpactedCases(type, fromType, toType, side)) {
+    return false;
+  }
   return !UNIMPACTED_ENTITIES_ROLE.includes(`${type}_${side}`);
 };
-export const isImpactedRole = (role) => !UNIMPACTED_ENTITIES_ROLE.includes(role);
-
-const ca = conf.get('elasticsearch:ssl:ca')
-  ? loadCert(conf.get('elasticsearch:ssl:ca'))
-  : conf.get('elasticsearch:ssl:ca_plain') || null;
-
-const searchConfiguration = {
-  node: conf.get('elasticsearch:url'),
-  proxy: conf.get('elasticsearch:proxy') || null,
-  auth: {
-    username: conf.get('elasticsearch:username') || null,
-    password: conf.get('elasticsearch:password') || null,
-    apiKey: conf.get('elasticsearch:api_key') || null,
-  },
-  maxRetries: conf.get('elasticsearch:max_retries') || 3,
-  requestTimeout: conf.get('elasticsearch:request_timeout') || 30000,
-  sniffOnStart: booleanConf('elasticsearch:sniff_on_start', false),
-  ssl: { // For Opensearch 2+ and Elastic 7
-    ca,
-    rejectUnauthorized: booleanConf('elasticsearch:ssl:reject_unauthorized', true),
-  },
-  tls: { // For Elastic 8+
-    ca,
-    rejectUnauthorized: booleanConf('elasticsearch:ssl:reject_unauthorized', true),
-  },
+export const isImpactedRole = (type, fromType, toType, role) => {
+  if (isSpecialNonImpactedCases(type, fromType, toType, role.split('_').at(1))) {
+    return false;
+  }
+  return !UNIMPACTED_ENTITIES_ROLE.includes(role);
 };
 
-const elasticSearchClient = new ElkClient(searchConfiguration);
-const openSearchClient = new OpenClient(searchConfiguration);
+let engine;
 let isRuntimeSortingEnable = false;
 let attachmentProcessorEnabled = false;
+
 export const isAttachmentProcessorEnabled = () => {
   return attachmentProcessorEnabled === true;
 };
-let engine = openSearchClient;
 
 // The OpenSearch/ELK Body Parser (oebp)
 // Starting ELK8+, response are no longer inside a body envelop
@@ -236,8 +298,7 @@ export const searchEngineVersion = async () => {
     );
   const searchPlatform = searchInfo.distribution || ELK_ENGINE; // openSearch or elasticSearch
   const searchVersion = searchInfo.number;
-  const localEngine = searchPlatform === ELK_ENGINE ? elasticSearchClient : openSearchClient;
-  return { platform: searchPlatform, version: searchVersion, engine: localEngine };
+  return { platform: searchPlatform, version: searchVersion };
 };
 
 export const isEngineAlive = async () => {
@@ -248,12 +309,51 @@ export const isEngineAlive = async () => {
     throw DatabaseError('Invalid database content, missing migration schema');
   }
 };
+
 export const searchEngineInit = async () => {
+  // Build the engine configuration
+  const ca = conf.get('elasticsearch:ssl:ca')
+    ? loadCert(conf.get('elasticsearch:ssl:ca'))
+    : conf.get('elasticsearch:ssl:ca_plain') || null;
+  const region = conf.get('opensearch:region');
+  const searchConfiguration = {
+    node: conf.get('elasticsearch:url'),
+    proxy: conf.get('elasticsearch:proxy') || null,
+    auth: {
+      username: conf.get('elasticsearch:username') || null,
+      password: conf.get('elasticsearch:password') || null,
+      apiKey: conf.get('elasticsearch:api_key') || null,
+    },
+    maxRetries: conf.get('elasticsearch:max_retries') || 3,
+    requestTimeout: conf.get('elasticsearch:request_timeout') || 30000,
+    sniffOnStart: booleanConf('elasticsearch:sniff_on_start', false),
+    ssl: { // For Opensearch 2+ and Elastic 7
+      ca,
+      rejectUnauthorized: booleanConf('elasticsearch:ssl:reject_unauthorized', true),
+    },
+    tls: { // For Elastic 8+
+      ca,
+      rejectUnauthorized: booleanConf('elasticsearch:ssl:reject_unauthorized', true),
+    },
+    ...(region ? AwsSigv4Signer({
+      region,
+      service: conf.get('opensearch:service') || 'es',
+      getCredentials: () => {
+        const credentialsProvider = defaultProvider({
+          roleAssumerWithWebIdentity: getDefaultRoleAssumerWithWebIdentity({ region })
+        });
+        return credentialsProvider();
+      }
+    }) : {})
+  };
+  searchConfiguration.auth = await enrichWithRemoteCredentials('elasticsearch', searchConfiguration.auth);
   // Select the correct engine
   let engineVersion;
   let enginePlatform;
   const engineSelector = conf.get('elasticsearch:engine_selector') || 'auto';
   const engineCheck = booleanConf('elasticsearch:engine_check', true);
+  const elasticSearchClient = new ElkClient(searchConfiguration);
+  const openSearchClient = new OpenClient(searchConfiguration);
   if (engineSelector === ELK_ENGINE) {
     logApp.info(`[SEARCH] Engine ${ELK_ENGINE} client selected by configuration`);
     engine = elasticSearchClient;
@@ -278,8 +378,8 @@ export const searchEngineInit = async () => {
     const searchVersion = await searchEngineVersion();
     enginePlatform = searchVersion.platform;
     logApp.info(`[SEARCH] Engine detected to ${enginePlatform}`);
-    engine = searchVersion.engine;
     engineVersion = searchVersion.version;
+    engine = enginePlatform === ELK_ENGINE ? elasticSearchClient : openSearchClient;
   }
   // Setup the platform runtime field option
   isRuntimeSortingEnable = enginePlatform === ELK_ENGINE && semver.satisfies(engineVersion, '>=7.12.x');
@@ -293,7 +393,9 @@ export const searchEngineInit = async () => {
 export const isRuntimeSortEnable = () => isRuntimeSortingEnable;
 
 export const elRawSearch = (context, user, types, query) => {
-  const elRawSearchFn = async () => engine.search(query).then((r) => {
+  // Add signal to prevent unwanted warning
+  // Waiting for https://github.com/elastic/elastic-transport-js/issues/63
+  const elRawSearchFn = async () => engine.search(query, { signal: new AbortController().signal }).then((r) => {
     const parsedSearch = oebp(r);
     if (parsedSearch._shards.failed > 0) {
       // We do not support response with shards failure.
@@ -305,47 +407,49 @@ export const elRawSearch = (context, user, types, query) => {
     return parsedSearch;
   });
   return telemetry(context, user, `SELECT ${Array.isArray(types) ? types.join(', ') : (types || 'None')}`, {
-    [SemanticAttributes.DB_NAME]: 'search_engine',
-    [SemanticAttributes.DB_OPERATION]: 'read',
-    [SemanticAttributes.DB_STATEMENT]: JSON.stringify(query),
+    [SEMATTRS_DB_NAME]: 'search_engine',
+    [SEMATTRS_DB_OPERATION]: 'read',
+    [SEMATTRS_DB_STATEMENT]: JSON.stringify(query),
   }, elRawSearchFn);
 };
 export const elRawDeleteByQuery = (query) => engine.deleteByQuery(query).then((r) => oebp(r));
 export const elRawBulk = (args) => engine.bulk(args).then((r) => oebp(r));
 export const elRawUpdateByQuery = (query) => engine.updateByQuery(query).then((r) => oebp(r));
+export const elRawReindexByQuery = (query) => engine.reindex(query).then((r) => oebp(r));
 
 const elOperationForMigration = (operation) => {
   const elGetTask = (taskId) => engine.tasks.get({ task_id: taskId }).then((r) => oebp(r));
 
   return async (message, index, body) => {
-    logApp.info(`${message} > started`);
+    logMigration.info(`${message} > started`);
     // Execute the update by query in async mode
     const queryAsync = await operation({
-      index,
+      ...(index ? { index } : {}),
       refresh: true,
       wait_for_completion: false,
       body
     }).catch((err) => {
       throw DatabaseError('Async engine bulk migration fail', { migration: message, cause: err });
     });
-    logApp.info(`${message} > elastic running task ${queryAsync.task}`);
+    logMigration.info(`${message} > elastic running task ${queryAsync.task}`);
     // Wait 10 seconds for task to initialize
     await waitInSec(10);
     // Monitor the task until completion
     let taskStatus = await elGetTask(queryAsync.task);
     while (!taskStatus.completed) {
       const { total, updated } = taskStatus.task.status;
-      logApp.info(`${message} > in progress - ${updated}/${total}`);
+      logMigration.info(`${message} > in progress - ${updated}/${total}`);
       await waitInSec(5);
       taskStatus = await elGetTask(queryAsync.task);
     }
     const timeSec = Math.round(taskStatus.task.running_time_in_nanos / 1e9);
-    logApp.info(`${message} > done in ${timeSec} seconds`);
+    logMigration.info(`${message} > done in ${timeSec} seconds`);
   };
 };
 
 export const elUpdateByQueryForMigration = elOperationForMigration(elRawUpdateByQuery);
 export const elDeleteByQueryForMigration = elOperationForMigration(elRawDeleteByQuery);
+export const elReindexByQueryForMigration = elOperationForMigration(elRawReindexByQuery);
 
 export const buildDataRestrictions = async (context, user, opts = {}) => {
   const must = [];
@@ -356,7 +460,7 @@ export const buildDataRestrictions = async (context, user, opts = {}) => {
     return { must, must_not };
   }
   // check user access
-  must.push(...buildUserMemberAccessFilter(user, opts?.includeAuthorities));
+  must.push(...buildUserMemberAccessFilter(user, { includeAuthorities: opts?.includeAuthorities }));
   // If user have bypass, no need to check restrictions
   if (!isBypassUser(user)) {
     // region Handle marking restrictions
@@ -415,10 +519,25 @@ export const buildDataRestrictions = async (context, user, opts = {}) => {
     // If user have organization management role, he can bypass this restriction.
     // If platform is for specific organization, only user from this organization can access empty defined
     const settings = await getEntityFromCache(context, user, ENTITY_TYPE_SETTINGS);
-    const excludedEntityMatches = [
-      { terms: { 'parent_types.keyword': STIX_ORGANIZATIONS_UNRESTRICTED } },
-      { terms: { 'entity_type.keyword': STIX_ORGANIZATIONS_UNRESTRICTED } }
-    ];
+    // We want to exlucde a set of entities from organization restrictions while forcing restrictions for an other set of entities
+    const excludedEntityMatches = {
+      bool: {
+        must: [
+          {
+            bool: { must_not: [{ terms: { 'entity_type.keyword': STIX_ORGANIZATIONS_RESTRICTED } }] }
+          },
+          {
+            bool: {
+              should: [
+                { terms: { 'parent_types.keyword': STIX_ORGANIZATIONS_UNRESTRICTED } },
+                { terms: { 'entity_type.keyword': STIX_ORGANIZATIONS_UNRESTRICTED } }
+              ],
+              minimum_should_match: 1
+            }
+          }
+        ]
+      }
+    };
     if (settings.platform_organization) {
       if (user.inside_platform_organization) {
         // Data are visible independently of the organizations
@@ -426,8 +545,8 @@ export const buildDataRestrictions = async (context, user, opts = {}) => {
       } else {
         // Data with Empty granted_refs are not visible
         // Data with granted_refs users that participate to at least one
-        const should = [...excludedEntityMatches];
-        const shouldOrgs = user.allowed_organizations
+        const should = [excludedEntityMatches];
+        const shouldOrgs = user.organizations
           .map((m) => ({ match: { [buildRefRelationSearchKey(RELATION_GRANTED_TO)]: m.internal_id } }));
         should.push(...shouldOrgs);
         // User individual or data created by this individual must be accessible
@@ -435,43 +554,34 @@ export const buildDataRestrictions = async (context, user, opts = {}) => {
           should.push({ match: { 'internal_id.keyword': user.individual_id } });
           should.push({ match: { [buildRefRelationSearchKey(RELATION_CREATED_BY)]: user.individual_id } });
         }
+        // For tasks
+        should.push({ match: { 'initiator_id.keyword': user.internal_id } });
+        // Access to authorized members
+        should.push(...buildUserMemberAccessFilter(user, { includeAuthorities: opts?.includeAuthorities, excludeEmptyAuthorizedMembers: true }));
         // Finally build the bool should search
         must.push({ bool: { should, minimum_should_match: 1 } });
       }
-    } else {
-      // Data with Empty granted_refs are granted to everyone
-      const should = [...excludedEntityMatches];
-      should.push({ bool: { must_not: [{ exists: { field: buildRefRelationSearchKey(RELATION_GRANTED_TO) } }] } });
-      // Data with granted_refs users that participate to at least one
-      if (user.allowed_organizations.length > 0) {
-        const shouldOrgs = user.allowed_organizations
-          .map((m) => ({ match: { [buildRefRelationSearchKey(RELATION_GRANTED_TO)]: m.internal_id } }));
-        should.push(...shouldOrgs);
-      }
-      // User individual or data created by this individual must be accessible
-      if (user.individual_id) {
-        should.push({ match: { 'internal_id.keyword': user.individual_id } });
-        should.push({ match: { [buildRefRelationSearchKey(RELATION_CREATED_BY)]: user.individual_id } });
-      }
-      // Finally build the bool should search
-      must.push({ bool: { should, minimum_should_match: 1 } });
     }
     // endregion
   }
   return { must, must_not };
 };
 
-export const buildUserMemberAccessFilter = (user, includeAuthorities = false) => {
+const buildUserMemberAccessFilter = (user, opts) => {
+  const { includeAuthorities = false, excludeEmptyAuthorizedMembers = false } = opts;
   const capabilities = user.capabilities.map((c) => c.name);
   if (includeAuthorities && capabilities.includes(BYPASS)) {
     return [];
   }
   const userAccessIds = computeUserMemberAccessIds(user);
   // if access_users exists, it should have the user access ids
+  const emptyAuthorizedMembers = { bool: { must_not: { exists: { field: 'authorized_members' } } } };
   const authorizedFilters = [
-    { bool: { must_not: { exists: { field: 'authorized_members' } } } },
     { terms: { 'authorized_members.id.keyword': [MEMBER_ACCESS_ALL, ...userAccessIds] } },
   ];
+  if (!excludeEmptyAuthorizedMembers) {
+    authorizedFilters.push(emptyAuthorizedMembers);
+  }
   if (includeAuthorities) {
     const roleIds = user.roles.map((r) => r.id);
     const owners = [...userAccessIds, ...capabilities, ...roleIds];
@@ -482,7 +592,11 @@ export const buildUserMemberAccessFilter = (user, includeAuthorities = false) =>
 
 export const elIndexExists = async (indexName) => {
   const existIndex = await engine.indices.exists({ index: indexName });
-  return oebp(existIndex) === true;
+  return existIndex === true || oebp(existIndex) === true || existIndex.body === true;
+};
+export const elIndexGetAlias = async (indexName) => {
+  const indexAlias = await engine.indices.getAlias({ index: indexName });
+  return oebp(indexAlias);
 };
 export const elPlatformIndices = async () => {
   const listIndices = await engine.cat.indices({ index: `${ES_INDEX_PREFIX}*`, format: 'JSON' });
@@ -515,7 +629,6 @@ const elCreateLifecyclePolicy = async () => {
               actions: {
                 rollover: {
                   max_primary_shard_size: ES_PRIMARY_SHARD_SIZE,
-                  max_age: ES_MAX_AGE,
                   max_docs: ES_MAX_DOCS
                 },
                 set_priority: {
@@ -544,7 +657,6 @@ const elCreateLifecyclePolicy = async () => {
                 {
                   rollover: {
                     min_primary_shard_size: ES_PRIMARY_SHARD_SIZE,
-                    min_index_age: ES_MAX_AGE,
                     min_doc_count: ES_MAX_DOCS
                   }
                 }],
@@ -555,12 +667,13 @@ const elCreateLifecyclePolicy = async () => {
             priority: 100
           }
         }
-      } }).catch((e) => {
+      }
+    }).catch((e) => {
       throw DatabaseError('Creating lifecycle policy fail', { cause: e });
     });
   }
 };
-const elCreateCoreSettings = async () => {
+const updateCoreSettings = async () => {
   await engine.cluster.putComponentTemplate({
     name: `${ES_INDEX_PREFIX}-core-settings`,
     create: false,
@@ -715,6 +828,206 @@ const computeIndexSettings = (rolloverAlias) => {
   };
 };
 
+// Only useful for option ES_INIT_RETRO_MAPPING_MIGRATION
+// This mode let the platform initialize old mapping protection before direct stop
+// Its only useful when old platform needs to be reindex
+const getRetroCompatibleMappings = () => {
+  const flattenedType = engine instanceof ElkClient ? 'flattened' : 'flat_object';
+  return {
+    internal_id: {
+      type: 'text',
+      fields: {
+        keyword: {
+          type: 'keyword',
+          normalizer: 'string_normalizer',
+          ignore_above: 512,
+        },
+      },
+    },
+    standard_id: {
+      type: 'text',
+      fields: {
+        keyword: {
+          type: 'keyword',
+          normalizer: 'string_normalizer',
+          ignore_above: 512,
+        },
+      },
+    },
+    user_email: {
+      type: 'text',
+      fields: {
+        keyword: {
+          type: 'keyword',
+          normalizer: 'string_normalizer',
+          ignore_above: 512,
+        },
+      },
+    },
+    name: {
+      type: 'text',
+      fields: {
+        keyword: {
+          type: 'keyword',
+          normalizer: 'string_normalizer',
+          ignore_above: 512,
+        },
+      },
+    },
+    height: {
+      type: 'nested',
+      properties: {
+        measure: { type: 'float' },
+        date_seen: { type: 'date' },
+      },
+    },
+    weight: {
+      type: 'nested',
+      properties: {
+        measure: { type: 'float' },
+        date_seen: { type: 'date' },
+      },
+    },
+    timestamp: {
+      type: 'date',
+    },
+    created: {
+      type: 'date',
+    },
+    created_at: {
+      type: 'date',
+    },
+    modified: {
+      type: 'date',
+    },
+    modified_at: {
+      type: 'date',
+    },
+    indexed_at: {
+      type: 'date',
+    },
+    uploaded_at: {
+      type: 'date',
+    },
+    first_seen: {
+      type: 'date',
+    },
+    last_seen: {
+      type: 'date',
+    },
+    start_time: {
+      type: 'date',
+    },
+    stop_time: {
+      type: 'date',
+    },
+    published: {
+      type: 'date',
+    },
+    valid_from: {
+      type: 'date',
+    },
+    valid_until: {
+      type: 'date',
+    },
+    observable_date: {
+      type: 'date',
+    },
+    event_date: {
+      type: 'date',
+    },
+    received_time: {
+      type: 'date',
+    },
+    processed_time: {
+      type: 'date',
+    },
+    completed_time: {
+      type: 'date',
+    },
+    ctime: {
+      type: 'date',
+    },
+    mtime: {
+      type: 'date',
+    },
+    atime: {
+      type: 'date',
+    },
+    current_state_date: {
+      type: 'date',
+    },
+    confidence: {
+      type: 'integer',
+    },
+    attribute_order: {
+      type: 'integer',
+    },
+    base_score: {
+      type: 'integer',
+    },
+    is_family: {
+      type: 'boolean',
+    },
+    number_observed: {
+      type: 'integer',
+    },
+    x_opencti_negative: {
+      type: 'boolean',
+    },
+    default_assignation: {
+      type: 'boolean',
+    },
+    x_opencti_detection: {
+      type: 'boolean',
+    },
+    x_opencti_order: {
+      type: 'integer',
+    },
+    import_expected_number: {
+      type: 'integer',
+    },
+    import_processed_number: {
+      type: 'integer',
+    },
+    x_opencti_score: {
+      type: 'integer',
+    },
+    connections: {
+      type: 'nested',
+    },
+    manager_setting: {
+      type: flattenedType,
+    },
+    context_data: {
+      properties: {
+        input: { type: flattenedType },
+      },
+    },
+    size: {
+      type: 'integer',
+    },
+    lastModifiedSinceMin: {
+      type: 'integer',
+    },
+    lastModified: {
+      type: 'date',
+    },
+    metaData: {
+      properties: {
+        order: {
+          type: 'integer',
+        },
+        inCarousel: {
+          type: 'boolean',
+        },
+        messages: { type: flattenedType },
+        errors: { type: flattenedType },
+      },
+    }
+  };
+};
+
 const updateIndexTemplate = async (name, mapping_properties) => {
   // compute pattern to be retro compatible for platform < 5.9
   // Before 5.9, only one pattern for all indices
@@ -726,7 +1039,9 @@ const updateIndexTemplate = async (name, mapping_properties) => {
       index_patterns: [index_pattern],
       template: {
         settings: computeIndexSettings(name),
-        mappings: {
+        mappings: ES_IS_OLD_MAPPING ? {
+          properties: getRetroCompatibleMappings()
+        } : {
           // Global option to prevent elastic to try any magic
           dynamic: 'strict',
           date_detection: false,
@@ -755,13 +1070,15 @@ const elCreateIndexTemplate = async (index, mappingProperties) => {
   // Create / update template
   const componentTemplateExist = await engine.cluster.existsComponentTemplate({ name: `${ES_INDEX_PREFIX}-core-settings` });
   if (!componentTemplateExist) {
-    await elCreateCoreSettings();
+    await updateCoreSettings();
   }
   return updateIndexTemplate(index, mappingProperties);
 };
 const sortMappingsKeys = (o) => (Object(o) !== o || Array.isArray(o) ? o
   : Object.keys(o).sort().reduce((a, k) => ({ ...a, [k]: sortMappingsKeys(o[k]) }), {}));
 export const elUpdateIndicesMappings = async () => {
+  // Update core settings
+  await updateCoreSettings();
   // Reset the templates
   const mappingProperties = engineMappingGenerator();
   const templates = await elPlatformTemplates();
@@ -809,7 +1126,7 @@ export const elConfigureAttachmentProcessor = async () => {
         }
       ]
     }).catch((e) => {
-      logApp.error(ConfigurationError('Engine attachment processor configuration fail', { cause: e }));
+      logApp.error('Engine attachment processor configuration fail', { cause: e });
       success = false;
     });
   } else {
@@ -831,7 +1148,7 @@ export const elConfigureAttachmentProcessor = async () => {
         ]
       }
     }).catch((e) => {
-      logApp.error(ConfigurationError('Engine attachment processor configuration fail', { cause: e }));
+      logApp.error('Engine attachment processor configuration fail', { cause: e });
       success = false;
     });
   }
@@ -847,7 +1164,7 @@ export const elCreateIndex = async (index, mappingProperties) => {
   return null;
 };
 export const elCreateIndices = async (indexesToCreate = WRITE_PLATFORM_INDICES) => {
-  await elCreateCoreSettings();
+  await updateCoreSettings();
   await elCreateLifecyclePolicy();
   const createdIndices = [];
   const mappingProperties = engineMappingGenerator();
@@ -884,7 +1201,7 @@ export const elDeleteIndices = async (indexesToDelete) => {
         .catch((err) => {
           /* v8 ignore next */
           if (err.meta.body && err.meta.body.error.type !== 'index_not_found_exception') {
-            logApp.error(DatabaseError('Indices deletion fail', { cause: err }));
+            logApp.error('Indices deletion fail', { cause: err });
           }
         });
     })
@@ -933,6 +1250,24 @@ export const RUNTIME_ATTRIBUTES = {
         }
     `,
     getParams: async (context, user) => getRuntimeEntities(context, user, ENTITY_TYPE_IDENTITY)
+  },
+  deletedBy: {
+    field: 'deletedBy.keyword',
+    type: 'keyword',
+    getSource: async () => `
+        if (doc.containsKey('creator_id')) {
+          def creatorId = doc['creator_id.keyword'];
+          if (creatorId.size() == 1) {
+            def creatorName = params[creatorId[0]];
+            emit(creatorName != null ? creatorName : 'Unknown')
+          } else {
+            emit('Unknown')
+          }
+        } else {
+          emit('Unknown')
+        }
+    `,
+    getParams: async (context, user) => getRuntimeUsers(context, user),
   },
   bornIn: {
     field: 'bornIn.keyword',
@@ -1098,6 +1433,7 @@ const elDataConverter = (esHit, withoutRels = false) => {
   const elementData = esHit._source;
   const data = {
     _index: esHit._index,
+    _id: esHit._id,
     id: elementData.internal_id,
     sort: esHit.sort,
     ...elRebuildRelation(elementData),
@@ -1185,13 +1521,20 @@ export const elConvertHits = async (data, opts = {}) => {
   return convertedHits;
 };
 
-const computeQueryIndices = (indices, types) => {
+const withInferencesEntities = (indices, withInferences) => {
+  return withInferences ? [READ_INDEX_INFERRED_ENTITIES, ...indices] : indices;
+};
+const withInferencesRels = (indices, withInferences) => {
+  return withInferences ? [READ_INDEX_INFERRED_RELATIONSHIPS, ...indices] : indices;
+};
+export const computeQueryIndices = (indices, typeOrTypes, withInferences = true) => {
+  const types = (Array.isArray(typeOrTypes) || isEmptyField(typeOrTypes)) ? typeOrTypes : [typeOrTypes];
   // If indices are explicitly defined, just rely on the definition
   if (isEmptyField(indices)) {
     // If not and have no clue about the expected types, ask for all indices.
     // Worst case scenario that need to be avoided.
     if (isEmptyField(types)) {
-      return READ_DATA_INDICES;
+      return withInferences ? READ_DATA_INDICES : READ_DATA_INDICES_WITHOUT_INFERRED;
     }
     // If types are defined we need to infer from them the correct indices
     return R.uniq(types.map((findType) => {
@@ -1199,33 +1542,51 @@ const computeQueryIndices = (indices, types) => {
       if (isAbstract(findType)) {
         // For objects
         if (isBasicObject(findType)) {
-          if (isInternalObject(findType)) return [READ_INDEX_INFERRED_ENTITIES, READ_INDEX_INTERNAL_OBJECTS];
-          if (isStixMetaObject(findType)) return [READ_INDEX_INFERRED_ENTITIES, READ_INDEX_STIX_META_OBJECTS];
-          if (isStixDomainObject(findType)) return [READ_INDEX_INFERRED_ENTITIES, READ_INDEX_STIX_DOMAIN_OBJECTS];
-          if (isStixCoreObject(findType)) return [READ_INDEX_INFERRED_ENTITIES, READ_INDEX_STIX_DOMAIN_OBJECTS, READ_INDEX_STIX_CYBER_OBSERVABLES];
-          if (isStixObject(findType)) return [READ_INDEX_INFERRED_ENTITIES, READ_INDEX_STIX_META_OBJECTS, READ_INDEX_STIX_DOMAIN_OBJECTS, READ_INDEX_STIX_CYBER_OBSERVABLES];
-          return READ_ENTITIES_INDICES;
+          if (isInternalObject(findType)) {
+            return withInferencesEntities([READ_INDEX_INTERNAL_OBJECTS], withInferences);
+          }
+          if (isStixMetaObject(findType)) {
+            return withInferencesEntities([READ_INDEX_STIX_META_OBJECTS], withInferences);
+          }
+          if (isStixDomainObject(findType)) {
+            return withInferencesEntities([READ_INDEX_STIX_DOMAIN_OBJECTS], withInferences);
+          }
+          if (isStixCoreObject(findType)) {
+            return withInferencesEntities([READ_INDEX_STIX_DOMAIN_OBJECTS, READ_INDEX_STIX_CYBER_OBSERVABLES], withInferences);
+          }
+          if (isStixObject(findType)) {
+            return withInferencesEntities([READ_INDEX_STIX_META_OBJECTS, READ_INDEX_STIX_DOMAIN_OBJECTS, READ_INDEX_STIX_CYBER_OBSERVABLES], withInferences);
+          }
+          return withInferences ? READ_ENTITIES_INDICES : READ_ENTITIES_INDICES_WITHOUT_INFERRED;
         }
         // For relationships
-        if (isBasicRelationship(findType)) {
-          if (isInternalRelationship(findType)) return [READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_INTERNAL_RELATIONSHIPS];
-          if (isStixSightingRelationship(findType)) return [READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_STIX_SIGHTING_RELATIONSHIPS];
-          if (isStixCoreRelationship(findType)) return [READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_STIX_CORE_RELATIONSHIPS];
-          if (isStixRefRelationship(findType)) return [READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_STIX_META_RELATIONSHIPS, READ_INDEX_STIX_CYBER_OBSERVABLE_RELATIONSHIPS];
-          if (isStixRelationship(findType)) {
-            return [READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_STIX_CORE_RELATIONSHIPS, READ_INDEX_STIX_SIGHTING_RELATIONSHIPS, READ_INDEX_STIX_META_RELATIONSHIPS,
-              READ_INDEX_STIX_CYBER_OBSERVABLE_RELATIONSHIPS];
+        if (isBasicRelationship(findType) || STIX_REF_RELATIONSHIP_TYPES.includes(findType)) {
+          if (isInternalRelationship(findType)) {
+            return withInferencesRels([READ_INDEX_INTERNAL_RELATIONSHIPS], withInferences);
           }
-          return READ_RELATIONSHIPS_INDICES;
+          if (isStixSightingRelationship(findType)) {
+            return withInferencesRels([READ_INDEX_STIX_SIGHTING_RELATIONSHIPS], withInferences);
+          }
+          if (isStixCoreRelationship(findType)) {
+            return withInferencesRels([READ_INDEX_STIX_CORE_RELATIONSHIPS], withInferences);
+          }
+          if (isStixRefRelationship(findType) || STIX_REF_RELATIONSHIP_TYPES.includes(findType)) {
+            return withInferencesRels([READ_INDEX_STIX_META_RELATIONSHIPS, READ_INDEX_STIX_CYBER_OBSERVABLE_RELATIONSHIPS], withInferences);
+          }
+          if (isStixRelationship(findType)) {
+            return withInferencesRels([READ_INDEX_STIX_CORE_RELATIONSHIPS, READ_INDEX_STIX_SIGHTING_RELATIONSHIPS, READ_INDEX_STIX_META_RELATIONSHIPS,
+              READ_INDEX_STIX_CYBER_OBSERVABLE_RELATIONSHIPS], withInferences);
+          }
+          return withInferences ? READ_RELATIONSHIPS_INDICES : READ_RELATIONSHIPS_INDICES_WITHOUT_INFERRED;
         }
         // Fallback
         throw UnsupportedError('Fail to compute indices for unknown type', { type: findType });
       }
       // If concrete type, infer the index from the type
       if (isBasicObject(findType)) {
-        return [READ_INDEX_INFERRED_ENTITIES, `${inferIndexFromConceptType(findType)}*`];
+        return withInferencesEntities([`${inferIndexFromConceptType(findType)}*`], withInferences);
       }
-      return [READ_INDEX_INFERRED_RELATIONSHIPS, `${inferIndexFromConceptType(findType)}*`];
+      return withInferencesRels([`${inferIndexFromConceptType(findType)}*`], withInferences);
     }).flat());
   }
   return indices;
@@ -1235,27 +1596,23 @@ const computeQueryIndices = (indices, types) => {
 // It's a way to load a bunch of ids and use in list or map
 export const elFindByIds = async (context, user, ids, opts = {}) => {
   const { indices, baseData = false, baseFields = BASE_FIELDS } = opts;
-  const { withoutRels = false, toMap = false, mapWithAllIds = false, type = null, forceAliases = false } = opts;
+  const { withoutRels = false, toMap = false, mapWithAllIds = false, type = null } = opts;
+  const { orderBy = 'created_at', orderMode = 'asc' } = opts;
   const idsArray = Array.isArray(ids) ? ids : [ids];
-  const types = (Array.isArray(type) || !type) ? type : [type];
+  const types = (Array.isArray(type) || isEmptyField(type)) ? type : [type];
   const processIds = R.filter((id) => isNotEmptyField(id), idsArray);
   if (processIds.length === 0) {
     return toMap ? {} : [];
   }
-  const computedIndices = computeQueryIndices(indices, types);
+  const queryIndices = computeQueryIndices(indices, types);
+  const computedIndices = getIndicesToQuery(context, user, queryIndices);
   const hits = [];
   const groupIds = R.splitEvery(MAX_TERMS_SPLIT, idsArray);
   for (let index = 0; index < groupIds.length; index += 1) {
     const mustTerms = [];
     const workingIds = groupIds[index];
     const idsTermsPerType = [];
-    const elementTypes = [ID_INTERNAL, ID_STANDARD, IDS_STIX];
-    if ((types || []).some((typeElement) => isStixObjectAliased(typeElement)) || forceAliases) {
-      elementTypes.push(INTERNAL_IDS_ALIASES);
-    }
-    // With onRelationship option, the ids needs to be found on a relationship connection side.
-    // onRelationship must be from or to
-    // Compute combination terms
+    const elementTypes = [internalId.name, standardId.name, xOpenctiStixIds.name, iAliasedIds.name];
     for (let indexType = 0; indexType < elementTypes.length; indexType += 1) {
       const elementType = elementTypes[indexType];
       const terms = { [`${elementType}.keyword`]: workingIds };
@@ -1284,11 +1641,13 @@ export const elFindByIds = async (context, user, ids, opts = {}) => {
     // If an admin ask for a specific element, there is no need to ask him to explicitly extends his visibility to doing it.
     const markingRestrictions = await buildDataRestrictions(context, user, restrictionOptions);
     mustTerms.push(...markingRestrictions.must);
+    // Handle draft
+    const draftMust = buildDraftFilter(context, user, opts);
     const body = {
-      sort: [{ created_at: 'asc' }],
+      sort: [{ [orderBy]: orderMode }],
       query: {
         bool: {
-          must: mustTerms,
+          must: [...mustTerms, ...draftMust],
           must_not: markingRestrictions.must_not,
         },
       },
@@ -1301,7 +1660,7 @@ export const elFindByIds = async (context, user, ids, opts = {}) => {
       }
       const query = {
         index: computedIndices,
-        size: workingIds.length > ES_MAX_PAGINATION ? ES_MAX_PAGINATION : workingIds.length,
+        size: ES_MAX_PAGINATION,
         _source: baseData ? baseFields : true,
         body,
       };
@@ -1311,6 +1670,9 @@ export const elFindByIds = async (context, user, ids, opts = {}) => {
         throw DatabaseError('Find direct ids fail', { cause: err, query });
       });
       const elements = data.hits.hits;
+      if (elements.length > workingIds.length) {
+        logApp.warn('Search query returned more elements than expected', { ids: workingIds });
+      }
       if (elements.length > 0) {
         const convertedHits = await elConvertHits(elements, { withoutRels });
         hits.push(...convertedHits);
@@ -1376,6 +1738,7 @@ const BASE_SEARCH_ATTRIBUTES = [
   // Add all other attributes
   'aliases',
   'x_opencti_aliases',
+  'persona_name',
   'roles',
   'objective',
   'content',
@@ -1421,6 +1784,12 @@ const BASE_SEARCH_ATTRIBUTES = [
   'holder_name',
   'title',
   'result_name',
+  'phase_name',
+  'kill_chain_name',
+  'definition',
+  'definition_type',
+  'user_email',
+  'main_entity_name', // deletedOperation
 ];
 
 function processSearch(search, args) {
@@ -1585,19 +1954,30 @@ const BASE_FIELDS = ['_index', 'internal_id', 'standard_id', 'sort', 'base_type'
   'connections', 'first_seen', 'last_seen', 'start_time', 'stop_time'];
 
 const RANGE_OPERATORS = ['gt', 'gte', 'lt', 'lte'];
+
+const buildFieldForQuery = (field) => {
+  return isDateNumericOrBooleanAttribute(field) || field === '_id' || isObjectFlatAttribute(field)
+    ? field
+    : `${field}.keyword`;
+};
 const buildLocalMustFilter = async (validFilter) => {
   const valuesFiltering = [];
   const noValuesFiltering = [];
   const { key, values, nested, operator = 'eq', mode: localFilterMode = 'or' } = validFilter;
+  if (isEmptyField(key)) {
+    throw FunctionalError('A filter key must be defined', { key });
+  }
   const arrayKeys = Array.isArray(key) ? key : [key];
+  const headKey = R.head(arrayKeys);
+  const dontHandleMultipleKeys = nested || operator === 'nil' || operator === 'not_nil';
+  if (dontHandleMultipleKeys && arrayKeys.length > 1) {
+    throw UnsupportedError('Filter must have only one field', { keys: arrayKeys, operator });
+  }
   // 01. Handle nested filters
   // TODO IF KEY is PART OF Rule we need to add extra fields search
   // TODO Add connections like filters to have native fromId, toId filters handling.
   // See opencti-front\src\private\components\events\StixSightingRelationships.tsx
   if (nested) {
-    if (arrayKeys.length > 1) {
-      throw UnsupportedError('Filter must have only one field', { keys: arrayKeys });
-    }
     const nestedMust = [];
     const nestedMustNot = [];
     for (let nestIndex = 0; nestIndex < nested.length; nestIndex += 1) {
@@ -1605,17 +1985,62 @@ const buildLocalMustFilter = async (validFilter) => {
       const parentKey = arrayKeys.at(0);
       const { key: nestedKey, values: nestedValues, operator: nestedOperator = 'eq' } = nestedElement;
       const nestedShould = [];
-      for (let i = 0; i < nestedValues.length; i += 1) {
-        const nestedFieldKey = `${parentKey}.${nestedKey}`;
-        const nestedSearchValues = nestedValues[i].toString();
-        if (nestedOperator === 'wildcard') {
-          nestedShould.push({ query_string: { query: `${nestedSearchValues}`, fields: [nestedFieldKey] } });
+      const nestedFieldKey = `${parentKey}.${nestedKey}`;
+      if (nestedKey === ID_INTERNAL) {
+        if (nestedOperator === 'nil') {
+          nestedMustNot.push({
+            exists: {
+              field: nestedFieldKey
+            }
+          });
+        } else if (nestedOperator === 'not_nil') {
+          nestedShould.push({
+            exists: {
+              field: nestedFieldKey
+            }
+          });
         } else if (nestedOperator === 'not_eq') {
-          nestedMustNot.push({ match_phrase: { [nestedFieldKey]: nestedSearchValues } });
-        } else if (RANGE_OPERATORS.includes(nestedOperator)) {
-          nestedShould.push({ range: { [nestedFieldKey]: { [nestedOperator]: nestedSearchValues } } });
+          nestedMustNot.push({ terms: { [`${nestedFieldKey}.keyword`]: nestedValues } });
+        } else { // nestedOperator = 'eq'
+          nestedShould.push({ terms: { [`${nestedFieldKey}.keyword`]: nestedValues } });
+        }
+      } else { // nested key !== internal_id
+        // eslint-disable-next-line no-lonely-if
+        if (nestedOperator === 'nil') {
+          nestedMustNot.push({
+            exists: {
+              field: nestedFieldKey
+            }
+          });
+        } else if (nestedOperator === 'not_nil') {
+          nestedShould.push({
+            exists: {
+              field: nestedFieldKey
+            }
+          });
         } else {
-          nestedShould.push({ match_phrase: { [nestedFieldKey]: nestedSearchValues } });
+          for (let i = 0; i < nestedValues.length; i += 1) {
+            const nestedSearchValue = nestedValues[i].toString();
+            if (nestedOperator === 'wildcard') {
+              nestedShould.push({ query_string: { query: `${nestedSearchValue}`, fields: [nestedFieldKey] } });
+            } else if (nestedOperator === 'not_eq') {
+              nestedMustNot.push({
+                multi_match: {
+                  fields: buildFieldForQuery(nestedFieldKey),
+                  query: nestedSearchValue.toString(),
+                }
+              });
+            } else if (RANGE_OPERATORS.includes(nestedOperator)) {
+              nestedShould.push({ range: { [nestedFieldKey]: { [nestedOperator]: nestedSearchValue } } });
+            } else { // nestedOperator = 'eq'
+              nestedShould.push({
+                multi_match: {
+                  fields: buildFieldForQuery(nestedFieldKey),
+                  query: nestedSearchValue.toString(),
+                }
+              });
+            }
+          }
         }
       }
       const should = {
@@ -1627,7 +2052,7 @@ const buildLocalMustFilter = async (validFilter) => {
       nestedMust.push(should);
     }
     const nestedQuery = {
-      path: R.head(arrayKeys),
+      path: headKey,
       query: {
         bool: {
           must: nestedMust,
@@ -1639,48 +2064,127 @@ const buildLocalMustFilter = async (validFilter) => {
   }
   // 02. Handle nil and not_nil operators
   if (operator === 'nil') {
-    if (arrayKeys.length > 1) {
-      throw UnsupportedError('Filter must have only one field', { keys: arrayKeys });
-    } else {
-      const schemaKey = schemaAttributesDefinition.getAttributeByName(R.head(arrayKeys));
-      valuesFiltering.push(schemaKey?.type === 'string' && schemaKey?.format === 'text' ? {
-        bool: {
-          must_not: {
-            wildcard: {
-              [R.head(arrayKeys)]: '*'
-            }
-          },
-        }
-      } : {
-        bool: {
-          must_not: {
-            exists: {
-              field: R.head(arrayKeys)
-            }
+    const filterDefinition = schemaAttributesDefinition.getAttributeByName(headKey);
+    let valueFiltering = { // classic filters: field doesn't exist
+      bool: {
+        must_not: {
+          exists: {
+            field: headKey
           }
         }
-      });
-    }
-  } else if (operator === 'not_nil') {
-    if (arrayKeys.length > 1) {
-      throw UnsupportedError('Filter must have only one field', { keys: arrayKeys });
-    } else {
-      const schemaKey = schemaAttributesDefinition.getAttributeByName(R.head(arrayKeys));
-      valuesFiltering.push(schemaKey?.type === 'string' && schemaKey?.format === 'text' ? {
-        bool: {
-          must:
-            {
+      }
+    };
+    if (filterDefinition?.type === 'string') {
+      if (filterDefinition?.format === 'text') { // text filters: use wildcard
+        valueFiltering = {
+          bool: {
+            must_not: {
               wildcard: {
-                [R.head(arrayKeys)]: '*'
+                [headKey]: '*'
               }
             },
+          }
+        };
+      } else { // string filters: nil <-> (field doesn't exist) OR (field = empty string)
+        valueFiltering = {
+          bool: {
+            should: [
+              {
+                bool: {
+                  must_not: {
+                    exists: {
+                      field: headKey
+                    }
+                  }
+                }
+              },
+              {
+                term: {
+                  [headKey === '_id' ? headKey : `${headKey}.keyword`]: { value: '' },
+                },
+              },
+            ],
+            minimum_should_match: 1,
+          }
+        };
+      }
+    } else if (filterDefinition?.type === 'date') { // date filters: nil <-> (field doesn't exist) OR (date <= epoch) OR (date >= 5138)
+      valueFiltering = {
+        bool: {
+          should: [
+            {
+              bool: {
+                must_not: {
+                  exists: {
+                    field: headKey
+                  }
+                }
+              }
+            },
+            { range: { [headKey]: { lte: '1970-01-01T01:00:00.000Z' } } },
+            { range: { [headKey]: { gte: '5138-11-16T09:46:40.000Z' } } }
+          ],
+          minimum_should_match: 1,
         }
-      } : {
-        exists: {
-          field: R.head(arrayKeys)
-        }
-      });
+      };
     }
+    valuesFiltering.push(valueFiltering);
+  } else if (operator === 'not_nil') {
+    const filterDefinition = schemaAttributesDefinition.getAttributeByName(headKey);
+    let valueFiltering = { // classic filters: field exists
+      exists: {
+        field: headKey
+      }
+    };
+    if (filterDefinition?.type === 'string') {
+      if (filterDefinition?.format === 'text') { // text filters: use wildcard
+        valueFiltering = {
+          bool: {
+            must: {
+              wildcard: {
+                [headKey]: '*'
+              }
+            },
+          }
+        };
+      } else { // other filters: not_nil <-> (field exists) AND (field != empty string)
+        valueFiltering = {
+          bool: {
+            must: [
+              {
+                exists: {
+                  field: headKey
+                }
+              },
+              {
+                bool: {
+                  must_not: {
+                    term: {
+                      [headKey === '_id' ? headKey : `${headKey}.keyword`]: { value: '' },
+                    },
+                  },
+                }
+              }
+            ],
+          }
+        };
+      }
+    } else if (filterDefinition?.type === 'date') { // date filters: not_nil <-> (field exists) AND (date > epoch) AND (date < 5138)
+      valueFiltering = {
+        bool: {
+          must: [
+            {
+              exists: {
+                field: headKey
+              }
+            },
+            { range: { [headKey]: { gt: '1970-01-01T01:00:00.000Z' } } },
+            { range: { [headKey]: { lt: '5138-11-16T09:46:40.000Z' } } }
+          ],
+        }
+      };
+    }
+    valuesFiltering.push(valueFiltering);
   }
   // 03. Handle values according to the operator
   if (operator !== 'nil' && operator !== 'not_nil') {
@@ -1689,12 +2193,12 @@ const buildLocalMustFilter = async (validFilter) => {
         if (arrayKeys.length > 1) {
           throw UnsupportedError('Filter must have only one field', { keys: arrayKeys });
         }
-        valuesFiltering.push({ exists: { field: R.head(arrayKeys) } });
+        valuesFiltering.push({ exists: { field: headKey } });
       } else if (operator === 'eq' || operator === 'not_eq') {
         const targets = operator === 'eq' ? valuesFiltering : noValuesFiltering;
         targets.push({
           multi_match: {
-            fields: arrayKeys.map((k) => `${isDateNumericOrBooleanAttribute(k) || k === '_id' || isObjectFlatAttribute(k) ? k : `${k}.keyword`}`),
+            fields: arrayKeys.map((k) => buildFieldForQuery(k)),
             query: values[i].toString(),
           },
         });
@@ -1761,7 +2265,7 @@ const buildLocalMustFilter = async (validFilter) => {
         if (arrayKeys.length > 1) {
           throw UnsupportedError('Filter must have only one field', { keys: arrayKeys });
         }
-        valuesFiltering.push({ range: { [R.head(arrayKeys)]: { [operator]: values[i] } } });
+        valuesFiltering.push({ range: { [headKey]: { [operator]: values[i] } } }); // range operators
       }
     }
   }
@@ -1797,7 +2301,9 @@ const buildSubQueryForFilterGroup = async (context, user, inputFilters) => {
     const group = filterGroups[index];
     if (isFilterGroupNotEmpty(group)) {
       const subQuery = await buildSubQueryForFilterGroup(context, user, group);
-      localMustFilters.push(subQuery);
+      if (subQuery) { // can be null
+        localMustFilters.push(subQuery);
+      }
     }
   }
   // Handle filters
@@ -2011,6 +2517,78 @@ const adaptFilterToSourceReliabilityFilterKey = async (context, user, filter) =>
   return { newFilter, newFilterGroup };
 };
 
+// fromOrToId and elementWithTargetTypes filters
+// are composed of a condition on fromId/fromType and a condition on toId/toType of a relationship
+const adaptFilterToFromOrToFilterKeys = (filter) => {
+  const { key, operator = 'eq', mode = 'or', values } = filter;
+  const arrayKeys = Array.isArray(key) ? key : [key];
+  if (arrayKeys.length > 1) {
+    throw UnsupportedError('A filter with these multiple keys is not supported', { keys: arrayKeys });
+  }
+  let nestedKey;
+  if (arrayKeys[0] === INSTANCE_RELATION_TYPES_FILTER) {
+    nestedKey = 'types';
+  } else if (arrayKeys[0] === INSTANCE_RELATION_FILTER) {
+    nestedKey = 'internal_id';
+  } else {
+    throw UnsupportedError('A related relations filter with this key is not supported', { key: arrayKeys[0] });
+  }
+
+  let newFilterGroup;
+  // define mode for the filter group
+  let globalMode = 'or';
+  if (operator === 'eq' || operator === 'not_nil') {
+    // relatedType = malware <-> fromType = malware OR toType = malware
+    // relatedType is not empty <-> fromType is not empty OR toType is not empty
+    globalMode = 'or';
+  } else if (operator === 'not_eq' || operator === 'nil') {
+    // relatedType != malware <-> fromType != malware AND toType != malware
+    // relatedType is empty <-> fromType is empty AND toType is empty
+    globalMode = 'and';
+  } else {
+    throw Error(`${INSTANCE_RELATION_TYPES_FILTER} filter only support 'eq', 'not_eq', 'nil' and 'not_nil' operators, not ${operator}.`);
+  }
+  // define the filter group
+  if (operator === 'eq' || operator === 'not_eq') {
+    const filterGroupsForValues = values.map((val) => {
+      const nestedFrom = [
+        { key: nestedKey, operator, values: [val] },
+        { key: 'role', operator: 'wildcard', values: ['*_from'] }
+      ];
+      const nestedTo = [
+        { key: nestedKey, operator, values: [val] },
+        { key: 'role', operator: 'wildcard', values: ['*_to'] }
+      ];
+      return {
+        mode: globalMode,
+        filters: [{ key: 'connections', nested: nestedFrom, mode }, { key: 'connections', nested: nestedTo, mode }],
+        filterGroups: [],
+      };
+    });
+    newFilterGroup = {
+      mode,
+      filters: [],
+      filterGroups: filterGroupsForValues,
+    };
+  } else if (operator === 'nil' || operator === 'not_nil') {
+    const nestedFrom = [
+      { key: nestedKey, operator, values: [] },
+      { key: 'role', operator: 'wildcard', values: ['*_from'] }
+    ];
+    const nestedTo = [
+      { key: nestedKey, operator, values: [] },
+      { key: 'role', operator: 'wildcard', values: ['*_to'] }
+    ];
+    const innerFilters = [{ key: 'connections', nested: nestedFrom, mode }, { key: 'connections', nested: nestedTo, mode }];
+    newFilterGroup = {
+      mode: globalMode,
+      filters: innerFilters,
+      filterGroups: [],
+    };
+  }
+  return { newFilter: undefined, newFilterGroup };
+};
+
 const adaptFilterToComputedReliabilityFilterKey = async (context, user, filter) => {
   const { key, operator = 'eq' } = filter;
   const arrayKeys = Array.isArray(key) ? key : [key];
@@ -2110,28 +2688,43 @@ const adaptFilterToWorkflowFilterKey = async (context, user, filter) => {
   if (![WORKFLOW_FILTER, X_OPENCTI_WORKFLOW_ID].includes(arrayKeys[0])) {
     throw UnsupportedError('The key is not correct', { keys: arrayKeys });
   }
+  let newFilterGroup;
+  let newFilter;
   if (operator === 'nil' || operator === 'not_nil') { // no status template <-> no status // at least a status template <-> at least a status
-    return {
+    newFilter = {
       ...filter,
       key: ['x_opencti_workflow_id'], // we just have to change the key
     };
-  }
-  if (operator === 'eq' || operator === 'not_eq') {
-    let statuses = await getEntitiesListFromCache(context, user, ENTITY_TYPE_STATUS);
-    // keep the statuses with their id corresponding to the filter values, or with their template id corresponding to the filter values
-    statuses = statuses.filter((status) => values.includes(status.id) || values.includes(status.template_id));
-    // we construct a new filter that matches against the status internal_id with a template id in the filters values
-    // !!! it works to do the mode/operator filter on the status (and not on the template)
-    // because a status can only have a single template and because the operators are full-match operators (eq/not_eq) !!!
-    const statusIds = statuses.length > 0 ? statuses.map((status) => status.internal_id) : ['<no-status-matching-filter>'];
-    return {
-      key: ['x_opencti_workflow_id'],
-      values: statusIds,
+  } else if (operator === 'eq' || operator === 'not_eq') {
+    const statuses = await getEntitiesListFromCache(context, user, ENTITY_TYPE_STATUS);
+    const filters = [];
+    for (let i = 0; i < values.length; i += 1) {
+      const filterValue = values[i];
+      // fetch the statuses associated to the filter value
+      // (keep the statuses with their id corresponding to the filter value, or with their template id corresponding to the filter value)
+      const associatedStatuses = statuses.filter((status) => (filterValue === status.id || filterValue === status.template_id));
+      // we construct a new filter that matches against the status internal_id with a template id in the filters values
+      // !!! it works to do the mode/operator filter on the status (and not on the template)
+      // because a status can only have a single template and because the operators are full-match operators (eq/not_eq) !!!
+      const associatedStatuseIds = associatedStatuses.length > 0 ? associatedStatuses.map((status) => status.internal_id) : ['<no-status-matching-filter>'];
+      filters.push({
+        key: ['x_opencti_workflow_id'],
+        values: associatedStatuseIds,
+        mode: operator === 'eq'
+          ? 'or' // at least one associated status should match
+          : 'and', // all the associated status of the value shouldn't match
+        operator,
+      });
+    }
+    newFilterGroup = {
       mode,
-      operator,
+      filters,
+      filerGroups: [],
     };
+  } else {
+    throw UnsupportedError('The operators supported for a filter with key=workflow_id is not supported.', { operator });
   }
-  throw UnsupportedError('The operators supported for a filter with key=workflow_id is not supported.', { operator });
+  return { newFilter, newFilterGroup };
 };
 
 /**
@@ -2157,7 +2750,7 @@ const completeSpecialFilterKeys = async (context, user, inputFilters) => {
     const filter = filters[index];
     const { key } = filter;
     const arrayKeys = Array.isArray(key) ? key : [key];
-    if (arrayKeys.some((fiterKey) => complexConversionFilterKeys.includes(fiterKey))) {
+    if (arrayKeys.some((filterKey) => complexConversionFilterKeys.includes(filterKey))) {
       if (arrayKeys.length > 1) {
         throw UnsupportedError('A filter with these multiple keys is not supported}', { keys: arrayKeys });
       }
@@ -2213,8 +2806,13 @@ const completeSpecialFilterKeys = async (context, user, inputFilters) => {
       if (filterKey === WORKFLOW_FILTER || filterKey === X_OPENCTI_WORKFLOW_ID) {
         // in case we want to filter by status template (template of a workflow status) or status
         // we need to find all statuses filtered by status template and filter on these statuses
-        const newFilter = await adaptFilterToWorkflowFilterKey(context, user, filter);
-        finalFilters.push(newFilter);
+        const { newFilter, newFilterGroup } = await adaptFilterToWorkflowFilterKey(context, user, filter);
+        if (newFilter) {
+          finalFilters.push(newFilter);
+        }
+        if (newFilterGroup) {
+          finalFilterGroups.push(newFilterGroup);
+        }
       }
       if (filterKey === COMPUTED_RELIABILITY_FILTER) {
         // filter by computed reliability (reliability, or reliability of author if no reliability)
@@ -2238,8 +2836,10 @@ const completeSpecialFilterKeys = async (context, user, inputFilters) => {
         }
       }
       if (filterKey === INSTANCE_RELATION_FILTER) {
-        const nested = [{ key: 'internal_id', operator: filter.operator, values: filter.values }];
-        finalFilters.push({ key: 'connections', nested, mode: filter.mode });
+        const { newFilterGroup } = adaptFilterToFromOrToFilterKeys(filter);
+        if (newFilterGroup) {
+          finalFilterGroups.push(newFilterGroup);
+        }
       }
       if (filterKey === RELATION_FROM_FILTER || filterKey === RELATION_TO_FILTER || filterKey === RELATION_TO_SIGHTING_FILTER) {
         const side = filterKey === RELATION_FROM_FILTER ? 'from' : 'to';
@@ -2257,9 +2857,11 @@ const completeSpecialFilterKeys = async (context, user, inputFilters) => {
         ];
         finalFilters.push({ key: 'connections', nested, mode: filter.mode });
       }
-      if (filterKey === INSTANCE_FILTER_TARGET_TYPES) {
-        const nested = [{ key: 'types', operator: filter.operator, values: filter.values }];
-        finalFilters.push({ key: 'connections', nested, mode: filter.mode });
+      if (filterKey === INSTANCE_RELATION_TYPES_FILTER) {
+        const { newFilterGroup } = adaptFilterToFromOrToFilterKeys(filter);
+        if (newFilterGroup) {
+          finalFilterGroups.push(newFilterGroup);
+        }
       }
       if (filterKey === RELATION_FROM_ROLE_FILTER || filterKey === RELATION_TO_ROLE_FILTER) {
         const side = filterKey === RELATION_FROM_ROLE_FILTER ? 'from' : 'to';
@@ -2269,9 +2871,18 @@ const completeSpecialFilterKeys = async (context, user, inputFilters) => {
         finalFilters.push({ key: 'connections', nested, mode: filter.mode });
       }
       if (filterKey === ALIAS_FILTER) {
-        finalFilters.push({ ...filter, key: [ATTRIBUTE_ALIASES, ATTRIBUTE_ALIASES_OPENCTI] });
+        finalFilterGroups.push({
+          mode: filter.operator === 'nil' || (filter.operator.startsWith('not_') && filter.operator !== 'not_nil')
+            ? 'and'
+            : 'or',
+          filters: [
+            { ...filter, key: [ATTRIBUTE_ALIASES] },
+            { ...filter, key: [ATTRIBUTE_ALIASES_OPENCTI] },
+          ],
+          filterGroups: [],
+        });
       }
-    } else if (arrayKeys.some((fiterKey) => isObjectAttribute(fiterKey)) && !arrayKeys.some((fiterKey) => fiterKey === 'connections')) {
+    } else if (arrayKeys.some((filterKey) => isObjectAttribute(filterKey)) && !arrayKeys.some((filterKey) => filterKey === 'connections')) {
       if (arrayKeys.length > 1) {
         throw UnsupportedError('A filter with these multiple keys is not supported', { keys: arrayKeys });
       }
@@ -2302,10 +2913,10 @@ const completeSpecialFilterKeys = async (context, user, inputFilters) => {
     filterGroups: finalFilterGroups,
   };
 };
-
 const elQueryBodyBuilder = async (context, user, options) => {
   // eslint-disable-next-line no-use-before-define
-  const { ids = [], first = ES_DEFAULT_PAGINATION, after, orderBy = null, orderMode = 'asc', noSize = false, noSort = false, intervalInclude = false } = options;
+  const { ids = [], after, orderBy = null, orderMode = 'asc', noSize = false, noSort = false, intervalInclude = false } = options;
+  const first = options.first ?? ES_DEFAULT_PAGINATION;
   const { types = null, search = null } = options;
   const filters = checkAndConvertFilters(options.filters, { noFiltersChecking: options.noFiltersChecking });
   const { startDate = null, endDate = null, dateAttribute = null } = options;
@@ -2347,8 +2958,8 @@ const elQueryBodyBuilder = async (context, user, options) => {
     }
   }
   // Handle search
-  const orderConfigration = isEmptyField(orderBy) ? [] : orderBy;
-  const orderCriterion = Array.isArray(orderConfigration) ? orderConfigration : [orderConfigration];
+  const orderConfiguration = isEmptyField(orderBy) ? [] : orderBy;
+  const orderCriterion = Array.isArray(orderConfiguration) ? orderConfiguration : [orderConfiguration];
   let scoreSearchOrder = orderMode;
   if (search !== null && search.length > 0) {
     const shouldSearch = elGenerateFullTextSearchShould(search, options);
@@ -2359,8 +2970,8 @@ const elQueryBodyBuilder = async (context, user, options) => {
       },
     };
     mustFilters.push(bool);
-    // When using a search, we need to force the sort by score first
-    if (!orderCriterion.includes('_score')) {
+    // When using a search, force a score ordering if nothing specified
+    if (orderCriterion.length === 0) {
       orderCriterion.unshift('_score');
       scoreSearchOrder = 'desc';
     }
@@ -2370,17 +2981,11 @@ const elQueryBodyBuilder = async (context, user, options) => {
   if (isNotEmptyField(orderCriterion)) {
     for (let index = 0; index < orderCriterion.length; index += 1) {
       const orderCriteria = orderCriterion[index];
-      const isDateOrNumber = isDateNumericOrBooleanAttribute(orderCriteria);
-      const orderKeyword = isDateOrNumber || orderCriteria.startsWith('_') ? orderCriteria : `${orderCriteria}.keyword`;
-      if (orderKeyword === '_score') {
-        ordering = R.append({ [orderKeyword]: scoreSearchOrder }, ordering);
-      } else if (isDateAttribute(orderCriteria)) {
-        // sorting on null dates results to an error, one way to fix it is to use missing: 0
-        // see https://github.com/elastic/elasticsearch/issues/81960
-        ordering = R.append({ [orderKeyword]: { order: orderMode, missing: 0 } }, ordering);
+      if (orderCriteria === '_score') {
+        ordering = R.append({ [orderCriteria]: scoreSearchOrder }, ordering);
       } else {
-        const order = { [orderKeyword]: { order: orderMode, missing: '_last' } };
-        ordering = R.append(order, ordering);
+        const sortingForCriteria = buildElasticSortingForAttributeCriteria(orderCriteria, orderMode);
+        ordering = R.append(sortingForCriteria, ordering);
       }
     }
     // Add standard_id if not specify to ensure ordering uniqueness
@@ -2400,11 +3005,13 @@ const elQueryBodyBuilder = async (context, user, options) => {
   } else { // If not ordering criteria, order by standard_id
     ordering.push({ 'standard_id.keyword': 'asc' });
   }
+  // Handle draft
+  const draftMust = buildDraftFilter(context, user, options);
   // Build query
   const body = {
     query: {
       bool: {
-        must: [...accessMust, ...mustFilters],
+        must: [...accessMust, ...mustFilters, ...draftMust],
         must_not: accessMustNot,
       },
     },
@@ -2436,13 +3043,14 @@ export const elRawCount = async (query) => {
 };
 export const elCount = async (context, user, indexName, options = {}) => {
   const body = await elQueryBodyBuilder(context, user, { ...options, noSize: true, noSort: true });
-  const query = { index: indexName, body };
+  const query = { index: getIndicesToQuery(context, user, indexName), body };
   logApp.debug('[SEARCH] elCount', { query });
   return elRawCount(query);
 };
 export const elHistogramCount = async (context, user, indexName, options = {}) => {
   const { interval, field, types = null } = options;
   const body = await elQueryBodyBuilder(context, user, { ...options, dateAttribute: field, noSize: true, noSort: true, intervalInclude: true });
+  body.size = 0; // we only need aggregations
   let dateFormat;
   switch (interval) {
     case 'year':
@@ -2482,7 +3090,7 @@ export const elHistogramCount = async (context, user, indexName, options = {}) =
     },
   };
   const query = {
-    index: indexName,
+    index: getIndicesToQuery(context, user, indexName),
     _source_excludes: '*', // Dont need to get anything
     body,
   };
@@ -2494,20 +3102,20 @@ export const elHistogramCount = async (context, user, indexName, options = {}) =
   });
 };
 export const elAggregationCount = async (context, user, indexName, options = {}) => {
-  const { field, types = null } = options;
+  const { field, types = null, weightField = 'i_inference_weight', normalizeLabel = true, convertEntityTypeLabel = false } = options;
   const isIdFields = field.endsWith('internal_id') || field.endsWith('.id');
   const body = await elQueryBodyBuilder(context, user, { ...options, noSize: true, noSort: true });
   body.size = 0;
   body.aggs = {
     genres: {
       terms: {
-        field: isDateNumericOrBooleanAttribute(field) ? field : `${field}.keyword`,
+        field: buildFieldForQuery(field),
         size: MAX_AGGREGATION_SIZE,
       },
       aggs: {
         weight: {
           sum: {
-            field: 'i_inference_weight',
+            field: weightField,
             missing: 1,
           },
         },
@@ -2515,7 +3123,7 @@ export const elAggregationCount = async (context, user, indexName, options = {})
     },
   };
   const query = {
-    index: indexName,
+    index: getIndicesToQuery(context, user, indexName),
     body,
   };
   logApp.debug('[SEARCH] aggregationCount', { query });
@@ -2526,10 +3134,13 @@ export const elAggregationCount = async (context, user, indexName, options = {})
         let label = b.key;
         if (typeof label === 'number') {
           label = String(b.key);
-        } else if (!isIdFields) {
+        } else if (field === 'entity_type' && convertEntityTypeLabel) {
+          // entity_type is returned in lowercase, we want to return the label with the right entity type.
+          label = isStixCoreRelationship(b.key) ? b.key : generateInternalType({ type: b.key });
+        } else if (!isIdFields && normalizeLabel) {
           label = pascalize(b.key);
         }
-        return { label, value: b.weight.value };
+        return { label, value: b.weight.value, count: b.doc_count };
       });
     })
     .catch((err) => {
@@ -2547,7 +3158,10 @@ const extractNestedQueriesFromBool = (boolQueryArray) => {
       const queryElement = shouldArray[j];
       if (queryElement.nested) nestedQueries.push(queryElement.nested.query);
       if (queryElement.bool?.should) { // case nested is in an imbricated filterGroup (not possible for the moment)
-        nestedQueries.push(extractNestedQueriesFromBool([queryElement]));
+        const nestedBoolResult = extractNestedQueriesFromBool([queryElement]);
+        if (nestedBoolResult.length > 0) {
+          nestedQueries.push(nestedBoolResult);
+        }
       }
     }
     if (nestedQueries.length > 0) result = result.concat(nestedQueries);
@@ -2567,8 +3181,8 @@ const buildAggregationRelationFilters = async (context, user, aggregationFilters
 };
 export const elAggregationRelationsCount = async (context, user, indexName, options = {}) => {
   const { types = [], field = null, searchOptions, aggregationOptions, aggregateOnConnections = true } = options;
-  if (!R.includes(field, ['entity_type', 'internal_id', 'rel_object-marking.internal_id', 'rel_kill-chain-phase.internal_id', 'creator_id', 'rel_created-by.internal_id', null])) {
-    throw FunctionalError('Aggregation computing use and unsupported field', { field });
+  if (!R.includes(field, ['entity_type', 'internal_id', 'rel_object-marking.internal_id', 'rel_kill-chain-phase.internal_id', 'creator_id', 'relationship_type', 'x_opencti_workflow_id', 'rel_created-by.internal_id', null])) {
+    throw FunctionalError('Aggregation computing use an unsupported field', { field });
   }
   const body = await elQueryBodyBuilder(context, user, { ...searchOptions, noSize: true, noSort: true });
   const aggregationFilters = await buildAggregationRelationFilters(context, user, aggregationOptions);
@@ -2626,7 +3240,7 @@ export const elAggregationRelationsCount = async (context, user, indexName, opti
       },
     };
   }
-  const query = { index: indexName, body };
+  const query = { index: getIndicesToQuery(context, user, indexName), body };
   logApp.debug('[SEARCH] aggregationRelationsCount', { query });
   const isIdFields = field?.endsWith('internal_id');
   return elRawSearch(context, user, types, query)
@@ -2656,6 +3270,47 @@ export const elAggregationRelationsCount = async (context, user, indexName, opti
     });
 };
 
+export const elAggregationNestedTermsWithFilter = async (context, user, indexName, aggregation, opts = {}) => {
+  const { types = [], size = ES_DEFAULT_PAGINATION } = opts;
+  const { path, field, filter } = aggregation;
+  const body = await elQueryBodyBuilder(context, user, { ...opts, noSize: true, noSort: true });
+  body.size = 0;
+  body.aggs = {
+    nestedAgg: {
+      nested: { path },
+      aggs: {
+        filterAggs: {
+          filter,
+          aggs: {
+            termsAgg: {
+              terms: { field, size },
+            }
+          },
+        },
+      }
+    }
+  };
+  const query = {
+    index: getIndicesToQuery(context, user, indexName),
+    body,
+  };
+  logApp.debug('[SEARCH] elAggregationNestedTermsWithFilter', { query });
+  return elRawSearch(context, user, types, query)
+    .then((data) => {
+      const aggBucketsResult = data.aggregations?.nestedAgg?.filterAggs?.termsAgg?.buckets ?? [];
+      return aggBucketsResult.map((b) => {
+        let label = b.key;
+        if (typeof label === 'number') {
+          label = String(b.key);
+        }
+        return { label, key: b.key, value: b.doc_count };
+      });
+    })
+    .catch((err) => {
+      throw DatabaseError('Aggregation computation count fail', { cause: err, query });
+    });
+};
+
 export const elAggregationsList = async (context, user, indexName, aggregations, opts = {}) => {
   const { types = [], resolveToRepresentative = true } = opts;
   const queryAggs = {};
@@ -2679,7 +3334,7 @@ export const elAggregationsList = async (context, user, indexName, aggregations,
     }
   }
   const query = {
-    index: indexName,
+    index: getIndicesToQuery(context, user, indexName),
     track_total_hits: true,
     _source: false,
     body,
@@ -2707,17 +3362,18 @@ export const elAggregationsList = async (context, user, indexName, aggregations,
 
 export const elPaginate = async (context, user, indexName, options = {}) => {
   // eslint-disable-next-line no-use-before-define
-  const { baseData = false, bypassSizeLimit = false, first = ES_DEFAULT_PAGINATION } = options;
+  const { baseData = false, baseFields = BASE_FIELDS, bypassSizeLimit = false } = options;
+  const first = options.first ?? ES_DEFAULT_PAGINATION;
   const { types = null, connectionFormat = true } = options;
   const body = await elQueryBodyBuilder(context, user, options);
   if (body.size > ES_MAX_PAGINATION && !bypassSizeLimit) {
-    logApp.warn('[SEARCH] Pagination limited to max result config', { size: body.size, max: ES_MAX_PAGINATION });
+    logApp.info('[SEARCH] Pagination limited to max result config', { size: body.size, max: ES_MAX_PAGINATION });
     body.size = ES_MAX_PAGINATION;
   }
   const query = {
-    index: indexName,
+    index: getIndicesToQuery(context, user, indexName),
     track_total_hits: true,
-    _source: baseData ? BASE_FIELDS : true,
+    _source: baseData ? baseFields : true,
     body,
   };
   logApp.debug('[SEARCH] paginate', { query });
@@ -2734,7 +3390,9 @@ export const elPaginate = async (context, user, indexName, options = {}) => {
     );
 };
 export const elList = async (context, user, indexName, opts = {}) => {
-  const { first = ES_DEFAULT_PAGINATION, maxSize = undefined } = opts;
+  const { maxSize = undefined, logForMigration = false } = opts;
+  const first = opts.first ?? ES_DEFAULT_PAGINATION;
+  let batch = 0;
   let emitSize = 0;
   let hasNextPage = true;
   let continueProcess = true;
@@ -2754,9 +3412,13 @@ export const elList = async (context, user, indexName, opts = {}) => {
     const paginateOpts = { ...opts, first, after: searchAfter, connectionFormat: false };
     const elements = await elPaginate(context, user, indexName, paginateOpts);
     emitSize += elements.length;
-    const noMoreElements = elements.length === 0 || elements.length < (first ?? ES_DEFAULT_PAGINATION);
+    const noMoreElements = elements.length === 0 || elements.length < first;
     const moreThanMax = maxSize ? emitSize >= maxSize : false;
     if (noMoreElements || moreThanMax) {
+      batch += 1;
+      if (logForMigration) {
+        logMigration.info(`Migrating batch ${batch}...`);
+      }
       if (elements.length > 0) {
         await publish(elements);
       }
@@ -2783,9 +3445,9 @@ export const elLoadBy = async (context, user, field, value, type = null, indices
   return R.head(hits);
 };
 export const elAttributeValues = async (context, user, field, opts = {}) => {
-  const { first, orderMode = 'asc', search } = opts;
+  const { orderMode = 'asc', search } = opts;
+  const first = opts.first ?? ES_DEFAULT_PAGINATION;
   const markingRestrictions = await buildDataRestrictions(context, user);
-  const isDateOrNumber = isDateNumericOrBooleanAttribute(field);
   const must = [];
   if (isNotEmptyField(search) && search.length > 0) {
     const shouldSearch = elGenerateFullTextSearchShould(search);
@@ -2808,8 +3470,8 @@ export const elAttributeValues = async (context, user, field, opts = {}) => {
     aggs: {
       values: {
         terms: {
-          field: isDateOrNumber ? field : `${field}.keyword`,
-          size: first ?? ES_DEFAULT_PAGINATION,
+          field: buildFieldForQuery(field),
+          size: first,
           order: { _key: orderMode },
         },
       },
@@ -2845,9 +3507,9 @@ export const elBulk = async (args) => {
 /* v8 ignore next */
 export const elIndex = async (indexName, documentBody, opts = {}) => {
   const { refresh = true, pipeline } = opts;
-  const internalId = documentBody.internal_id;
+  const documentId = documentBody.internal_id;
   const entityType = documentBody.entity_type ? documentBody.entity_type : '';
-  logApp.debug(`[SEARCH] index > ${entityType} ${internalId} in ${indexName}`, documentBody);
+  logApp.debug(`[SEARCH] index > ${entityType} ${documentId} in ${indexName}`, { documentBody });
   let indexParams = {
     index: indexName,
     id: documentBody.internal_id,
@@ -2859,12 +3521,13 @@ export const elIndex = async (indexName, documentBody, opts = {}) => {
     indexParams = { ...indexParams, pipeline };
   }
   await engine.index(indexParams).catch((err) => {
-    throw DatabaseError('Simple indexing fail', { cause: err, body: documentBody });
+    throw DatabaseError('Simple indexing fail', { cause: err, documentId, entityType, ...extendedErrors({ documentBody }) });
   });
   return documentBody;
 };
 /* v8 ignore next */
 export const elUpdate = (indexName, documentId, documentBody, retry = ES_RETRY_ON_CONFLICT) => {
+  const entityType = documentBody.entity_type ? documentBody.entity_type : '';
   return engine.update({
     id: documentId,
     index: indexName,
@@ -2873,7 +3536,7 @@ export const elUpdate = (indexName, documentId, documentBody, retry = ES_RETRY_O
     refresh: true,
     body: documentBody,
   }).catch((err) => {
-    throw DatabaseError('Update indexing fail', { cause: err, documentId, body: documentBody });
+    throw DatabaseError('Update indexing fail', { cause: err, documentId, entityType, ...extendedErrors({ documentBody }) });
   });
 };
 export const elReplace = (indexName, documentId, documentBody) => {
@@ -2905,7 +3568,7 @@ export const elDelete = (indexName, documentId) => {
   });
 };
 
-const getRelatedRelations = async (context, user, targetIds, elements, level, cache) => {
+const getRelatedRelations = async (context, user, targetIds, elements, level, cache, opts = {}) => {
   const fromOrToIds = Array.isArray(targetIds) ? targetIds : [targetIds];
   const filtersContent = [{
     key: 'connections',
@@ -2928,20 +3591,20 @@ const getRelatedRelations = async (context, user, targetIds, elements, level, ca
     });
     elements.unshift(...preparedElements);
   };
-  const opts = { filters, connectionFormat: false, callback, types: [ABSTRACT_BASIC_RELATIONSHIP] };
-  await elList(context, user, READ_RELATIONSHIPS_INDICES, opts);
+  const finalOpts = { ...opts, filters, connectionFormat: false, callback, types: [ABSTRACT_BASIC_RELATIONSHIP] };
+  await elList(context, user, READ_RELATIONSHIPS_INDICES, finalOpts);
   // If relations find, need to recurs to find relations to relations
   if (foundRelations.length > 0) {
     const groups = R.splitEvery(MAX_BULK_OPERATIONS, foundRelations);
-    const concurrentFetch = (gIds) => getRelatedRelations(context, user, gIds, elements, level + 1, cache);
+    const concurrentFetch = (gIds) => getRelatedRelations(context, user, gIds, elements, level + 1, cache, opts);
     await BluePromise.map(groups, concurrentFetch, { concurrency: ES_MAX_CONCURRENCY });
   }
 };
-export const getRelationsToRemove = async (context, user, elements) => {
+export const getRelationsToRemove = async (context, user, elements, opts = {}) => {
   const relationsToRemoveMap = new Map();
   const relationsToRemove = [];
   const ids = elements.map((e) => e.internal_id);
-  await getRelatedRelations(context, user, ids, relationsToRemove, 0, relationsToRemoveMap);
+  await getRelatedRelations(context, user, ids, relationsToRemove, 0, relationsToRemoveMap, opts);
   return { relations: R.flatten(relationsToRemove), relationsToRemoveMap };
 };
 export const elDeleteInstances = async (instances) => {
@@ -2952,7 +3615,7 @@ export const elDeleteInstances = async (instances) => {
     for (let i = 0; i < groupsOfInstances.length; i += 1) {
       const instancesBulk = groupsOfInstances[i];
       const bodyDelete = instancesBulk.flatMap((doc) => {
-        return [{ delete: { _index: doc._index, _id: doc.internal_id, retry_on_conflict: ES_RETRY_ON_CONFLICT } }];
+        return [{ delete: { _index: doc._index, _id: doc._id ?? doc.internal_id, retry_on_conflict: ES_RETRY_ON_CONFLICT } }];
       });
       await elBulk({ refresh: true, timeout: BULK_TIMEOUT, body: bodyDelete });
     }
@@ -2963,34 +3626,68 @@ const elRemoveRelationConnection = async (context, user, elementsImpact) => {
   if (impacts.length > 0) {
     const idsToResolve = impacts.map(([k]) => k);
     const dataIds = await elFindByIds(context, user, idsToResolve, { baseData: true });
-    const indexCache = R.mergeAll(dataIds.map((element) => ({ [element.internal_id]: element._index })));
+    // Build cache for rest of execution
+    const elIdsCache = {};
+    const indexCache = {};
+    let startProcessingTime = new Date().getTime();
+    for (let idIndex = 0; idIndex < dataIds.length; idIndex += 1) {
+      const element = dataIds[idIndex];
+      elIdsCache[element.internal_id] = element._id;
+      indexCache[element.internal_id] = element._index;
+      // Prevent event loop locking more than MAX_EVENT_LOOP_PROCESSING_TIME
+      if (new Date().getTime() - startProcessingTime > MAX_EVENT_LOOP_PROCESSING_TIME) {
+        startProcessingTime = new Date().getTime();
+        await new Promise((resolve) => {
+          setImmediate(resolve);
+        });
+      }
+    }
+    // Split by max operations, create the bulk
     const groupsOfImpacts = R.splitEvery(MAX_BULK_OPERATIONS, impacts);
+    startProcessingTime = new Date().getTime();
     for (let i = 0; i < groupsOfImpacts.length; i += 1) {
       const impactsBulk = groupsOfImpacts[i];
       const bodyUpdateRaw = impactsBulk.map(([impactId, elementMeta]) => {
         return Object.entries(elementMeta).map(([typeAndIndex, cleanupIds]) => {
           const updates = [];
+          const elId = elIdsCache[impactId];
           const fromIndex = indexCache[impactId];
           if (isEmptyField(fromIndex)) { // No need to clean up the connections if the target is already deleted.
             return updates;
           }
-          const [relationType, relationIndex] = typeAndIndex.split('|');
+          const [relationType, relationIndex, side, sideType] = typeAndIndex.split('|');
           const refField = isStixRefRelationship(relationType) && isInferredIndex(relationIndex) ? ID_INFERRED : ID_INTERNAL;
           const rel_key = buildRefRelationKey(relationType, refField);
-          let source = `if (ctx._source['${rel_key}'] != null) ctx._source['${rel_key}'] = ctx._source['${rel_key}'].stream().filter(id -> !params.cleanupIds.contains(id)).collect(Collectors.toList());`;
-          if (isStixRefRelationship(relationType)) {
-            source += 'ctx._source[\'updated_at\'] = params.updated_at;';
+          let source = `if (ctx._source['${rel_key}'] != null) ctx._source['${rel_key}'] = ctx._source['${rel_key}'].stream().filter(id -> !params.cleanupIds.contains(id)).collect(Collectors.toList())`;
+          // Only impact the updated at on the from side of the ref relationship
+          const fromSide = side === 'from';
+          if (fromSide && isStixRefRelationship(relationType)) {
+            if (isUpdatedAtObject(sideType)) {
+              source += '; ctx._source[\'updated_at\'] = params.updated_at';
+            }
+            if (isModifiedObject(sideType)) {
+              source += '; ctx._source[\'modified\'] = params.updated_at';
+            }
           }
           const script = { source, params: { cleanupIds, updated_at: now() } };
           updates.push([
-            { update: { _index: fromIndex, _id: impactId, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
+            { update: { _index: fromIndex, _id: elId, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
             { script },
           ]);
           return updates;
         });
       });
       const bodyUpdate = R.flatten(bodyUpdateRaw);
-      await elBulk({ refresh: true, timeout: BULK_TIMEOUT, body: bodyUpdate });
+      if (bodyUpdate.length > 0) {
+        await elBulk({ refresh: true, timeout: BULK_TIMEOUT, body: bodyUpdate });
+      }
+      // Prevent event loop locking more than MAX_EVENT_LOOP_PROCESSING_TIME
+      if (new Date().getTime() - startProcessingTime > MAX_EVENT_LOOP_PROCESSING_TIME) {
+        startProcessingTime = new Date().getTime();
+        await new Promise((resolve) => {
+          setImmediate(resolve);
+        });
+      }
     }
   }
 };
@@ -3002,9 +3699,9 @@ const computeDeleteElementsImpacts = async (cleanupRelations, toBeRemovedIds, re
   for (let i = 0; i < cleanupRelations.length; i += 1) {
     const relation = cleanupRelations[i];
     const fromWillNotBeRemoved = !relationsToRemoveMap.has(relation.fromId) && !toBeRemovedIds.includes(relation.fromId);
-    const isFromCleanup = fromWillNotBeRemoved && isImpactedTypeAndSide(relation.entity_type, ROLE_FROM);
-    const cleanKey = `${relation.entity_type}|${relation._index}`;
+    const isFromCleanup = fromWillNotBeRemoved && isImpactedTypeAndSide(relation.entity_type, relation.fromType, relation.toType, ROLE_FROM);
     if (isFromCleanup) {
+      const cleanKey = `${relation.entity_type}|${relation._index}|from|${relation.fromType}`;
       if (isEmptyField(elementsImpact[relation.fromId])) {
         elementsImpact[relation.fromId] = { [cleanKey]: [relation.toId] };
       } else {
@@ -3017,8 +3714,9 @@ const computeDeleteElementsImpacts = async (cleanupRelations, toBeRemovedIds, re
       }
     }
     const toWillNotBeRemoved = !relationsToRemoveMap.has(relation.toId) && !toBeRemovedIds.includes(relation.toId);
-    const isToCleanup = toWillNotBeRemoved && isImpactedTypeAndSide(relation.entity_type, ROLE_TO);
+    const isToCleanup = toWillNotBeRemoved && isImpactedTypeAndSide(relation.entity_type, relation.fromType, relation.toType, ROLE_TO);
     if (isToCleanup) {
+      const cleanKey = `${relation.entity_type}|${relation._index}|to|${relation.toType}`;
       if (isEmptyField(elementsImpact[relation.toId])) {
         elementsImpact[relation.toId] = { [cleanKey]: [relation.fromId] };
       } else {
@@ -3041,15 +3739,151 @@ const computeDeleteElementsImpacts = async (cleanupRelations, toBeRemovedIds, re
   return elementsImpact;
 };
 
-export const elDeleteElements = async (context, user, elements) => {
+export const elReindexElements = async (context, user, ids, sourceIndex, destIndex, opts = {}) => {
+  const { dbId, sourceUpdate = {} } = opts;
+  const sourceCleanupScript = "ctx._source.remove('fromType'); ctx._source.remove('toType'); "
+    + "ctx._source.remove('spec_version'); ctx._source.remove('representative'); ctx._source.remove('objectOrganization'); "
+    + "ctx._source.remove('rel_has-reference'); ctx._source.remove('rel_has-reference.internal_id'); "
+    + "ctx._source.remove('i_valid_from_day'); ctx._source.remove('i_valid_until_day'); "
+    + "ctx._source.remove('i_valid_from_month'); ctx._source.remove('i_valid_until_month'); "
+    + "ctx._source.remove('i_valid_from_year'); ctx._source.remove('i_valid_until_year'); "
+    + "ctx._source.remove('i_stop_time_year'); ctx._source.remove('i_start_time_year'); "
+    + "ctx._source.remove('i_start_time_month'); ctx._source.remove('i_stop_time_month'); "
+    + "ctx._source.remove('i_start_time_day'); ctx._source.remove('i_stop_time_day'); "
+    + "ctx._source.remove('i_created_at_year'); ctx._source.remove('i_created_at_month'); ctx._source.remove('i_created_at_day'); "
+    + "ctx._source.remove('rel_can-share'); ctx._source.remove('rel_can-share.internal_id');";
+  const idReplaceScript = 'if (params.replaceId) { ctx._id = params.newId }';
+  const sourceUpdateScript = 'for (change in params.changes.entrySet()) { ctx._source[change.getKey()] = change.getValue() }';
+  const source = `${sourceCleanupScript} ${idReplaceScript} ${sourceUpdateScript}`;
+  const reindexParams = {
+    body: {
+      source: {
+        index: sourceIndex,
+        query: {
+          ids: {
+            values: ids
+          }
+        }
+      },
+      dest: {
+        index: destIndex
+      },
+      script: { // remove old fields that are not mapped anymore but can be present in DB
+        params: { changes: sourceUpdate, replaceId: !!dbId, newId: dbId },
+        source,
+      },
+    },
+    refresh: true
+  };
+  return engine.reindex(reindexParams).catch((err) => {
+    throw DatabaseError(`Reindexing fail from ${sourceIndex} to ${destIndex}`, { cause: err, body: reindexParams.body });
+  });
+};
+
+export const elMarkElementsAsDraftDelete = async (context, user, elements) => {
+  if (elements.some((e) => !isDraftSupportedEntity(e))) throw UnsupportedError('Cannot delete unsupported element in draft context', { elements });
+  const draftContext = getDraftContext(context, user);
+  // Relations from and to need to be elements that are also in draft.
+  for (let i = 0; i < elements.length; i += 1) {
+    const e = elements[i];
+    if (e.base_type === BASE_TYPE_RELATION) {
+      const { from, fromId, to, toId } = e;
+      const resolvedFrom = from ?? await elLoadById(context, user, fromId);
+      const draftFrom = await loadDraftElement(context, user, resolvedFrom);
+      e.from = draftFrom;
+      e.fromId = draftFrom.id;
+      const resolvedTo = to ?? await elLoadById(context, user, toId);
+      const draftTo = await loadDraftElement(context, user, resolvedTo);
+      e.to = draftTo;
+      e.toId = draftTo.id;
+    }
+  }
+
+  const { relations } = await getRelationsToRemove(context, SYSTEM_USER, elements, { includeDeletedInDraft: true });
+
+  // 01. Remove all related relations and elements: delete instances created in draft, mark as deletionLink for others
+  const draftRelations = relations.filter((f) => f._index.includes(INDEX_DRAFT_OBJECTS));
+  const liveRelations = relations.filter((f) => !f._index.includes(INDEX_DRAFT_OBJECTS));
+  await elDeleteInstances(draftRelations);
+  await Promise.all(liveRelations.map((r) => copyLiveElementToDraft(context, user, r, DRAFT_OPERATION_DELETE_LINKED)));
+  // 02/ Remove all elements: delete instances created in draft, mark as deletion for others
+  const draftElements = elements.filter((f) => f._index.includes(INDEX_DRAFT_OBJECTS));
+  const liveElements = elements.filter((f) => !f._index.includes(INDEX_DRAFT_OBJECTS));
+  await elDeleteInstances(draftElements);
+  liveElements.map((e) => copyLiveElementToDraft(context, user, e, DRAFT_OPERATION_DELETE));
+  // 03/ Remove draft_ids from live relations and live elements of draft reverts
+  const allDraftIds = [...draftRelations, ...draftElements].map((d) => d.internal_id);
+  const revertDraftIdSource = `
+    if (ctx._source.containsKey('draft_ids')) { 
+      for (int i = 0; i < ctx._source.draft_ids.length; ++i){
+        if(ctx._source.draft_ids[i] == '${draftContext}'){
+          ctx._source.draft_ids.remove(i);
+        }
+      }
+    }  
+  `;
+  if (allDraftIds.length > 0) {
+    await elRawUpdateByQuery({
+      index: READ_DATA_INDICES_WITHOUT_INTERNAL_WITHOUT_INFERRED,
+      refresh: true,
+      conflicts: 'proceed',
+      body: {
+        script: { source: revertDraftIdSource },
+        query: {
+          terms: {
+            'id.keyword': allDraftIds
+          }
+        },
+      },
+    }).catch((err) => {
+      throw DatabaseError('Revert live entities indexing fail', { cause: err });
+    });
+  }
+};
+
+export const elDeleteElements = async (context, user, elements, opts = {}) => {
   if (elements.length === 0) return;
-  const { relations, relationsToRemoveMap } = await getRelationsToRemove(context, user, elements);
+  if (getDraftContext(context, user)) {
+    await elMarkElementsAsDraftDelete(context, user, elements);
+    return;
+  }
+  const { forceDelete = true } = opts;
+  const { relations, relationsToRemoveMap } = await getRelationsToRemove(context, SYSTEM_USER, elements);
+  // User must have access to all relations to remove to be able to delete
+  const filteredRelations = await userFilterStoreElements(context, user, relations);
+  if (relations.length !== filteredRelations.length) {
+    throw FunctionalError('Cannot delete element: cannot access all related relations');
+  }
+  relations.forEach((instance) => controlUserConfidenceAgainstElement(user, instance));
+  relations.forEach((instance) => controlUserRestrictDeleteAgainstElement(user, instance));
   // Compute the id that needs to be removed from rel
   const basicCleanup = elements.filter((f) => isBasicRelationship(f.entity_type));
   // Update all rel connections that will remain
   const cleanupRelations = relations.concat(basicCleanup);
   const toBeRemovedIds = elements.map((e) => e.internal_id);
   const elementsImpact = await computeDeleteElementsImpacts(cleanupRelations, toBeRemovedIds, relationsToRemoveMap);
+  const entitiesToDelete = [...elements, ...relations];
+  // Store deleted objects
+  // CURRENT LIMITATION: we only handle forceDelete when elDeleteElements is called with 1 element. This is because getRelationsToRemove returns all related relations without
+  // linking the relations to a specific element, which we would need for the deleted_elements of deleteOperations. The difficulty in changing getRelationsToRemove is handling the
+  // case where a relationship is linked to two elements given in elDeleteElements: how do we decide which element to link the relationship to?
+  if (conf.get('app:trash:enabled') && !forceDelete && elements.length === 1) {
+    // map of index => ids to save
+    const idsByIndex = new Map();
+    entitiesToDelete.forEach((element) => {
+      if (!idsByIndex.has(element._index)) {
+        idsByIndex.set(element._index, []);
+      }
+      idsByIndex.get(element._index).push(element.id);
+    });
+    const reindexPromises = [];
+    [...idsByIndex.keys()].forEach((sourceIndex) => {
+      const ids = idsByIndex.get(sourceIndex);
+      reindexPromises.push(elReindexElements(context, user, ids, sourceIndex, INDEX_DELETED_OBJECTS));
+    });
+    await Promise.all(reindexPromises);
+    await createDeleteOperationElement(context, user, elements[0], entitiesToDelete);
+  }
   // 01. Start by clearing connections rel
   await elRemoveRelationConnection(context, user, elementsImpact);
   // 02. Remove all related relations and elements
@@ -3060,26 +3894,66 @@ export const elDeleteElements = async (context, user, elements) => {
   await elDeleteInstances(elements);
 };
 
+const createDeleteOperationElement = async (context, user, mainElement, deletedElements) => {
+  // We currently only handle deleteOperations of 1 element
+  const deleteOperationDeletedElements = deletedElements.map((e) => ({ id: e.internal_id, source_index: e._index }));
+  const deleteOperationInput = {
+    entity_type: ENTITY_TYPE_DELETE_OPERATION,
+    main_entity_type: mainElement.entity_type,
+    main_entity_id: mainElement.internal_id,
+    main_entity_name: extractRepresentative(mainElement).main ?? mainElement.internal_id,
+    deleted_elements: deleteOperationDeletedElements,
+    confidence: mainElement.confidence ?? 100,
+    objectMarking: mainElement.objectMarking ?? [], // we retrieve resolved objectMarking if it exists
+    objectOrganization: mainElement.objectOrganization ?? [], // we retrieve resolved objectOrganization if it exists
+  };
+  const { element, relations } = await buildEntityData(context, user, deleteOperationInput, ENTITY_TYPE_DELETE_OPERATION);
+
+  await elIndexElements(context, user, ENTITY_TYPE_DELETE_OPERATION, [element, ...(relations ?? [])]);
+};
+
 // TODO: get rid of this function and let elastic fail queries, so we can fix all of them by using the right type of data
-export const prepareElementForIndexing = (element) => {
+export const prepareElementForIndexing = async (element) => {
   const thing = {};
-  Object.keys(element).forEach((key) => {
+  const keyItems = Object.keys(element);
+  let startProcessingTime = new Date().getTime();
+  for (let index = 0; index < keyItems.length; index += 1) {
+    const key = keyItems[index];
     const value = element[key];
     if (Array.isArray(value)) { // Array of Date, objects, string or number
-      const filteredArray = value.filter((i) => i);
-      thing[key] = filteredArray.length > 0 ? filteredArray.map((f) => {
-        if (isDateAttribute(key)) { // Date is an object but natively supported
-          return f;
+      const preparedArray = [];
+      let innerProcessingTime = new Date().getTime();
+      let extendLoopSplit = 0;
+      for (let valueIndex = 0; valueIndex < value.length; valueIndex += 1) {
+        const valueElement = value[valueIndex];
+        if (valueElement) {
+          if (isDateAttribute(key)) { // Date is an object but natively supported
+            preparedArray.push(valueElement);
+          } else if (R.is(String, valueElement)) { // For string, trim by default
+            preparedArray.push(valueElement.trim());
+          } else if (R.is(Object, valueElement) && Object.keys(value).length > 0) { // For complex object, prepare inner elements
+            const complexPrepared = await prepareElementForIndexing(valueElement);
+            preparedArray.push(complexPrepared);
+          } else {
+            // For all other types, no transform (list of boolean is not supported)
+            preparedArray.push(valueElement);
+          }
         }
-        if (R.is(String, f)) { // For string, trim by default
-          return f.trim();
+        // Prevent event loop locking more than MAX_EVENT_LOOP_PROCESSING_TIME
+        if (new Date().getTime() - innerProcessingTime > MAX_EVENT_LOOP_PROCESSING_TIME) {
+          // If we extends the preparation 5 times, log an error
+          // It will help to understand what kind of key have so much elements
+          if (extendLoopSplit === 5) {
+            logApp.error('[ENGINE] Element preparation too many values', { id: element.id, key, size: value.length });
+          }
+          extendLoopSplit += 1;
+          innerProcessingTime = new Date().getTime();
+          await new Promise((resolve) => {
+            setImmediate(resolve);
+          });
         }
-        if (R.is(Object, f) && Object.keys(value).length > 0) { // For complex object, prepare inner elements
-          return prepareElementForIndexing(f);
-        }
-        // For all other types, no transform (list of boolean is not supported)
-        return f;
-      }) : [];
+      }
+      thing[key] = preparedArray;
     } else if (isDateAttribute(key)) { // Date is an object but natively supported
       thing[key] = value;
     } else if (isBooleanAttribute(key)) { // Patch field is string generic so need to be cast to boolean
@@ -3087,18 +3961,29 @@ export const prepareElementForIndexing = (element) => {
     } else if (isNumericAttribute(key)) {
       thing[key] = isNotEmptyField(value) ? Number(value) : undefined;
     } else if (R.is(Object, value) && Object.keys(value).length > 0) { // For complex object, prepare inner elements
-      thing[key] = prepareElementForIndexing(value);
+      thing[key] = await prepareElementForIndexing(value);
     } else if (R.is(String, value)) { // For string, trim by default
       thing[key] = value.trim();
     } else { // For all other types (numeric, ...), no transform
       thing[key] = value;
     }
-  });
+    // Prevent event loop locking more than MAX_EVENT_LOOP_PROCESSING_TIME
+    if (new Date().getTime() - startProcessingTime > MAX_EVENT_LOOP_PROCESSING_TIME) {
+      startProcessingTime = new Date().getTime();
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
+    }
+  }
   return thing;
 };
 const prepareRelation = (thing) => {
   if (thing.fromRole === undefined || thing.toRole === undefined) {
-    throw DatabaseError('Cant index relation connections without from or to', { relation: thing });
+    throw DatabaseError('Cant index relation connections without from or to', {
+      id: thing.internal_id,
+      fromId: thing.fromId,
+      toId: thing.toId,
+    });
   }
   const connections = [];
   if (!thing.from || !thing.to) {
@@ -3148,25 +4033,128 @@ const prepareIndexingElement = async (thing) => {
   const entity = prepareEntity(thing);
   return prepareElementForIndexing(entity);
 };
-const prepareIndexing = async (elements) => {
+const prepareIndexing = async (context, user, elements) => {
+  const draftContext = getDraftContext(context, user);
   const preparedElements = [];
   for (let i = 0; i < elements.length; i += 1) {
     const element = elements[i];
+    if (draftContext) {
+      // If we are in a draft, relations from and to need to be elements that are also in draft.
+      if (element.base_type === BASE_TYPE_RELATION) {
+        const { from, to } = element;
+        if (!elements.some((e) => e.internal_id === from.internal_id)) {
+          const draftFrom = await loadDraftElement(context, user, from);
+          element.from = draftFrom;
+          element.fromId = draftFrom.id;
+        } else {
+          element.from._index = INDEX_DRAFT_OBJECTS;
+        }
+        if (!elements.some((e) => e.internal_id === to.internal_id)) {
+          const draftTo = await loadDraftElement(context, user, to);
+          element.to = draftTo;
+          element.toId = draftTo.id;
+        } else {
+          element.to._index = INDEX_DRAFT_OBJECTS;
+        }
+      }
+      element._index = INDEX_DRAFT_OBJECTS;
+      element.draft_ids = [draftContext];
+      element.draft_change = { draft_operation: DRAFT_OPERATION_CREATE };
+    }
     const prepared = await prepareIndexingElement(element);
     preparedElements.push(prepared);
   }
   return preparedElements;
 };
-export const elIndexElements = async (context, user, message, elements) => {
+export const elListExistingDraftWorkspaces = async (context, user) => {
+  const listArgs = {
+    connectionFormat: false,
+    filters: { mode: FilterMode.And, filters: [{ key: ['entity_type'], values: [ENTITY_TYPE_DRAFT_WORKSPACE] }], filterGroups: [] }
+  };
+  return elList(context, user, READ_INDEX_INTERNAL_OBJECTS, listArgs);
+};
+// Creates a copy of a live element in the draft index with the current draft context
+export const copyLiveElementToDraft = async (context, user, element, draftOperation = DRAFT_OPERATION_UPDATE_LINKED) => {
+  const draftContext = getDraftContext(context, user);
+  if (!draftContext || element._index.includes(INDEX_DRAFT_OBJECTS)) return element;
+
+  const updatedElement = structuredClone(element);
+  const newId = generateInternalId();
+  const reindexOpts = { dbId: newId, sourceUpdate: { draft_ids: [draftContext], draft_change: { draft_operation: draftOperation } } };
+  await elReindexElements(context, user, [element.internal_id], element._index, INDEX_DRAFT_OBJECTS, reindexOpts);
+  updatedElement._id = newId;
+  updatedElement._index = INDEX_DRAFT_OBJECTS;
+
+  // Add draftId to live element draftsIds
+  const allDrafts = await elListExistingDraftWorkspaces(context, SYSTEM_USER);
+  const allDraftIds = allDrafts.map((d) => d.internal_id);
+  const addDraftIdScript = {
+    script: {
+      source: `
+        if (ctx._source.containsKey('draft_ids')) { 
+          for (int i=ctx._source['draft_ids'].length-1; i>=0; i--) {
+            if (!params.allDraftIds.contains(ctx._source['draft_ids'][i])) {
+              ctx._source['draft_ids'].remove(i);
+            }
+          }
+          ctx._source['draft_ids'].add('${draftContext}'); 
+        } 
+        else 
+          {ctx._source.draft_ids = ['${draftContext}']}
+      `,
+      params: { allDraftIds }
+    }
+  };
+  await elUpdate(element._index, element.internal_id, addDraftIdScript);
+
+  return updatedElement;
+};
+// Gets the version of the element in current draft context if it exists
+// If it doesn't exist, creates a copy of live element to draft context then returns it
+const draftCopyLockPrefix = 'draft_copy';
+const loadDraftElement = async (context, user, element) => {
+  if (element._index.includes(INDEX_DRAFT_OBJECTS)) return element;
+
+  let lock;
+  const currentDraft = getDraftContext(context, user);
+  const lockKey = `${draftCopyLockPrefix}_${currentDraft}_${element.internal_id}`;
+  try {
+    lock = await lockResources([lockKey]);
+    const loadedElement = await elLoadById(context, user, element.internal_id);
+    if (loadedElement && loadedElement._index.includes(INDEX_DRAFT_OBJECTS)) return loadedElement;
+
+    return await copyLiveElementToDraft(context, user, element);
+  } catch (e) {
+    if (e.name === TYPE_LOCK_ERROR) {
+      throw LockTimeoutError({ participantIds: [lockKey] });
+    }
+    throw e;
+  } finally {
+    if (lock) {
+      await lock.unlock();
+    }
+  }
+};
+const validateElementsToIndex = (context, user, elements) => {
+  const draftContext = getDraftContext(context, user);
+  // If any element to index is not supported in draft, raise exception
+  if (draftContext && elements.some((e) => !isDraftSupportedEntity(e))) throw UnsupportedError('Cannot index unsupported element in draft context');
+};
+export const elIndexElements = async (context, user, indexingType, elements) => {
+  validateElementsToIndex(context, user, elements);
   const elIndexElementsFn = async () => {
     // 00. Relations must be transformed before indexing.
-    const transformedElements = await prepareIndexing(elements);
+    const transformedElements = await prepareIndexing(context, user, elements);
     // 01. Bulk the indexing of row elements
-    const body = transformedElements.flatMap((doc) => [
-      { index: { _index: doc._index, _id: doc.internal_id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
-      R.pipe(R.dissoc('_index'))(doc),
-    ]);
+    const body = transformedElements.flatMap((elementDoc) => {
+      const doc = elementDoc;
+      return [
+        { index: { _index: doc._index, _id: doc._id ?? doc.internal_id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
+        R.pipe(R.dissoc('_index'))(doc),
+      ];
+    });
     if (body.length > 0) {
+      meterManager.directBulk(body.length, { type: indexingType });
       await elBulk({ refresh: true, timeout: BULK_TIMEOUT, body });
     }
     // 02. If relation, generate impacts for from and to sides
@@ -3174,7 +4162,7 @@ export const elIndexElements = async (context, user, message, elements) => {
     const impactedEntities = R.pipe(
       R.filter((e) => e.base_type === BASE_TYPE_RELATION),
       R.map((e) => {
-        const { fromRole, toRole } = e;
+        const { fromType, fromRole, toType, toRole } = e;
         const impacts = [];
         // We impact target entities of the relation only if not global entities like
         // MarkingDefinition (marking) / KillChainPhase (kill_chain_phase) / Label (tagging)
@@ -3182,10 +4170,10 @@ export const elIndexElements = async (context, user, message, elements) => {
         cache[e.toId] = e.to;
         const refField = isStixRefRelationship(e.entity_type) && isInferredIndex(e._index) ? ID_INFERRED : ID_INTERNAL;
         const relationshipType = e.entity_type;
-        if (isImpactedRole(fromRole)) {
+        if (isImpactedRole(relationshipType, fromType, toType, fromRole)) {
           impacts.push({ refField, from: e.fromId, relationshipType, to: e.to, type: e.to.entity_type, side: 'from' });
         }
-        if (isImpactedRole(toRole)) {
+        if (isImpactedRole(relationshipType, fromType, toType, toRole)) {
           impacts.push({ refField, from: e.toId, relationshipType, to: e.from, type: e.from.entity_type, side: 'to' });
         }
         return impacts;
@@ -3212,12 +4200,12 @@ export const elIndexElements = async (context, user, message, elements) => {
         const field = buildRefRelationKey(t.relation, t.field);
         let script = `if (ctx._source['${field}'] == null) ctx._source['${field}'] = [];`;
         script += `ctx._source['${field}'].addAll(params['${field}'])`;
-        if (isStixRefRelationship(t.relation)) {
-          const fromSide = R.find((e) => e.side === 'from', t.elements);
-          if (fromSide && isUpdatedAtObject(fromSide.type)) {
+        const fromSide = R.find((e) => e.side === 'from', t.elements);
+        if (fromSide && isStixRefRelationship(t.relation)) {
+          if (isUpdatedAtObject(fromSide.type)) {
             script += '; ctx._source[\'updated_at\'] = params.updated_at';
           }
-          if (fromSide && isModifiedObject(fromSide.type)) {
+          if (isModifiedObject(fromSide.type)) {
             script += '; ctx._source[\'modified\'] = params.updated_at';
           }
         }
@@ -3231,18 +4219,19 @@ export const elIndexElements = async (context, user, message, elements) => {
       return { ...entity, id: entityId, data: { script: { source, params } } };
     });
     const bodyUpdate = elementsToUpdate.flatMap((doc) => [
-      { update: { _index: doc._index, _id: doc.id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
+      { update: { _index: doc._index, _id: doc._id ?? doc.id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
       R.dissoc('_index', doc.data),
     ]);
     if (bodyUpdate.length > 0) {
+      meterManager.sideBulk(bodyUpdate.length, { type: indexingType });
       const bulkPromise = elBulk({ refresh: true, timeout: BULK_TIMEOUT, body: bodyUpdate });
       await Promise.all([bulkPromise]);
     }
     return transformedElements.length;
   };
-  return telemetry(context, user, `INSERT ${message}`, {
-    [SemanticAttributes.DB_NAME]: 'search_engine',
-    [SemanticAttributes.DB_OPERATION]: 'insert',
+  return telemetry(context, user, `INSERT ${indexingType}`, {
+    [SEMATTRS_DB_NAME]: 'search_engine',
+    [SEMATTRS_DB_OPERATION]: 'insert',
   }, elIndexElementsFn);
 };
 
@@ -3251,7 +4240,7 @@ export const elUpdateRelationConnections = async (elements) => {
     const source = 'def conn = ctx._source.connections.find(c -> c.internal_id == params.id); '
       + 'for (change in params.changes.entrySet()) { conn[change.getKey()] = change.getValue() }';
     const bodyUpdate = elements.flatMap((doc) => [
-      { update: { _index: doc._index, _id: doc.id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
+      { update: { _index: doc._index, _id: doc._id ?? doc.id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
       { script: { source, params: { id: doc.toReplace, changes: doc.data } } },
     ]);
     const bulkPromise = elBulk({ refresh: true, timeout: BULK_TIMEOUT, body: bodyUpdate });
@@ -3279,7 +4268,7 @@ export const elUpdateEntityConnections = async (elements) => {
     const bodyUpdate = elements.flatMap((doc) => {
       const refField = isStixRefRelationship(doc.relationType) && isInferredIndex(doc._index) ? ID_INFERRED : ID_INTERNAL;
       return [
-        { update: { _index: doc._index, _id: doc.id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
+        { update: { _index: doc._index, _id: doc._id ?? doc.id, retry_on_conflict: ES_RETRY_ON_CONFLICT } },
         {
           script: {
             source,
@@ -3303,6 +4292,8 @@ const elUpdateConnectionsOfElement = async (documentId, documentBody) => {
     index: READ_RELATIONSHIPS_INDICES,
     refresh: true,
     conflicts: 'proceed',
+    slices: 'auto', // improve performance by slicing the request
+    wait_for_completion: false, // async (query can update a lot of elements)
     body: {
       script: { source, params: { id: documentId, changes: documentBody } },
       query: {
@@ -3320,15 +4311,25 @@ const elUpdateConnectionsOfElement = async (documentId, documentBody) => {
     throw DatabaseError('Error updating connections', { cause: err, documentId, body: documentBody });
   });
 };
-export const elUpdateElement = async (instance) => {
-  const esData = prepareElementForIndexing(instance);
+
+const getInstanceToUpdate = async (context, user, instance) => {
+  const draftContext = getDraftContext(context, user);
+  // We still want to be able to update internal entities in draft, but we don't want to copy them to draft index
+  if (draftContext && isDraftSupportedEntity(instance)) {
+    return await loadDraftElement(context, user, instance);
+  }
+  return instance;
+};
+export const elUpdateElement = async (context, user, instance) => {
+  const instanceToUse = await getInstanceToUpdate(context, user, instance);
+  const esData = await prepareElementForIndexing(instanceToUse);
   validateDataBeforeIndexing(esData);
-  const dataToReplace = R.dissoc('representative', esData);
-  const replacePromise = elReplace(instance._index, instance.internal_id, { doc: dataToReplace });
+  const dataToReplace = R.pipe(R.dissoc('representative'), R.dissoc('_id'))(esData);
+  const replacePromise = elReplace(instanceToUse._index, instanceToUse._id ?? instanceToUse.internal_id, { doc: dataToReplace });
   // If entity with a name, must update connections
   let connectionPromise = Promise.resolve();
-  if (esData.name && isStixObject(instance.entity_type)) {
-    connectionPromise = elUpdateConnectionsOfElement(instance.internal_id, { name: esData.representative.main });
+  if (esData.name && isStixObject(instanceToUse.entity_type)) {
+    connectionPromise = elUpdateConnectionsOfElement(instance.internal_id, { name: extractEntityRepresentativeName(esData) });
   }
   return Promise.all([replacePromise, connectionPromise]);
 };

@@ -8,7 +8,10 @@ import { useVocabularyCategoryAsQuery, VocabularyDefinition } from '../../../uti
 import ListLinesContent from '../../../components/list_lines/ListLinesContent';
 import { VocabularyCategoryLine, VocabularyCategoryLineDummy } from './attributes/VocabularyCategoryLine';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -25,6 +28,8 @@ const useStyles = makeStyles(() => ({
 const VocabularyCategories = () => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Vocabularies | Taxonomies | Settings'));
   const { categories, sortBy, orderAsc, searchTerm, handleSort, handleSearch } = useVocabularyCategoryAsQuery();
   const renderLines = () => {
     const dataColumns = {
@@ -55,7 +60,7 @@ const VocabularyCategories = () => {
       description: {
         label: 'Description',
         width: '45%',
-        isSortable: true,
+        isSortable: false,
         render: (node: VocabularyDefinition) => node.description,
       },
     };
@@ -86,7 +91,7 @@ const VocabularyCategories = () => {
   return (
     <div className={classes.container}>
       <LabelsVocabulariesMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Taxonomies') }, { label: t_i18n('Vocabularies'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Taxonomies') }, { label: t_i18n('Vocabularies'), current: true }]} />
       {renderLines()}
     </div>
   );

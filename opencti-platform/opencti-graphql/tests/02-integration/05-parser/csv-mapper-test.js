@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import { ADMIN_USER, adminQuery, testContext } from '../../utils/testQuery';
+import fs from 'node:fs';
+import { ADMIN_USER, internalAdminQuery, testContext } from '../../utils/testQuery';
 import { csvMapperAreaMalware, csvMapperAreaMalwareDefault } from './default-values/mapper-area-malware';
-import { parsingProcess } from '../../../src/parser/csv-parser';
-import { mappingProcess } from '../../../src/parser/csv-mapper';
+import { parseReadableToLines, parsingProcess } from '../../../src/parser/csv-parser';
+import { handleRefEntities, mappingProcess } from '../../../src/parser/csv-mapper';
 import { ENTITY_TYPE_LOCATION_ADMINISTRATIVE_AREA } from '../../../src/modules/administrativeArea/administrativeArea-types';
 import { ENTITY_TYPE_MALWARE } from '../../../src/schema/stixDomainObject';
 import { csvMapperFile } from './files-hashes/mapper-files';
@@ -54,9 +55,11 @@ const GET_QUERY = `
 `;
 
 const mapData = async (fileName, mapper, user = ADMIN_USER) => {
-  const [_, ...records] = await parsingProcess(fileName, mapper.separator);
+  const lines = await parseReadableToLines(fs.createReadStream(fileName));
+  const [_, ...records] = await parsingProcess(lines, mapper.separator, mapper.skipLineChar);
   return await Promise.all((records.map(async (record) => {
-    return await mappingProcess(testContext, user, mapper, record);
+    const refEntities = await handleRefEntities(testContext, user, mapper);
+    return await mappingProcess(testContext, user, mapper, record, refEntities);
   })));
 };
 
@@ -75,14 +78,14 @@ describe('CSV-MAPPER', () => {
   let markings;
 
   afterAll(async () => {
-    await adminQuery(ENTITY_SETTINGS_UPDATE, {
+    await internalAdminQuery(ENTITY_SETTINGS_UPDATE, {
       ids: [entitySettingArea.id],
       input: {
         key: 'attributes_configuration',
         value: entitySettingArea.attributes_configuration
       }
     });
-    await adminQuery(ENTITY_SETTINGS_UPDATE, {
+    await internalAdminQuery(ENTITY_SETTINGS_UPDATE, {
       ids: [entitySettingMalware.id],
       input: {
         key: 'attributes_configuration',
@@ -92,7 +95,7 @@ describe('CSV-MAPPER', () => {
   });
 
   beforeAll(async () => {
-    const { data } = await adminQuery(GET_QUERY);
+    const { data } = await internalAdminQuery(GET_QUERY);
     [individual,] = data.individuals.edges.map((e) => e.node);
     const entitySettings = data.entitySettings.edges.map((e) => e.node);
     entitySettingArea = entitySettings.find((setting) => setting.target_type === ENTITY_TYPE_LOCATION_ADMINISTRATIVE_AREA);
@@ -106,7 +109,7 @@ describe('CSV-MAPPER', () => {
       { name: 'longitude', default_values: ['2.22'], mandatory: false },
       { name: 'description', default_values: ['hello'], mandatory: false }
     ];
-    await adminQuery(
+    await internalAdminQuery(
       ENTITY_SETTINGS_UPDATE,
       {
         ids: [entitySettingArea.id],
@@ -124,7 +127,7 @@ describe('CSV-MAPPER', () => {
       { name: 'architecture_execution_envs', default_values: ['powerpc', 'x86'], mandatory: false },
       { name: 'description', default_values: ['hello'], mandatory: false }
     ];
-    await adminQuery(ENTITY_SETTINGS_UPDATE, {
+    await internalAdminQuery(ENTITY_SETTINGS_UPDATE, {
       ids: [entitySettingMalware.id],
       input: {
         key: 'attributes_configuration',
@@ -367,9 +370,10 @@ describe('CSV-MAPPER', () => {
 
     it('should set user chosen markings if policy in mapper is set to user choice', async () => {
       const filePath = './tests/02-integration/05-parser/default-values/data-markings.csv';
+      const USER_CHOICE_MARKING_CONFIG = 'user-choice';
       const data = (await mapData(
         filePath,
-        csvMapperAreaMarking('user-choice', [tlpClear.id, tlpAmber.id]),
+        csvMapperAreaMarking(USER_CHOICE_MARKING_CONFIG, [tlpClear.id, tlpAmber.id]),
       )).flat();
 
       const indre = data.find((object) => object.name === 'indre');

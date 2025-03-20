@@ -9,7 +9,7 @@ import inject18n from '../../../components/i18n';
 import TextField from '../../../components/TextField';
 import { SubscriptionFocus } from '../../../components/Subscription';
 import { commitMutation } from '../../../relay/environment';
-import MarkdownField from '../../../components/MarkdownField';
+import MarkdownField from '../../../components/fields/MarkdownField';
 
 const styles = (theme) => ({
   drawerPaper: {
@@ -103,7 +103,7 @@ class WorkspaceEditionOverviewComponent extends Component {
         onSubmit={() => true}
       >
         {() => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               name="name"

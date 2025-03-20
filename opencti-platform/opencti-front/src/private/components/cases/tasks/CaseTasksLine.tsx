@@ -20,6 +20,8 @@ import { CaseTasksLine_data$key } from './__generated__/CaseTasksLine_data.graph
 import TaskPopover from './TaskPopover';
 import { CaseTasksLinesQuery$variables } from './__generated__/CaseTasksLinesQuery.graphql';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 15,
@@ -77,12 +79,14 @@ interface CaseTasksLineProps {
   node: CaseTasksLine_data$key;
   entityId?: string;
   paginationOptions: CaseTasksLinesQuery$variables;
+  enableReferences: boolean;
 }
 
 export const CaseTasksLine: FunctionComponent<CaseTasksLineProps> = ({
   node,
   entityId,
   paginationOptions,
+  enableReferences,
 }) => {
   const classes = useStyles();
   const { fld } = useFormatter();
@@ -139,7 +143,7 @@ export const CaseTasksLine: FunctionComponent<CaseTasksLineProps> = ({
           </IconButton>
         }
       >
-        <CaseTaskOverview tasksData={task} />
+        <CaseTaskOverview tasksData={task} enableReferences={enableReferences} />
       </Drawer>
     </>
   );

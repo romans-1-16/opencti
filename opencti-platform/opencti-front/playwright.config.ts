@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-
+// import teamsWebhook from './tests_e2e/webhooks/teams-webhook.js';
 // https://playwright.dev/docs/browsers
 
 /**
@@ -30,7 +30,12 @@ export default defineConfig({
       coverage: {
         entryFilter: (entry) => true,
         sourceFilter: (sourcePath) => sourcePath.startsWith('src'),
-      }
+      },
+      /*
+      onEnd: async (reportData) => {
+        // teams integration with webhook
+        await teamsWebhook(reportData);
+      } */
     }]
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -40,23 +45,38 @@ export default defineConfig({
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
     ignoreHTTPSErrors: true,
   },
-  expect: { timeout: 200000 },
+  expect: { timeout: 60000 },
   timeout: 200000,
   /* Configure projects for major browsers */
   projects: [
-    { name: 'setup', testMatch: /.*\.setup\.ts/ },
+    {
+      name: 'setup',
+      testMatch: /.*\.setup\.ts/
+    },
+    {
+      name: 'init data',
+      testMatch: "init.data.ts",
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'tests_e2e/.setup/.auth/user.json',
+      },
+      dependencies: ['setup'],
+    },
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'],
+      use: {
+        ...devices['Desktop Chrome'],
         storageState: 'tests_e2e/.setup/.auth/user.json',
         viewport: {
           width: 1920,
           height: 1080
         }
       },
-      dependencies: ['setup'],
+      dependencies: ['init data'],
     },
     // {
     //   name: 'firefox',

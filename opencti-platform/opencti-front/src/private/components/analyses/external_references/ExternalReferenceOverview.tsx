@@ -8,12 +8,13 @@ import { useFormatter } from '../../../../components/i18n';
 import ExpandableMarkdown from '../../../../components/ExpandableMarkdown';
 import { truncate } from '../../../../utils/String';
 import { ExternalReferenceOverview_externalReference$data } from './__generated__/ExternalReferenceOverview_externalReference.graphql';
+import type { Theme } from '../../../../components/Theme';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -34,9 +35,9 @@ ExternalReferenceOverviewComponentProps
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Overview')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Source name')}
             </Typography>
@@ -53,7 +54,7 @@ ExternalReferenceOverviewComponentProps
               limit={400}
             />
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Original creation date')}
             </Typography>

@@ -6,16 +6,18 @@ import { DataColumns } from '../../../../components/list_lines';
 import { ContainerStixObjectsOrStixRelationshipsLines_container$data } from './__generated__/ContainerStixObjectsOrStixRelationshipsLines_container.graphql';
 import { ContainerStixObjectsOrStixRelationshipsLinesQuery$variables } from './__generated__/ContainerStixObjectsOrStixRelationshipsLinesQuery.graphql';
 import { useFormatter } from '../../../../components/i18n';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
 interface ContainerStixObjectsOrStixRelationshipsLinesProps {
   dataColumns: DataColumns;
   container: ContainerStixObjectsOrStixRelationshipsLines_container$data;
   paginationOptions?: ContainerStixObjectsOrStixRelationshipsLinesQuery$variables;
+  enableReferences: boolean;
 }
 
 const ContainerStixObjectsOrStixRelationshipsLines: FunctionComponent<
 ContainerStixObjectsOrStixRelationshipsLinesProps
-> = ({ dataColumns, container, paginationOptions }) => {
+> = ({ dataColumns, container, paginationOptions, enableReferences }) => {
   const { t_i18n } = useFormatter();
   return (
     <div style={{ height: '100%' }}>
@@ -25,11 +27,12 @@ ContainerStixObjectsOrStixRelationshipsLinesProps
             const object = objectEdge?.node;
             return (
               <ContainerStixObjectOrStixRelationshipLine
-                key={container?.id ?? null}
+                key={object?.id ?? null}
                 containerId={container?.id ?? null}
                 node={object}
                 dataColumns={dataColumns}
                 paginationOptions={paginationOptions}
+                enableReferences={enableReferences}
               />
             );
           })}
@@ -51,7 +54,7 @@ ContainerStixObjectsOrStixRelationshipsLinesProps
               textAlign: 'center',
             }}
           >
-            {t_i18n('No entities of this type has been found.')}
+            {t_i18n(NO_DATA_WIDGET_MESSAGE)}
           </span>
         </div>
       )}

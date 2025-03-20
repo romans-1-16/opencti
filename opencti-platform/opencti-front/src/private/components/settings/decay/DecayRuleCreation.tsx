@@ -1,5 +1,5 @@
 import React, { FunctionComponent } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { Field, FieldArray, Form, Formik, FormikConfig } from 'formik';
 import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
 import Button from '@mui/material/Button';
@@ -14,16 +14,19 @@ import Box from '@mui/material/Box';
 import { InformationOutline } from 'mdi-material-ui';
 import ObservableTypesField from '@components/common/form/ObservableTypesField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { insertNode } from '../../../../utils/store';
 import { handleErrorInForm } from '../../../../relay/environment';
 import decayRuleValidator from './DecayRuleValidator';
 import { DecayRulesLinesPaginationQuery$variables } from './__generated__/DecayRulesLinesPaginationQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -74,7 +77,7 @@ const DecayRuleCreationForm: FunctionComponent<DecayRuleCreationFormProps> = ({
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const [commit] = useMutation(decayRuleCreationMutation);
+  const [commit] = useApiMutation(decayRuleCreationMutation);
 
   const onSubmit: FormikConfig<DecayRuleCreationFormData>['onSubmit'] = (
     values,
@@ -135,7 +138,7 @@ const DecayRuleCreationForm: FunctionComponent<DecayRuleCreationFormProps> = ({
       onReset={onReset}
     >
       {({ submitForm, handleReset, isSubmitting, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             name="name"

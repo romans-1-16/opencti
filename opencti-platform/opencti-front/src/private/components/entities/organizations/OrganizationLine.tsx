@@ -9,11 +9,15 @@ import Skeleton from '@mui/material/Skeleton';
 import makeStyles from '@mui/styles/makeStyles';
 import { Theme } from '@mui/material/styles/createTheme';
 import { OrganizationLine_node$key } from '@components/entities/organizations/__generated__/OrganizationLine_node.graphql';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import { useFormatter } from '../../../../components/i18n';
 import StixCoreObjectLabels from '../../common/stix_core_objects/StixCoreObjectLabels';
 import ItemIcon from '../../../../components/ItemIcon';
 import { DataColumns } from '../../../../components/list_lines';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -55,6 +59,10 @@ const organizationLineFragment = graphql`
         name
         created
         modified
+        draftVersion {
+            draft_id
+            draft_operation
+        }
         objectMarking {
             id
             definition_type
@@ -96,12 +104,13 @@ export const OrganizationLine: FunctionComponent<OrganizationLineProps> = ({
               style={{ width: dataColumns.name.width }}
             >
               {data.name}
+              {data.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}
               style={{ width: dataColumns.x_opencti_organization_type.width }}
             >
-              {data.x_opencti_organization_type ?? ''}
+              <FieldOrEmpty source={data.x_opencti_organization_type}>{data.x_opencti_organization_type}</FieldOrEmpty>
             </div>
             <div
               className={classes.bodyItem}

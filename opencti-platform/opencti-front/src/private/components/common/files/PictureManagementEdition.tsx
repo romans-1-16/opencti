@@ -1,4 +1,3 @@
-import { useMutation } from 'react-relay';
 import React, { FunctionComponent } from 'react';
 import * as Yup from 'yup';
 import { FormikConfig } from 'formik/dist/types';
@@ -7,15 +6,18 @@ import { TextField } from 'formik-mui';
 import Button from '@mui/material/Button';
 import makeStyles from '@mui/styles/makeStyles';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import type { Theme } from '../../../../components/Theme';
 import { handleErrorInForm } from '../../../../relay/environment';
 import { pictureManagementUtilsMutation } from './PictureManagementUtils';
 import { PictureManagementUtils_node$data } from './__generated__/PictureManagementUtils_node.graphql';
 import { PictureManagementUtilsMutation, StixDomainObjectFileEditInput } from './__generated__/PictureManagementUtilsMutation.graphql';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -42,7 +44,7 @@ interface PictureManagementEditionFormValues {
 const PictureManagementEdition: FunctionComponent<PictureManagementEditionProps> = ({ picture, entityId, handleClose }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
-  const [commit] = useMutation<PictureManagementUtilsMutation>(
+  const [commit] = useApiMutation<PictureManagementUtilsMutation>(
     pictureManagementUtilsMutation,
   );
   const pictureValidation = () => Yup.object().shape({
@@ -85,7 +87,7 @@ const PictureManagementEdition: FunctionComponent<PictureManagementEditionProps>
       onSubmit={onSubmit}
     >
       {({ submitForm, isSubmitting, isValid }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={MarkdownField}
             name="description"

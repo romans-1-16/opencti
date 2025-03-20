@@ -1,10 +1,15 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import * as R from 'ramda';
 import { createReadStream } from 'node:fs';
-import { elDelete, elLoadById } from '../../../src/database/engine';
+import { elLoadById } from '../../../src/database/engine';
 import { elIndexFiles, elSearchFiles } from '../../../src/database/file-search';
 import { ADMIN_USER, testContext } from '../../utils/testQuery';
-import { deleteFile, getFileContent, upload } from '../../../src/database/file-storage';
+import { getFileContent } from '../../../src/database/file-storage';
 import { INDEX_FILES } from '../../../src/database/utils';
+import { resetFileIndexing } from '../../../src/domain/indexedFile';
+import { uploadToStorage } from '../../../src/database/file-storage-helper';
+import { getManagerConfigurationFromCache, updateManagerConfigurationLastRun } from '../../../src/modules/managerConfiguration/managerConfiguration-domain';
+import { SYSTEM_USER } from '../../../src/utils/access';
 
 const indexFile = async (fileName, mimetype, documentId) => {
   const file = {
@@ -13,7 +18,7 @@ const indexFile = async (fileName, mimetype, documentId) => {
     mimetype,
   };
   // upload file in minio
-  const { upload: uploadedFile } = await upload(testContext, ADMIN_USER, 'import/global', file, {});
+  const { upload: uploadedFile } = await uploadToStorage(testContext, ADMIN_USER, 'import/global', file, {});
 
   // get file content in base64
   const fileContent = await getFileContent(uploadedFile.id, 'base64');
@@ -33,9 +38,6 @@ const indexFile = async (fileName, mimetype, documentId) => {
   // load file document
   const document = await elLoadById(testContext, ADMIN_USER, documentId, { indices: INDEX_FILES });
 
-  // cleanup : delete file in minio
-  await deleteFile(testContext, ADMIN_USER, uploadedFile.id);
-
   return { document, uploadedFileId: uploadedFile.id };
 };
 
@@ -51,20 +53,14 @@ const testFilesSearching = async (search, expectedFiles) => {
   const data = await elSearchFiles(testContext, ADMIN_USER, { search });
   expect(data).not.toBeNull();
   expect(data.edges.length).toEqual(expectedFiles.length);
-  const resultFiles = data.edges.map((edge) => edge.node);
+  const resultFiles = data.edges.map((edge) => R.dissoc('sort', edge.node));
   expect(resultFiles).toEqual(expectedFiles);
 };
-
-const filesIds = ['TEST_FILE_1', 'TEST_FILE_2', 'TEST_FILE_3', 'TEST_FILE_4', 'TEST_FILE_5', 'TEST_FILE_6', 'TEST_FILE_7'];
 
 describe('Indexing file test', () => {
   let document1;
   let document2;
   let document4;
-  afterAll(async () => {
-    // cleanup : delete file in elastic
-    await Promise.all(filesIds.map((fileId) => elDelete(INDEX_FILES, fileId)));
-  });
   it('Should index small pdf file', async () => {
     const mimeType = 'application/pdf';
     const result = await indexFile('test-report-to-index.pdf', mimeType, 'TEST_FILE_1');
@@ -114,7 +110,6 @@ describe('Indexing file test', () => {
       entity_id: undefined,
       file_id: 'import/global/test-report-to-index.pdf',
       searchOccurrences: 11,
-      sort: [3.33155, new Date(document1.indexed_at).getTime(), 'test_file_1']
     };
     await testFilesSearching('elastic', [expectedFile1]);
 
@@ -128,7 +123,6 @@ describe('Indexing file test', () => {
       entity_id: undefined,
       file_id: 'import/global/test-file-to-index.csv',
       searchOccurrences: 3,
-      sort: [1.6763315, new Date(document4.indexed_at).getTime(), 'test_file_4'],
     };
     const expectedFile2 = {
       _index: 'test_files-000001',
@@ -140,8 +134,20 @@ describe('Indexing file test', () => {
       entity_id: undefined,
       file_id: 'import/global/test-large-report-to-index.pdf',
       searchOccurrences: 1,
-      sort: [0.6007867, new Date(document2.indexed_at).getTime(), 'test_file_2'],
     };
     await testFilesSearching('control', [expectedFile4, expectedFile2]);
+  });
+});
+
+describe('Indexing file configuration', () => {
+  it('Should reset file indexing', async () => {
+    const managerConfiguration = await getManagerConfigurationFromCache(testContext, ADMIN_USER, 'FILE_INDEX_MANAGER');
+    // set last run start and end date (otherwise reset won't change anything)
+    await updateManagerConfigurationLastRun(testContext, SYSTEM_USER, managerConfiguration.id, { last_run_start_date: new Date(), last_run_end_date: new Date() });
+    const reset = await resetFileIndexing(testContext, ADMIN_USER);
+    expect(reset).toBeTruthy();
+    const data = await elSearchFiles(testContext, ADMIN_USER, { search: 'elastic' });
+    expect(data).not.toBeNull();
+    expect(data.edges.length).toEqual(0);
   });
 });

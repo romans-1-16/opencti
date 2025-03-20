@@ -9,10 +9,11 @@ import helmet from 'helmet';
 import nconf from 'nconf';
 import showdown from 'showdown';
 import archiver from 'archiver';
+import validator from 'validator';
 import archiverZipEncrypted from 'archiver-zip-encrypted';
 import rateLimit from 'express-rate-limit';
 import contentDisposition from 'content-disposition';
-import { basePath, booleanConf, DEV_MODE, logApp, OPENCTI_SESSION } from '../config/conf';
+import { basePath, booleanConf, DEV_MODE, ENABLED_UI, logApp, OPENCTI_SESSION } from '../config/conf';
 import passport, { isStrategyActivated, STRATEGY_CERT } from '../config/providers';
 import { authenticateUser, authenticateUserFromRequest, HEADERS_AUTHENTICATORS, loginFromProvider, userWithOrigin } from '../domain/user';
 import { downloadFile, getFileContent, isStorageAlive, loadFile } from '../database/file-storage';
@@ -26,10 +27,8 @@ import { isEmptyField, isNotEmptyField } from '../database/utils';
 import { buildContextDataForFile, publishUserAction } from '../listener/UserActionListener';
 import { internalLoadById } from '../database/middleware-loader';
 import { delUserContext, redisIsAlive } from '../database/redis';
-import { UnknownError } from '../config/errors';
 import { rabbitMQIsAlive } from '../database/rabbitmq';
 import { isEngineAlive } from '../database/engine';
-import { checkFileAccess } from '../modules/internal/document/document-domain';
 
 const setCookieError = (res, message) => {
   res.cookie('opencti_flash', message || 'Unknown error', {
@@ -83,16 +82,21 @@ const publishFileRead = async (executeContext, auth, file) => {
 const createApp = async (app) => {
   const limiter = rateLimit({
     windowMs: nconf.get('app:rate_protection:time_window') * 1000, // seconds
-    max: nconf.get('app:rate_protection:max_requests'),
+    limit: nconf.get('app:rate_protection:max_requests'),
     handler: (req, res /* , next */) => {
       res.status(429).send({ message: 'Too many requests, please try again later.' });
     },
   });
-  const scriptSrc = ["'self'", "'unsafe-inline'", 'http://cdn.jsdelivr.net/npm/@apollographql/', 'https://www.googletagmanager.com/'];
+
+  // Init the http server
+  app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
+  app.use(limiter);
   if (DEV_MODE) {
-    scriptSrc.push("'unsafe-eval'");
+    app.set('json spaces', 2);
   }
-  const securityMiddleware = helmet({
+
+  // Configure server security
+  const buildSecurity = (opts) => helmet({
     expectCt: { enforce: true, maxAge: 30 },
     referrerPolicy: { policy: 'unsafe-url' },
     crossOriginEmbedderPolicy: false,
@@ -102,7 +106,7 @@ const createApp = async (app) => {
       useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc,
+        scriptSrc: opts.scriptSrc,
         styleSrc: [
           "'self'",
           "'unsafe-inline'",
@@ -120,30 +124,54 @@ const createApp = async (app) => {
         manifestSrc: ["'self'", 'data:', 'https://*', 'http://*'],
         connectSrc: ["'self'", 'wss://*', 'ws://*', 'data:', 'http://*', 'https://*'],
         objectSrc: ["'self'", 'data:', 'http://*', 'https://*'],
-        frameSrc: ["'self'", 'data:', 'http://*', 'https://*'],
+        frameSrc: opts.allowedFrameSrc,
+        frameAncestors: opts.frameAncestorDomains,
       },
     },
+    xFrameOptions: !opts.isIframeAllowed,
   });
-  // Init the http server
-  app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
-  app.use(limiter);
+
+  const ancestorsFromConfig = nconf.get('app:public_dashboard_authorized_domains')?.trim() ?? '';
+  const frameAncestorDomains = ancestorsFromConfig === '' ? "'none'" : ancestorsFromConfig;
+  const allowedFrameSrc = ["'self'"];
+  const scriptSrc = ["'self'", "'unsafe-inline'", 'http://cdn.jsdelivr.net/npm/@apollographql/', 'https://www.googletagmanager.com/'];
   if (DEV_MODE) {
-    app.set('json spaces', 2);
+    scriptSrc.push("'unsafe-eval'");
   }
-  app.use(securityMiddleware);
+  const securityOpts = {
+    frameAncestorDomains: "'none'",
+    allowedFrameSrc,
+    scriptSrc,
+    isIframeAllowed: false,
+  };
+
+  app.use((req, res, next) => {
+    const urlString = req.url;
+    if (urlString && (urlString.startsWith(`${basePath}/public`))) {
+      const securityMiddleware = buildSecurity({
+        ...securityOpts,
+        frameAncestorDomains,
+        isIframeAllowed: frameAncestorDomains !== "'none'",
+      });
+      securityMiddleware(req, res, next);
+    } else {
+      const securityMiddleware = buildSecurity(securityOpts);
+      securityMiddleware(req, res, next);
+    }
+  });
+
   app.use(compression({}));
 
-  // -- Serv playground resources
-  app.use(`${basePath}/static/@apollographql/graphql-playground-react@1.7.42/build/static`, express.static('static/playground'));
+  if (ENABLED_UI) {
+    // -- Serv flags resources
+    app.use(`${basePath}/static/flags`, express.static('static/flags'));
 
-  // -- Serv flags resources
-  app.use(`${basePath}/static/flags`, express.static('static/flags'));
+    // -- Serv frontend static resources
+    app.use(`${basePath}/static`, express.static(path.join(__dirname, '../public/static')));
+  }
 
-  // -- Serv frontend static resources
-  app.use(`${basePath}/static`, express.static(path.join(__dirname, '../public/static')));
-
-  const requestSizeLimit = nconf.get('app:max_payload_body_size') || '15mb';
-  app.use(bodyParser.json({ limit: requestSizeLimit }));
+  const requestSizeLimit = nconf.get('app:max_payload_body_size') || '50mb';
+  app.use(express.json({ limit: requestSizeLimit }));
 
   const sseMiddleware = createSseMiddleware();
   sseMiddleware.applyMiddleware({ app });
@@ -158,7 +186,7 @@ const createApp = async (app) => {
   archiver.registerFormat('zip-encrypted', archiverZipEncrypted);
 
   // -- File download
-  app.get(`${basePath}/storage/get/:file(*)`, async (req, res, next) => {
+  app.get(`${basePath}/storage/get/:file(*)`, async (req, res) => {
     try {
       const executeContext = executionContext('storage_get');
       const auth = await authenticateUserFromRequest(executeContext, req, res);
@@ -167,22 +195,21 @@ const createApp = async (app) => {
         return;
       }
       const { file } = req.params;
-      const data = await loadFile(auth, file);
-      const { id, metaData: { filename, entity_id } } = data;
-      await checkFileAccess(executeContext, auth, 'download', { id, filename, entity_id });
+      const data = await loadFile(executeContext, auth, file);
       // If file is attach to a specific instance, we need to contr
       await publishFileDownload(executeContext, auth, data);
       const stream = await downloadFile(file);
       res.attachment(file);
       stream.pipe(res);
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error getting storage get file', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
   // -- File view
-  app.get(`${basePath}/storage/view/:file(*)`, async (req, res, next) => {
+  app.get(`${basePath}/storage/view/:file(*)`, async (req, res) => {
     try {
       const executeContext = executionContext('storage_view');
       const auth = await authenticateUserFromRequest(executeContext, req, res);
@@ -191,9 +218,7 @@ const createApp = async (app) => {
         return;
       }
       const { file } = req.params;
-      const data = await loadFile(auth, file);
-      const { id, metaData: { filename, entity_id } } = data;
-      await checkFileAccess(executeContext, auth, 'read', { id, filename, entity_id });
+      const data = await loadFile(executeContext, auth, file);
       await publishFileRead(executeContext, auth, data);
       res.set('Content-disposition', contentDisposition(data.name, { type: 'inline' }));
       res.set({ 'Content-Security-Policy': 'sandbox' });
@@ -207,13 +232,14 @@ const createApp = async (app) => {
       const stream = await downloadFile(file);
       stream.pipe(res);
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error getting storage view file', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
   // -- Pdf view
-  app.get(`${basePath}/storage/html/:file(*)`, async (req, res, next) => {
+  app.get(`${basePath}/storage/html/:file(*)`, async (req, res) => {
     try {
       const executeContext = executionContext('storage_html');
       const auth = await authenticateUserFromRequest(executeContext, req, res);
@@ -222,9 +248,7 @@ const createApp = async (app) => {
         return;
       }
       const { file } = req.params;
-      const data = await loadFile(auth, file);
-      const { id, metaData: { filename, entity_id } } = data;
-      await checkFileAccess(executeContext, auth, 'read', { id, filename, entity_id });
+      const data = await loadFile(executeContext, auth, file);
       const { mimetype } = data.metaData;
       if (mimetype === 'text/markdown') {
         const markDownData = await getFileContent(file);
@@ -238,13 +262,14 @@ const createApp = async (app) => {
         res.send('Unsupported file type');
       }
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error getting html file', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
   // -- Encrypted view
-  app.get(`${basePath}/storage/encrypted/:file(*)`, async (req, res, next) => {
+  app.get(`${basePath}/storage/encrypted/:file(*)`, async (req, res) => {
     try {
       const executeContext = executionContext('storage_encrypted');
       const auth = await authenticateUserFromRequest(executeContext, req, res);
@@ -253,23 +278,23 @@ const createApp = async (app) => {
         return;
       }
       const { file } = req.params;
-      const data = await loadFile(auth, file);
-      const { id, metaData: { filename, entity_id } } = data;
-      await checkFileAccess(executeContext, auth, 'download', { id, filename, entity_id });
+      const data = await loadFile(executeContext, auth, file);
+      const { metaData: { filename } } = data;
       await publishFileDownload(executeContext, auth, data);
       const archive = archiver.create('zip-encrypted', { zlib: { level: 8 }, encryptionMethod: 'aes256', password: nconf.get('app:artifact_zip_password') });
-      archive.append(await downloadFile(file), { name: `${filename}.zip` });
-      archive.finalize();
+      archive.append(await downloadFile(file), { name: filename });
+      await archive.finalize();
       res.attachment(`${filename}.zip`);
       archive.pipe(res);
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error getting encrypted file', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
   // -- Client HTTPS Cert login custom strategy
-  app.get(`${basePath}/auth/cert`, (req, res, next) => {
+  app.get(`${basePath}/auth/cert`, (req, res) => {
     try {
       const context = executionContext('cert_strategy');
       const redirect = extractRefererPathFromReq(req) ?? '/';
@@ -302,13 +327,14 @@ const createApp = async (app) => {
         }
       }
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error auth by cert', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
   // Logout
-  app.get(`${basePath}/logout`, async (req, res, next) => {
+  app.get(`${basePath}/logout`, async (req, res) => {
     try {
       const referer = extractRefererPathFromReq(req) ?? '/';
       const provider = req.session.session_provider?.provider;
@@ -327,17 +353,26 @@ const createApp = async (app) => {
         req.session.destroy(() => {
           const strategy = passport._strategy(provider);
           if (strategy) {
-            if (strategy.logout_remote === true && strategy.logout) {
-              req.user = user; // Needed for passport
-              strategy.logout(req, (error, request) => {
-                if (error) {
-                  setCookieError(res, 'Error generating logout uri');
-                  next(error);
-                } else {
-                  res.redirect(request);
-                }
-              });
+            if (strategy.logout_remote === true) {
+              if (strategy.logout) {
+                logApp.debug('[LOGOUT] requesting remote logout using authentication strategy parameters.');
+                req.user = user; // Needed for passport
+                strategy.logout(req, (error, request) => {
+                  // When logout is implemented for strategy
+                  if (error) {
+                    setCookieError(res, 'Error generating logout uri');
+                    res.status(503).send({ status: 'error', error: error.message });
+                  } else {
+                    logApp.debug('[LOGOUT] Remote logout ok');
+                    res.redirect(request);
+                  }
+                });
+              } else {
+                logApp.info('[LOGOUT] No remote logout implementation found in strategy.');
+                res.redirect(referer);
+              }
             } else {
+              logApp.debug('[LOGOUT] OpenCTI logout only, remote logout on IDP not requested.');
               res.redirect(referer);
             }
           } else {
@@ -351,8 +386,9 @@ const createApp = async (app) => {
         });
       }
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error logout', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
@@ -374,8 +410,9 @@ const createApp = async (app) => {
         next(err);
       })(req, res, next);
     } catch (e) {
-      setCookieError(res, e?.message);
-      next(e);
+      setCookieError(res, e.message);
+      logApp.error('Error auth provider', { cause: e });
+      res.status(503).send({ status: 'error', error: e.message });
     }
   });
 
@@ -397,8 +434,8 @@ const createApp = async (app) => {
       const context = executionContext(`${provider}_strategy`);
       const logged = await callbackLogin();
       await authenticateUser(context, req, logged, provider);
-    } catch (err) {
-      logApp.error(err, { provider });
+    } catch (e) {
+      logApp.error('Error auth provider callback', { cause: e, provider });
       setCookieError(res, 'Invalid authentication, please ask your administrator');
     } finally {
       res.redirect(referer ?? '/');
@@ -431,31 +468,45 @@ const createApp = async (app) => {
 
   // Other routes - Render index.html
   app.get('*', async (_, res) => {
-    const context = executionContext('app_loading');
-    const settings = await getEntityFromCache(context, SYSTEM_USER, ENTITY_TYPE_SETTINGS);
-    const data = readFileSync(`${__dirname}/../public/index.html`, 'utf8');
-    const settingsTitle = settings?.platform_title;
-    const description = 'OpenCTI is an open source platform allowing organizations'
-      + ' to manage their cyber threat intelligence knowledge and observables.';
-    const settingFavicon = settings?.platform_favicon;
-    const withOptionValued = data
-      .replace(/%BASE_PATH%/g, basePath)
-      .replace(/%APP_TITLE%/g, isNotEmptyField(settingsTitle) ? settingsTitle : 'OpenCTI - Cyber Threat Intelligence Platform')
-      .replace(/%APP_DESCRIPTION%/g, description)
-      .replace(/%APP_FAVICON%/g, isNotEmptyField(settingFavicon) ? settingFavicon : `${basePath}/static/ext/favicon.png`)
-      .replace(/%APP_MANIFEST%/g, `${basePath}/static/ext/manifest.json`);
-    res.set('Cache-Control', 'private, no-cache, no-store, must-revalidate');
-    res.set('Expires', '-1');
-    res.set('Pragma', 'no-cache');
-    return res.send(withOptionValued);
+    if (ENABLED_UI) {
+      const context = executionContext('app_loading');
+      const settings = await getEntityFromCache(context, SYSTEM_USER, ENTITY_TYPE_SETTINGS);
+      const data = readFileSync(`${__dirname}/../public/index.html`, 'utf8');
+      const settingsTitle = settings?.platform_title;
+      const description = 'OpenCTI is an open source platform allowing organizations'
+          + ' to manage their cyber threat intelligence knowledge and observables.';
+      const settingFavicon = settings?.platform_favicon;
+      const withOptionValued = data
+        .replace(/%BASE_PATH%/g, basePath)
+        .replace(/%APP_SCRIPT_SNIPPET%/g, nconf.get('app:script_snippet')?.trim() ?? '')
+        .replace(/%APP_TITLE%/g, isNotEmptyField(settingsTitle) ? validator.escape(settingsTitle)
+          : 'OpenCTI - Cyber Threat Intelligence Platform')
+        .replace(/%APP_DESCRIPTION%/g, validator.escape(description))
+        .replace(/%APP_FAVICON%/g, isNotEmptyField(settingFavicon) ? validator.escape(settingFavicon)
+          : `${basePath}/static/ext/favicon.png`)
+        .replace(/%APP_MANIFEST%/g, `${basePath}/static/ext/manifest.json`);
+      res.set('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+      res.set('Expires', '-1');
+      res.set('Pragma', 'no-cache');
+      res.send(withOptionValued);
+    } else {
+      res.status(503).send({ status: 'error', error: 'Interface is disabled by configuration' });
+    }
+  });
+
+  // Any random unexpected request not GET
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((req, res, next) => {
+    res.status(404).send({ status: 'error', error: 'Path not found' });
   });
 
   // Error handling
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err, req, res, next) => {
-    logApp.error(UnknownError('Http call interceptor fail', { cause: err, referer: req.headers.referer }));
-    res.redirect('/');
-    next();
+    logApp.error('Http call interceptor fail', { cause: err, referer: req.headers?.referer });
+    res.status(500).send({ status: 'error', error: err.stack });
   });
+
   return { sseMiddleware };
 };
 

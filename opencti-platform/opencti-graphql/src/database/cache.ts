@@ -1,21 +1,24 @@
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION } from '@opentelemetry/semantic-conventions';
 import type { BasicStoreIdentifier, StoreEntity, StoreRelation } from '../types/store';
+import { logApp } from '../config/conf';
 import { UnsupportedError } from '../config/errors';
 import { telemetry } from '../config/tracing';
 import type { AuthContext, AuthUser } from '../types/user';
 import type { StixId, StixObject } from '../types/stix-common';
-import { ENTITY_TYPE_GROUP, ENTITY_TYPE_ROLE, ENTITY_TYPE_STREAM_COLLECTION, ENTITY_TYPE_USER } from '../schema/internalObject';
+import { ENTITY_TYPE_CONNECTOR, ENTITY_TYPE_GROUP, ENTITY_TYPE_ROLE, ENTITY_TYPE_STREAM_COLLECTION, ENTITY_TYPE_USER } from '../schema/internalObject';
 import { ENTITY_TYPE_RESOLVED_FILTERS } from '../schema/stixDomainObject';
 import { ENTITY_TYPE_TRIGGER } from '../modules/notification/notification-types';
 import { convertStoreToStix } from './stix-converter';
 import { ENTITY_TYPE_PLAYBOOK } from '../modules/playbook/playbook-types';
 import { type BasicStoreEntityPublicDashboard, ENTITY_TYPE_PUBLIC_DASHBOARD } from '../modules/publicDashboard/publicDashboard-types';
+import { wait } from './utils';
 
 const STORE_ENTITIES_LINKS: Record<string, string[]> = {
   // Filters must be reset depending on stream and triggers modifications
   [ENTITY_TYPE_STREAM_COLLECTION]: [ENTITY_TYPE_RESOLVED_FILTERS],
   [ENTITY_TYPE_TRIGGER]: [ENTITY_TYPE_RESOLVED_FILTERS],
   [ENTITY_TYPE_PLAYBOOK]: [ENTITY_TYPE_RESOLVED_FILTERS],
+  [ENTITY_TYPE_CONNECTOR]: [ENTITY_TYPE_RESOLVED_FILTERS],
   // Users must be reset depending on roles and groups modifications
   [ENTITY_TYPE_ROLE]: [ENTITY_TYPE_USER],
   [ENTITY_TYPE_GROUP]: [ENTITY_TYPE_USER],
@@ -57,6 +60,7 @@ export const resetCacheForEntity = (entityType: string) => {
   const types = [entityType, ...(STORE_ENTITIES_LINKS[entityType] ?? [])];
   types.forEach((type) => {
     if (cache[type]) {
+      logApp.debug('Reset cache for entity', { type, entityType });
       cache[type].values = undefined;
     } else {
       // This entity type is not part of the caching system
@@ -85,13 +89,26 @@ const getEntitiesFromCache = async <T extends BasicStoreIdentifier | StixObject>
       throw UnsupportedError('Cache configuration type not supported', { type });
     }
     if (!fromCache.values) {
-      fromCache.values = await fromCache.fn();
+      // If cache already in progress build, just wait for completion
+      if (fromCache.inProgress) {
+        while (fromCache.inProgress) {
+          await wait(100);
+        }
+        return fromCache.values ?? (type === ENTITY_TYPE_RESOLVED_FILTERS ? new Map() : []);
+      }
+      // If not in progress, re fetch the data
+      fromCache.inProgress = true;
+      try {
+        fromCache.values = await fromCache.fn();
+      } finally {
+        fromCache.inProgress = false;
+      }
     }
     return fromCache.values ?? (type === ENTITY_TYPE_RESOLVED_FILTERS ? new Map() : []);
   };
   return telemetry(context, user, `CACHE ${type}`, {
-    [SemanticAttributes.DB_NAME]: 'cache_engine',
-    [SemanticAttributes.DB_OPERATION]: 'select',
+    [SEMATTRS_DB_NAME]: 'cache_engine',
+    [SEMATTRS_DB_OPERATION]: 'select',
   }, getEntitiesFromCacheFn);
 };
 

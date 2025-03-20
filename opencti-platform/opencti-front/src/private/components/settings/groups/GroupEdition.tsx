@@ -8,18 +8,25 @@ interface GroupEditionProps {
   handleClose?: () => void
   groupId: string
   open?: boolean
+  disabled?: boolean
 }
 
-const GroupEdition: FunctionComponent<GroupEditionProps> = ({ handleClose, groupId, open }) => {
+const GroupEdition: FunctionComponent<GroupEditionProps> = ({
+  handleClose,
+  groupId,
+  open,
+  disabled = false,
+}) => {
   const groupQueryRef = useQueryLoading<GroupEditionContainerQuery>(groupEditionContainerQuery, { id: groupId });
   return (
     <div>
       {groupQueryRef && (
-        <React.Suspense fallback={<Loader variant={LoaderVariant.inElement} />}>
+        <React.Suspense fallback={<Loader variant={LoaderVariant.inline} />}>
           <GroupEditionContainer
             groupQueryRef={groupQueryRef}
             handleClose={handleClose}
             open={open}
+            disabled={disabled}
           />
         </React.Suspense>
       )}

@@ -1,14 +1,14 @@
 import React, { ChangeEvent, FunctionComponent, useState } from 'react';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import ListFiltersWithoutLocalStorage from '@components/common/lists/ListFiltersWithoutLocalStorage';
 import { uniq } from 'ramda';
-import { constructHandleAddFilter, constructHandleRemoveFilter, emptyFilterGroup, Filter, FilterGroup, FiltersVariant } from '../../../../utils/filters/filtersUtils';
+import { constructHandleAddFilter, constructHandleRemoveFilter, emptyFilterGroup, FilterSearchContext, FiltersVariant } from '../../../../utils/filters/filtersUtils';
 import FiltersElement, { FilterElementsInputValue } from './FiltersElement';
 import ListFilters from './ListFilters';
 import DialogFilters from './DialogFilters';
-import { HandleAddFilter, handleFilterHelpers } from '../../../../utils/hooks/useLocalStorage';
-import { setSearchEntitiesScope } from '../../../../utils/filters/SearchEntitiesUtil';
+import { HandleAddFilter } from '../../../../utils/hooks/useLocalStorage';
 import useAuth from '../../../../utils/hooks/useAuth';
+import { Filter, FilterGroup, handleFilterHelpers } from '../../../../utils/filters/filtersHelpers-types';
 
 interface FiltersProps {
   variant?: string;
@@ -24,12 +24,10 @@ interface FiltersProps {
   handleSwitchFilter?: HandleAddFilter;
   handleSwitchGlobalMode?: () => void;
   handleSwitchLocalMode?: (filter: Filter) => void;
-  searchContext?: {
-    entityTypes: string[];
-    elementId?: string[];
-  };
+  searchContext?: FilterSearchContext
   type?: string;
   helpers?: handleFilterHelpers;
+  required?: boolean;
 }
 
 const Filters: FunctionComponent<FiltersProps> = ({
@@ -48,6 +46,7 @@ const Filters: FunctionComponent<FiltersProps> = ({
   searchContext,
   type,
   helpers,
+  required = false,
 }) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -59,37 +58,7 @@ const Filters: FunctionComponent<FiltersProps> = ({
     [],
   );
   const [keyword, setKeyword] = useState('');
-  const [searchScope, _] = useState<Record<string, string[]>>(
-    availableRelationFilterTypes || {
-      targets: [
-        'Region',
-        'Country',
-        'Administrative-Area',
-        'City',
-        'Position',
-        'Sector',
-        'Organization',
-        'Individual',
-        'System',
-        'Event',
-        'Vulnerability',
-      ],
-    },
-  );
   const entityTypes = searchContext?.entityTypes ?? ['Stix-Core-Object'];
-  setSearchEntitiesScope({
-    searchContext: searchContext ?? { entityTypes },
-    searchScope,
-    setInputValues: setInputValues as (
-      value: {
-        key: string;
-        values: string[];
-        operator?: string;
-      }[],
-    ) => void,
-    availableEntityTypes,
-    availableRelationshipTypes,
-  });
   const handleOpenFilters = (event: React.SyntheticEvent) => {
     setOpen(true);
     setAnchorEl(event.currentTarget);
@@ -151,6 +120,9 @@ const Filters: FunctionComponent<FiltersProps> = ({
         handleSwitchLocalMode={handleSwitchLocalMode}
         handleSearch={handleSearch}
         filterElement={filterElement}
+        searchContext={searchContext}
+        availableEntityTypes={availableEntityTypes}
+        availableRelationshipTypes={availableRelationshipTypes}
       />
     );
   }
@@ -169,6 +141,7 @@ const Filters: FunctionComponent<FiltersProps> = ({
           variant={variant}
           type={type}
           helpers={helpers}
+          required={required}
           entityTypes={entityTypes}
         />
       ) : (

@@ -9,9 +9,8 @@ import { PaginationLocalStorage } from '../../../../../utils/hooks/useLocalStora
 import useAuth from '../../../../../utils/hooks/useAuth';
 import useEntityToggle from '../../../../../utils/hooks/useEntityToggle';
 import EntityStixCoreRelationshipsContextualViewLines from './EntityStixCoreRelationshipsContextualViewLines';
-import { hexToRGB, itemColor } from '../../../../../utils/Colors';
 import { useFormatter } from '../../../../../components/i18n';
-import { defaultValue } from '../../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../../utils/defaultRepresentatives';
 import StixCoreObjectLabels from '../../stix_core_objects/StixCoreObjectLabels';
 import ItemMarkings from '../../../../../components/ItemMarkings';
 import { DataColumns, PaginationOptions } from '../../../../../components/list_lines';
@@ -27,17 +26,13 @@ import { EntityStixCoreRelationshipsContextualViewLine_node$data } from './__gen
 import { isStixCoreObjects, isStixCyberObservables } from '../../../../../utils/stixTypeUtils';
 import type { Theme } from '../../../../../components/Theme';
 import { resolveLink } from '../../../../../utils/Entity';
-import { FilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../utils/filters/filtersUtils';
+import { isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../utils/filters/filtersUtils';
+import { FilterGroup } from '../../../../../utils/filters/filtersHelpers-types';
+import ItemEntityType from '../../../../../components/ItemEntityType';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
   chip: {
     fontSize: 13,
     lineHeight: '12px',
@@ -133,15 +128,7 @@ const EntityStixCoreRelationshipsContextualViewComponent: FunctionComponent<Enti
       width: '10%',
       isSortable: true,
       render: (stixCoreObject: EntityStixCoreRelationshipsContextualViewLine_node$data) => (
-        <Chip
-          classes={{ root: classes.chipInList }}
-          style={{
-            backgroundColor: hexToRGB(itemColor(stixCoreObject.entity_type), 0.08),
-            color: itemColor(stixCoreObject.entity_type),
-            border: `1px solid ${itemColor(stixCoreObject.entity_type)}`,
-          }}
-          label={t_i18n(`entity_${stixCoreObject.entity_type}`)}
-        />
+        <ItemEntityType entityType={stixCoreObject.entity_type} />
       ),
     },
     [isObservables ? 'observable_value' : 'name']: {
@@ -153,7 +140,7 @@ const EntityStixCoreRelationshipsContextualViewComponent: FunctionComponent<Enti
         : isObservables
           ? isRuntimeSort
           : true,
-      render: (stixCoreObject: EntityStixCoreRelationshipsContextualViewLine_node$data) => defaultValue(stixCoreObject),
+      render: (stixCoreObject: EntityStixCoreRelationshipsContextualViewLine_node$data) => getMainRepresentative(stixCoreObject),
     },
     createdBy: {
       label: 'Author',
@@ -219,8 +206,14 @@ const EntityStixCoreRelationshipsContextualViewComponent: FunctionComponent<Enti
   const containers = stixDomainObject.containers?.edges?.map((e) => e?.node)
     .filter((r) => isNotEmptyField(r)) as { id: string }[] ?? [];
 
+  const existEntitiesToDisplay = containers.length > 0;
+
   // Filters due to screen context
   const userFilters = useRemoveIdAndIncorrectKeysFromFilterGroupObject(filters, stixCoreObjectTypes);
+
+  // if no containers, the query should return nothing
+  // (and the filter is not valid (empty array not authorized with the 'eq' operator))
+  // so we won't use it and won't do the query: components are not called if !existEntitiesToDisplay
   const contextFilters: FilterGroup = {
     mode: 'and',
     filters: [
@@ -282,36 +275,34 @@ const EntityStixCoreRelationshipsContextualViewComponent: FunctionComponent<Enti
         currentView={currentView}
         searchContext={{ elementId: [entityId] }}
       >
-        {queryRef ? (
-          <React.Suspense fallback={<Loader variant={LoaderVariant.inElement}/>}>
-            <EntityStixCoreRelationshipsContextualViewLines
-              paginationOptions={paginationOptions}
-              dataColumns={dataColumns}
-              onToggleEntity={onToggleEntity}
-              setNumberOfElements={helpers.handleSetNumberOfElements}
-              selectedElements={selectedElements}
-              deSelectedElements={deSelectedElements}
-              selectAll={selectAll}
-            />
-          </React.Suspense>
-        ) : (
-          <Loader variant={LoaderVariant.inElement}/>
-        )}
+        {
+          existEntitiesToDisplay
+          && <EntityStixCoreRelationshipsContextualViewLines
+            paginationOptions={paginationOptions}
+            dataColumns={dataColumns}
+            onToggleEntity={onToggleEntity}
+            setNumberOfElements={helpers.handleSetNumberOfElements}
+            selectedElements={selectedElements}
+            deSelectedElements={deSelectedElements}
+            selectAll={selectAll}
+             />
+        }
       </ListLines>
-      <ToolBar
-        selectedElements={selectedElements}
-        deSelectedElements={deSelectedElements}
-        numberOfSelectedElements={numberOfSelectedElements}
-        selectAll={selectAll}
-        filters={contextFilters}
-        search={searchTerm}
-        handleClearSelectedElements={handleClearSelectedElements}
-        variant="medium"
-        warning={true}
-        warningMessage={t_i18n(
-          'Be careful, you are about to delete the selected entities.',
-        )}
-      />
+      {existEntitiesToDisplay
+        && <ToolBar
+          selectedElements={selectedElements}
+          deSelectedElements={deSelectedElements}
+          numberOfSelectedElements={numberOfSelectedElements}
+          selectAll={selectAll}
+          filters={contextFilters}
+          search={searchTerm}
+          handleClearSelectedElements={handleClearSelectedElements}
+          variant="medium"
+          warning={true}
+          warningMessage={t_i18n(
+            'Be careful, you are about to delete the selected entities',
+          )}
+           />}
     </>
   );
 };

@@ -1,11 +1,13 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
-import { Route, withRouter, Switch, Link } from 'react-router-dom';
+import { Route, Routes, Link } from 'react-router-dom';
 import { graphql } from 'react-relay';
 import * as R from 'ramda';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import StixCoreRelationship from '../../common/stix_core_relationships/StixCoreRelationship';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import { QueryRenderer, requestSubscription } from '../../../../relay/environment';
 import ObservedData from './ObservedData';
 import ObservedDataPopover from './ObservedDataPopover';
@@ -17,6 +19,9 @@ import ContainerStixDomainObjects from '../../common/containers/ContainerStixDom
 import ContainerStixCyberObservables from '../../common/containers/ContainerStixCyberObservables';
 import inject18n from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import ObservedDataEdition from './ObservedDataEdition';
+import Security from '../../../../utils/Security';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 
 const subscription = graphql`
   subscription RootObservedDataSubscription($id: ID!) {
@@ -39,6 +44,7 @@ const observedDataQuery = graphql`
       id
       standard_id
       entity_type
+      name
       ...ObservedData_observedData
       ...ObservedDataDetails_observedData
       ...ContainerHeader_container
@@ -62,9 +68,7 @@ class RootObservedData extends Component {
   constructor(props) {
     super(props);
     const {
-      match: {
-        params: { observedDataId },
-      },
+      params: { observedDataId },
     } = props;
     this.sub = requestSubscription({
       subscription,
@@ -80,9 +84,7 @@ class RootObservedData extends Component {
     const {
       t,
       location,
-      match: {
-        params: { observedDataId },
-      },
+      params: { observedDataId },
     } = this.props;
     return (
       <>
@@ -92,21 +94,27 @@ class RootObservedData extends Component {
           render={({ props }) => {
             if (props && props.observedData) {
               const { observedData } = props;
+              let paddingRight = 0;
+              if (
+                location.pathname.includes(
+                  `/dashboard/events/observed_data/${observedData.id}/entities`,
+                )
+                  || location.pathname.includes(
+                    `/dashboard/events/observed_data/${observedData.id}/observables`,
+                  )
+              ) {
+                paddingRight = 250;
+              }
+              if (
+                location.pathname.includes(
+                  `/dashboard/events/observed_data/${observedData.id}/content`,
+                )
+              ) {
+                paddingRight = 350;
+              }
               return (
-                <div
-                  style={{
-                    paddingRight:
-                      location.pathname.includes(
-                        `/dashboard/events/observed_data/${observedData.id}/entities`,
-                      )
-                      || location.pathname.includes(
-                        `/dashboard/events/observed_data/${observedData.id}/observables`,
-                      )
-                        ? 260
-                        : 0,
-                  }}
-                >
-                  <Breadcrumbs variant="object" elements={[
+                <div style={{ paddingRight }}>
+                  <Breadcrumbs elements={[
                     { label: t('Events') },
                     { label: t('Observed datas'), link: '/dashboard/events/observed_data' },
                     { label: observedData.name, current: true },
@@ -115,21 +123,25 @@ class RootObservedData extends Component {
                   <ContainerHeader
                     container={observedData}
                     PopoverComponent={<ObservedDataPopover />}
+                    EditComponent={(
+                      <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                        <ObservedDataEdition observedDataId={observedData.id} />
+                      </Security>
+                    )}
+                    redirectToContent = {false}
+                    disableAuthorizedMembers={true}
+                    enableEnricher={false}
                   />
                   <Box
                     sx={{
                       borderBottom: 1,
                       borderColor: 'divider',
-                      marginBottom: 4,
+                      marginBottom: 3,
                     }}
                   >
                     <Tabs
                       value={
-                        location.pathname.includes(
-                          `/dashboard/events/observed_data/${observedData.id}/knowledge`,
-                        )
-                          ? `/dashboard/events/observed_data/${observedData.id}/knowledge`
-                          : location.pathname
+                        location.pathname
                       }
                     >
                       <Tab
@@ -164,61 +176,51 @@ class RootObservedData extends Component {
                       />
                     </Tabs>
                   </Box>
-                  <Switch>
+                  <Routes>
                     <Route
-                      exact
-                      path="/dashboard/events/observed_data/:observedDataId"
-                      render={(routeProps) => (
-                        <ObservedData
-                          {...routeProps}
-                          observedData={props.observedData}
-                        />
-                      )}
+                      path="/"
+                      element={
+                        <ObservedData observedDataData={props.observedData} />
+                      }
                     />
                     <Route
-                      exact
-                      path="/dashboard/events/observed_data/:observedDataId/entities"
-                      render={(routeProps) => (
-                        <ContainerStixDomainObjects
-                          {...routeProps}
-                          container={props.observedData}
-                        />
-                      )}
+                      path="/entities"
+                      element={
+                        <ContainerStixDomainObjects container={props.observedData} />
+                      }
                     />
                     <Route
-                      exact
-                      path="/dashboard/events/observed_data/:observedDataId/observables"
-                      render={(routeProps) => (
-                        <ContainerStixCyberObservables
-                          {...routeProps}
-                          container={props.observedData}
-                        />
-                      )}
+                      path="/observables"
+                      element={
+                        <ContainerStixCyberObservables container={props.observedData} />
+                      }
                     />
                     <Route
-                      exact
-                      path="/dashboard/events/observed_data/:observedDataId/files"
-                      render={(routeProps) => (
+                      path="/files"
+                      element={
                         <FileManager
-                          {...routeProps}
                           id={observedDataId}
                           connectorsExport={props.connectorsForExport}
                           connectorsImport={props.connectorsForImport}
                           entity={props.observedData}
                         />
-                      )}
+                      }
                     />
                     <Route
-                      exact
-                      path="/dashboard/events/observed_data/:observedDataId/history"
-                      render={(routeProps) => (
-                        <StixCoreObjectHistory
-                          {...routeProps}
-                          stixCoreObjectId={observedDataId}
-                        />
-                      )}
+                      path="/history"
+                      element={
+                        <StixCoreObjectHistory stixCoreObjectId={observedDataId} />
+                      }
                     />
-                  </Switch>
+                    <Route
+                      path="/knowledge/relations/:relationId/"
+                      element={
+                        <StixCoreRelationship
+                          entityId={observedData.id}
+                        />
+                      }
+                    />
+                  </Routes>
                 </div>
               );
             }

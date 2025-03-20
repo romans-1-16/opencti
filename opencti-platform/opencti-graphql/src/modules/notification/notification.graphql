@@ -19,6 +19,7 @@ enum TriggersOrdering {
     event_types
     trigger_type
     notifiers
+    _score
 }
 enum TriggerType {
     live
@@ -30,7 +31,7 @@ enum TriggerEventType {
     delete
 }
 input TriggerLiveAddInput {
-    name: String! @constraint(minLength: 1)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     event_types: [TriggerEventType!]!
     notifiers: [StixRef!]
@@ -39,7 +40,7 @@ input TriggerLiveAddInput {
     recipients: [String!]
 }
 input TriggerDigestAddInput {
-    name: String! @constraint(minLength: 1)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     trigger_ids: [String!]! # Triggers that composed the digest
     period: DigestPeriod!
@@ -90,7 +91,7 @@ enum TriggerActivityEventType {
     command
 }
 input TriggerActivityLiveAddInput {
-    name: String! @constraint(minLength: 1)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     notifiers: [StixRef!]
     filters: String
@@ -98,7 +99,7 @@ input TriggerActivityLiveAddInput {
 }
 
 input TriggerActivityDigestAddInput {
-    name: String! @constraint(minLength: 1)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     trigger_ids: [String!]! # Triggers that composed the digest
     period: DigestPeriod!
@@ -111,6 +112,7 @@ input TriggerActivityDigestAddInput {
 enum NotificationsOrdering {
     name
     created
+    _score
 }
 type NotificationCount {
     user_id: String
@@ -162,9 +164,18 @@ type Query {
         includeAuthorities: Boolean
         search: String
     ): TriggerConnection @auth
+    triggers(
+        first: Int
+        after: ID
+        orderBy: TriggersOrdering
+        orderMode: OrderingMode
+        filters: FilterGroup
+        includeAuthorities: Boolean
+        search: String
+    ): TriggerConnection @auth
     triggersKnowledgeCount(filters: FilterGroup, includeAuthorities: Boolean, search: String): Int @auth
     # Alerts
-    triggerActivity(id: String!): Trigger @auth(for: [SETTINGS])
+    triggerActivity(id: String!): Trigger @auth(for: [SETTINGS_SECURITYACTIVITY])
     triggersActivity(
         first: Int
         after: ID
@@ -172,7 +183,7 @@ type Query {
         orderMode: OrderingMode
         filters: FilterGroup
         search: String
-    ): TriggerConnection @auth(for: [SETTINGS])
+    ): TriggerConnection @auth(for: [SETTINGS_SECURITYACTIVITY])
     # Notifications
     notification(id: String!): Notification @auth
     notifications(
@@ -203,10 +214,10 @@ type Mutation {
     triggerKnowledgeLiveAdd(input: TriggerLiveAddInput!): Trigger @auth
     triggerKnowledgeDigestAdd(input: TriggerDigestAddInput!): Trigger @auth
     # Alerts
-    triggerActivityDelete(id: ID!): ID @auth(for: [SETTINGS])
-    triggerActivityFieldPatch(id: ID!, input: [EditInput!]!): Trigger @auth(for: [SETTINGS])
-    triggerActivityLiveAdd(input: TriggerActivityLiveAddInput!): Trigger @auth(for: [SETTINGS])
-    triggerActivityDigestAdd(input: TriggerActivityDigestAddInput!): Trigger @auth(for: [SETTINGS])
+    triggerActivityDelete(id: ID!): ID @auth(for: [SETTINGS_SECURITYACTIVITY])
+    triggerActivityFieldPatch(id: ID!, input: [EditInput!]!): Trigger @auth(for: [SETTINGS_SECURITYACTIVITY])
+    triggerActivityLiveAdd(input: TriggerActivityLiveAddInput!): Trigger @auth(for: [SETTINGS_SECURITYACTIVITY])
+    triggerActivityDigestAdd(input: TriggerActivityDigestAddInput!): Trigger @auth(for: [SETTINGS_SECURITYACTIVITY])
     # Notifications
     notificationDelete(id: ID!): ID @auth
     notificationMarkRead(id: ID!, read: Boolean!): Notification @auth

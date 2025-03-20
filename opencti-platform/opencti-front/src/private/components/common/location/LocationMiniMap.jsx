@@ -16,11 +16,9 @@ import MarkerDark from '../../../../static/images/leaflet/marker_dark.png';
 import CityLight from '../../../../static/images/leaflet/city_light.png';
 import MarkerLight from '../../../../static/images/leaflet/marker_light.png';
 
-const styles = () => ({
+const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 8,
   },
@@ -29,16 +27,16 @@ const styles = () => ({
 const cityIcon = (dark = true) => new L.Icon({
   iconUrl: dark ? fileUri(CityDark) : fileUri(CityLight),
   iconRetinaUrl: dark ? fileUri(CityDark) : fileUri(CityLight),
-  iconAnchor: [5, 55],
-  popupAnchor: [10, -44],
+  iconAnchor: [12, 12],
+  popupAnchor: [0, -12],
   iconSize: [25, 25],
 });
 
 const positionIcon = (dark = true) => new L.Icon({
   iconUrl: dark ? fileUri(MarkerDark) : fileUri(MarkerLight),
   iconRetinaUrl: dark ? fileUri(MarkerDark) : fileUri(MarkerLight),
-  iconAnchor: [5, 55],
-  popupAnchor: [10, -44],
+  iconAnchor: [12, 12],
+  popupAnchor: [0, -12],
   iconSize: [25, 25],
 });
 
@@ -71,7 +69,7 @@ const LocationMiniMap = (props) => {
       <Typography variant="h4" gutterBottom={true} style={{ marginBottom: 10 }}>
         {`${t('Mini map')} (lat. ${center[0]}, long. ${center[1]})`}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <MapContainer
           center={center}
           zoom={zoom}
@@ -109,7 +107,7 @@ LocationMiniMap.propTypes = {
   classes: PropTypes.object,
   t: PropTypes.func,
   fd: PropTypes.func,
-  history: PropTypes.object,
+  navigate: PropTypes.func,
 };
 
 export default compose(

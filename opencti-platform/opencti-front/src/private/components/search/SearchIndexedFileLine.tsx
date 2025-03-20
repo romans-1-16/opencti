@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -34,6 +34,8 @@ import { getFileUri } from '../../../utils/utils';
 import { resolveLink } from '../../../utils/Entity';
 import useGranted, { KNOWLEDGE_KNGETEXPORT, KNOWLEDGE_KNUPLOAD } from '../../../utils/hooks/useGranted';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -69,7 +71,7 @@ const SearchIndexedFileLineComponent: FunctionComponent<SearchIndexedFileLineCom
   const { t_i18n } = useFormatter();
   let entityLink = node.entity ? `${resolveLink(node.entity.entity_type)}/${node.entity.id}` : '';
   const isGrantedToFiles = useGranted([KNOWLEDGE_KNUPLOAD, KNOWLEDGE_KNGETEXPORT]);
-  if (entityLink && isGrantedToFiles) {
+  if (entityLink && isGrantedToFiles && node.entity?.entity_type !== 'External-Reference') {
     entityLink = entityLink.concat('/files');
   }
   return (

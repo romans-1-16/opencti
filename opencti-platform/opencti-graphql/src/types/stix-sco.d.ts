@@ -262,7 +262,39 @@ export interface StixBankAccount extends StixCyberObject {
   external_references: Array<StixInternalExternalReference>;
   extensions: {
     [STIX_EXT_OCTI]: StixOpenctiExtension
-    [STIX_EXT_OCTI_SCO]: { extension_type : 'new-sco' }
+    [STIX_EXT_OCTI_SCO]: { extension_type: 'new-sco' }
+  }
+}
+
+// Custom object extension - Credential
+// value
+export interface StixCredential extends StixCyberObject {
+  value: string;
+  description: string;
+  score: number;
+  labels: Array<string>;
+  created_by_ref: StixId | undefined,
+  object_marking_refs: Array<StixId>;
+  external_references: Array<StixInternalExternalReference>;
+  extensions: {
+    [STIX_EXT_OCTI]: StixOpenctiExtension
+    [STIX_EXT_OCTI_SCO]: { extension_type: 'new-sco' }
+  }
+}
+
+// Custom object extension - Tracking number
+// value
+export interface StixTrackingNumber extends StixCyberObject {
+  value: string;
+  description: string;
+  score: number;
+  labels: Array<string>;
+  created_by_ref: StixId | undefined,
+  object_marking_refs: Array<StixId>;
+  external_references: Array<StixInternalExternalReference>;
+  extensions: {
+    [STIX_EXT_OCTI]: StixOpenctiExtension
+    [STIX_EXT_OCTI_SCO]: { extension_type: 'new-sco' }
   }
 }
 
@@ -358,7 +390,7 @@ export interface StixNetworkTraffic extends StixCyberObject {
   encapsulated_by_ref: StixId | undefined; // optional
   extensions: {
     [STIX_EXT_OCTI]: StixOpenctiExtension
-    [STIX_EXT_OCTI_SCO]: CyberObjectExtension
+    [STIX_EXT_OCTI_SCO]?: CyberObjectExtension
     // HTTP Request Extension
     'http-request-ext'?: {
       request_method: string;
@@ -413,7 +445,7 @@ export interface StixProcess extends StixCyberObject {
   child_refs: Array<StixId>; // optional
   extensions: {
     [STIX_EXT_OCTI]: StixOpenctiExtension
-    [STIX_EXT_OCTI_SCO]: CyberObjectExtension
+    [STIX_EXT_OCTI_SCO]?: CyberObjectExtension
     // Windows™ Process Extension
     'windows-process-ext': {
       aslr_enabled: boolean; // optional
@@ -478,7 +510,7 @@ export interface StixUserAccount extends StixCyberObject {
   account_last_login: StixDate; // optional
   extensions: {
     [STIX_EXT_OCTI]: StixOpenctiExtension
-    [STIX_EXT_OCTI_SCO]: CyberObjectExtension
+    [STIX_EXT_OCTI_SCO]?: CyberObjectExtension
     // UNIX™ Account Extension
     'unix-account-ext'?: {
       gid: number; // optional
@@ -562,6 +594,22 @@ export interface StixMediaContent extends StixCyberObject {
   media_category: string;
   url: string;
   publication_date: StixDate;
+  score: number;
+  labels: Array<string>;
+  created_by_ref: StixId | undefined,
+  object_marking_refs: Array<StixId>;
+  external_references: Array<StixInternalExternalReference>;
+  extensions: {
+    [STIX_EXT_OCTI]: StixOpenctiExtension
+    [STIX_EXT_OCTI_SCO]: { extension_type : 'new-sco' }
+  }
+}
+
+// Custom object extension - Persona
+// persona_name, persona_type
+export interface StixPersona extends StixCyberObject {
+  persona_name: string;
+  persona_type: string;
   score: number;
   labels: Array<string>;
   created_by_ref: StixId | undefined,

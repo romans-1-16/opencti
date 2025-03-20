@@ -3,6 +3,7 @@ import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as R from 'ramda';
 import * as Yup from 'yup';
+import { useTheme } from '@mui/styles';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
@@ -10,7 +11,7 @@ import { SubscriptionFocus } from '../../../../components/Subscription';
 import KillChainPhasesField from '../../common/form/KillChainPhasesField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import StatusField from '../../common/form/StatusField';
 import { convertCreatedBy, convertKillChainPhases, convertMarkings, convertStatus } from '../../../../utils/edition';
 import { adaptFieldValue } from '../../../../utils/String';
@@ -19,6 +20,8 @@ import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySet
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import AttackPatternDeletion from './AttackPatternDeletion';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const attackPatternMutationFieldPatch = graphql`
   mutation AttackPatternEditionOverviewFieldPatchMutation(
@@ -85,9 +88,11 @@ export const attackPatternMutationRelationDelete = graphql`
 const AttackPatternEditionOverviewComponent = (props) => {
   const { attackPattern, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const theme = useTheme();
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     x_mitre_id: Yup.string().nullable(),
     description: Yup.string().nullable(),
     references: Yup.array(),
@@ -193,7 +198,7 @@ const AttackPatternEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form style={{ marginTop: theme.spacing(2) }}>
           <AlertConfidenceForEntity entity={attackPattern} />
           <Field
             component={TextField}
@@ -286,7 +291,13 @@ const AttackPatternEditionOverviewComponent = (props) => {
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <AttackPatternDeletion
+                  id={attackPattern.id}
+                />
+              : <div/>}
+            {enableReferences && (
             <CommitMessage
               submitForm={submitForm}
               disabled={isSubmitting || !isValid || !dirty}
@@ -295,7 +306,8 @@ const AttackPatternEditionOverviewComponent = (props) => {
               values={values.references}
               id={attackPattern.id}
             />
-          )}
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -310,6 +322,7 @@ export default createFragmentContainer(AttackPatternEditionOverviewComponent, {
       x_mitre_id
       description
       confidence
+      entity_type
       createdBy {
         ... on Identity {
           id

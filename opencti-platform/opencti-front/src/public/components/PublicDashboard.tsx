@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
 import { graphql, PreloadedQuery, usePreloadedQuery } from 'react-relay';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import RGL, { WidthProvider } from 'react-grid-layout';
-import { ErrorBoundary, SimpleError } from '@components/Error';
+import { ErrorBoundary } from '@components/Error';
 import Paper from '@mui/material/Paper';
-import { useNavigate } from 'react-router-dom-v5-compat';
 import Loader, { LoaderVariant } from '../../components/Loader';
 import { PublicDashboardQuery } from './__generated__/PublicDashboardQuery.graphql';
 import useQueryLoading from '../../utils/hooks/useQueryLoading';
@@ -13,11 +12,13 @@ import type { PublicManifest } from './dashboard/PublicManifest';
 import usePublicDashboardWidgets from './dashboard/usePublicDashboardWidgets';
 import PublicTopBar from './PublicTopBar';
 import PublicDashboardHeader from './dashboard/PublicDashboardHeader';
+import { useFormatter } from '../../components/i18n';
 
 const publicDashboardQuery = graphql`
   query PublicDashboardQuery($uri_key: String!) {
     publicDashboardByUriKey(uri_key: $uri_key) {
       name
+      enabled
       public_manifest
     }
   }
@@ -34,6 +35,7 @@ const PublicDashboardComponent = ({
 }: PublicDashboardComponentProps) => {
   const navigate = useNavigate();
   const ReactGridLayout = useMemo(() => WidthProvider(RGL), []);
+  const { t_i18n } = useFormatter();
 
   const { publicDashboardByUriKey } = usePreloadedQuery(publicDashboardQuery, queryRef);
   const manifest = publicDashboardByUriKey?.public_manifest;
@@ -41,15 +43,16 @@ const PublicDashboardComponent = ({
   const { widgets, config } = parsedManifest;
 
   useEffect(() => {
-    if (publicDashboardByUriKey === null) {
+    if (publicDashboardByUriKey === null || !publicDashboardByUriKey?.enabled) {
       navigate('/');
     }
-  }, [publicDashboardByUriKey]);
+  }, [publicDashboardByUriKey, navigate]);
 
   const {
     entityWidget,
     relationshipWidget,
     rawWidget,
+    auditWidget,
   } = usePublicDashboardWidgets(uriKey, config);
 
   const onChangeRelativeDate = () => {};
@@ -62,7 +65,7 @@ const PublicDashboardComponent = ({
 
   return (
     <>
-      <PublicTopBar />
+      <PublicTopBar title={t_i18n('Public dashboard')} />
       <PublicDashboardHeader
         title={publicDashboardByUriKey?.name ?? ''}
         manifestConfig={config}
@@ -93,15 +96,10 @@ const PublicDashboardComponent = ({
               overflow: 'hidden',
             }}
           >
-            <ErrorBoundary
-              display={
-                <div style={{ paddingTop: 28 }}>
-                  <SimpleError />
-                </div>
-              }
-            >
+            <ErrorBoundary>
               {widget.perspective === 'entities' && entityWidget(widget)}
               {widget.perspective === 'relationships' && relationshipWidget(widget)}
+              {widget.perspective === 'audits' && auditWidget(widget)}
               {widget.perspective === null && rawWidget(widget)}
             </ErrorBoundary>
           </Paper>
@@ -116,16 +114,18 @@ const PublicDashboard = () => {
   const { uriKey } = useParams();
   if (!uriKey) return null;
 
+  const normalizedUriKey = uriKey.toLowerCase();
+
   const queryRef = useQueryLoading<PublicDashboardQuery>(
     publicDashboardQuery,
-    { uri_key: uriKey },
+    { uri_key: normalizedUriKey },
   );
 
   return queryRef ? (
     <React.Suspense fallback={<Loader variant={LoaderVariant.container} />}>
       <PublicDashboardComponent
         queryRef={queryRef}
-        uriKey={uriKey}
+        uriKey={normalizedUriKey}
       />
     </React.Suspense>
   ) : (

@@ -11,6 +11,8 @@ import MUIAutocomplete from '@mui/material/Autocomplete';
 import { useFormatter } from '../../../../components/i18n';
 import { useBuildFilterKeysMapFromEntityType, getDefaultFilterObject } from '../../../../utils/filters/filtersUtils';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     width: 600,
@@ -30,6 +32,7 @@ const ListFilters = ({
   variant,
   type,
   helpers,
+  required = false,
   entityTypes,
 }) => {
   const { t_i18n } = useFormatter();
@@ -63,7 +66,8 @@ const ListFilters = ({
     ? availableFilterKeys
       .map((key) => {
         const subEntityTypes = filterKeysMap.get(key)?.subEntityTypes ?? [];
-        const isFilterKeyForAllTypes = subEntityTypes.some((subType) => entityTypes.includes(subType));
+        const isFilterKeyForAllTypes = (entityTypes.length === 1 && subEntityTypes.some((subType) => entityTypes.includes(subType)))
+          || (entityTypes.length > 1 && entityTypes.every((subType) => subEntityTypes.includes(subType)));
         return {
           value: key,
           label: t_i18n(filterKeysMap.get(key)?.label ?? key),
@@ -72,10 +76,11 @@ const ListFilters = ({
           groupLabel: isFilterKeyForAllTypes
             ? t_i18n('Most used filters')
             : t_i18n('All other filters'),
+          groupOrder: isFilterKeyForAllTypes ? 1 : 0,
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label))
-      .sort((a, b) => b.groupLabel.localeCompare(a.groupLabel)) // 'Most used filters' before 'All other filters'
+      .sort((a, b) => b.groupOrder - a.groupOrder) // 'Most used filters' before 'All other filters'
     : availableFilterKeys
       .map((key) => {
         return {
@@ -101,7 +106,6 @@ const ListFilters = ({
       ) : (
         <>
           <MUIAutocomplete
-            id="list-filters-combo-box"
             options={options}
             groupBy={isNotUniqEntityTypes ? (option) => option.groupLabel : undefined}
             sx={{ width: 200 }}
@@ -122,6 +126,7 @@ const ListFilters = ({
                 variant="outlined"
                 size="small"
                 label={placeholder}
+                required={required}
               />
             )}
             renderOption={(props, option) => <li {...props}>{option.label}</li>}

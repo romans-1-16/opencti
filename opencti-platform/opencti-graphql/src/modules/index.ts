@@ -53,12 +53,35 @@ import './playbook/playbook';
 import './ingestion/ingestion-rss';
 import './ingestion/ingestion-taxii';
 import './ingestion/ingestion-csv';
+import './ingestion/ingestion-taxii-collection';
 import './indicator/indicator';
 import './decayRule/decayRule';
 import './organization/organization';
 import './internal/csvMapper/csvMapper';
 import './internal/document/document';
 import './publicDashboard/publicDashboard';
+import './deleteOperation/deleteOperation';
+import './support/support';
+import './exclusionList/exclusionList';
+import './draftWorkspace/draftWorkspace';
+import './fintelTemplate/fintelTemplate';
+import './disseminationList/disseminationList';
+
+// incomplete modules
+import './report/report';
+import './note/note';
+import './externalReference/externalReference';
+import './incident/incident';
+import './observedData/observedData';
+import './stixCyberObservable/stixCyberObservable';
+import './threatActorGroup/threatActorGroup';
+import './intrusionSet/intrusionSet';
+import './campaign/campaign';
+import './malware/malware';
+import './tool/tool';
+import './vulnerability/vulnerability';
+import './attackPattern/attackPattern';
+import './courseOfAction/courseOfAction';
 // endregion
 
 // region graphql registration
@@ -89,6 +112,7 @@ import './threatActorIndividual/threatActorIndividual-graphql';
 import './playbook/playbook-graphql';
 import './ingestion/ingestion-rss-graphql';
 import './ingestion/ingestion-taxii-graphql';
+import './ingestion/ingestion-taxii-collection-graphql';
 import './ingestion/ingestion-csv-graphql';
 import './indicator/indicator-graphql';
 import './decayRule/decayRule-graphql';
@@ -96,5 +120,11 @@ import './organization/organization-graphql';
 import './internal/csvMapper/csvMapper-graphql';
 import './publicDashboard/publicDashboard-graphql';
 import './ai/ai-graphql';
-// import './internal/document/document-graphql'; # Not needed as document is not fully registered
+import './xtm/xtm-graphql';
+import './deleteOperation/deleteOperation-graphql';
+import './support/support-graphql';
+import './exclusionList/exclusionList-graphql';
+import './draftWorkspace/draftWorkspace-graphql';
+import './fintelTemplate/fintelTemplate-graphql';
+import './disseminationList/disseminationList-graphql';
 // endregion

@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -25,6 +25,7 @@ export interface BasicStoreEntityPlaybook extends BasicStoreEntity {
   name: string
   description: string
   playbook_start: string
+  playbook_mode: null | 'stream' | 'cron'
   playbook_running: boolean
   playbook_definition: string
 }
@@ -42,9 +43,7 @@ export interface StixPlaybook extends StixObject {
   }
 }
 
-export interface PlaybookComponentConfiguration {}
-
-export interface NodeInstance<T extends PlaybookComponentConfiguration> {
+export interface NodeInstance<T extends object> {
   id: string
   name: string,
   component_id: string
@@ -53,22 +52,23 @@ export interface NodeInstance<T extends PlaybookComponentConfiguration> {
 
 export interface PlaybookExecution { output_port: string | undefined, forceBundleTracking?: boolean, bundle: StixBundle }
 
-export interface PlaybookExecutionStep<T extends PlaybookComponentConfiguration> {
-  component: PlaybookComponent<PlaybookComponentConfiguration>,
-  instance: NodeInstance<T>,
+export interface PlaybookExecutionStep<T extends object> {
+  component: PlaybookComponent<T>,
+  instance: NodeDefinition,
 }
 
-export interface ExecutorParameters<T extends PlaybookComponentConfiguration> {
+export interface ExecutorParameters<T extends object> {
+  eventId: string
   executionId: string
   playbookId: string
   dataInstanceId: string
-  previousPlaybookNode: NodeInstance<T> | undefined
+  previousPlaybookNodeId: string | undefined
   playbookNode: NodeInstance<T>
   previousStepBundle: StixBundle | null
   bundle: StixBundle
 }
 
-export interface PlaybookComponent<T extends PlaybookComponentConfiguration> {
+export interface PlaybookComponent<T extends object> {
   id: string
   name: string
   description: string

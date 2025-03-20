@@ -3,10 +3,13 @@ import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import { BiotechOutlined, ContentPasteSearchOutlined, Search } from '@mui/icons-material';
 import IconButton from '@mui/material/IconButton';
-import { Link, useLocation } from 'react-router-dom-v5-compat';
+import { Link, useLocation } from 'react-router-dom';
 import makeStyles from '@mui/styles/makeStyles';
+import Tooltip from '@mui/material/Tooltip';
 import { useFormatter } from './i18n';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   searchRoot: {
     borderRadius: 4,
@@ -65,6 +68,7 @@ const SearchInput = (props) => {
     variant,
     keyword,
     placeholder = `${t_i18n('Search these results')}...`,
+    ...otherProps
   } = props;
   let classRoot = classes.searchRoot;
   if (variant === 'inDrawer') {
@@ -116,31 +120,35 @@ const SearchInput = (props) => {
         ),
         endAdornment: variant === 'topBar' && (
           <InputAdornment position="end">
-            <IconButton
-              component={Link}
-              to="/dashboard/search"
-              size="medium"
-              color={
-                location.pathname.includes('/dashboard/search')
-                && !location.pathname.includes('/dashboard/search_bulk')
-                  ? 'primary'
-                  : 'inherit'
-              }
-            >
-              <BiotechOutlined fontSize='medium'/>
-            </IconButton>
-            <IconButton
-              component={Link}
-              to="/dashboard/search_bulk"
-              size="medium"
-              color={
+            <Tooltip title={t_i18n('Advanced search')}>
+              <IconButton
+                component={Link}
+                to="/dashboard/search"
+                size="medium"
+                color={
+                   location.pathname.includes('/dashboard/search')
+                    && !location.pathname.includes('/dashboard/search_bulk')
+                     ? 'primary'
+                     : 'inherit'
+                    }
+              >
+                <BiotechOutlined fontSize='medium'/>
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t_i18n('Bulk search')}>
+              <IconButton
+                component={Link}
+                to="/dashboard/search_bulk"
+                size="medium"
+                color={
                 location.pathname.includes('/dashboard/search_bulk')
                   ? 'primary'
                   : 'inherit'
               }
-            >
-              <ContentPasteSearchOutlined fontSize="medium"/>
-            </IconButton>
+              >
+                <ContentPasteSearchOutlined fontSize="medium"/>
+              </IconButton>
+            </Tooltip>
           </InputAdornment>
         ),
         classes: {
@@ -148,6 +156,7 @@ const SearchInput = (props) => {
           input: classInput,
         },
       }}
+      {...otherProps}
       autoComplete="off"
     />
   );

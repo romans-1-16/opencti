@@ -5,18 +5,20 @@ import { executionContext, SYSTEM_USER } from '../utils/access';
 import { TYPE_LOCK_ERROR } from '../config/errors';
 import Queue from '../utils/queue';
 import { ENTITY_TYPE_SYNC } from '../schema/internalObject';
-import { createSyncHttpUri, httpBase, patchSync } from '../domain/connector';
-import { EVENT_CURRENT_VERSION, lockResource } from '../database/redis';
+import { patchSync } from '../domain/connector';
+import { EVENT_CURRENT_VERSION } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import { STIX_EXT_OCTI } from '../types/stix-extensions';
 import { utcDate } from '../utils/format';
 import { listEntities, storeLoadById } from '../database/middleware-loader';
 import { isEmptyField, wait } from '../database/utils';
-import { pushToSync } from '../database/rabbitmq';
+import { pushToWorkerForConnector } from '../database/rabbitmq';
 import { OPENCTI_SYSTEM_UUID } from '../schema/general';
 import { getHttpClient } from '../utils/http-client';
+import { createSyncHttpUri, httpBase } from '../domain/connector-utils';
 
 const SYNC_MANAGER_KEY = conf.get('sync_manager:lock_key') || 'sync_manager_lock';
-const SCHEDULE_TIME = 10000;
+const SCHEDULE_TIME = conf.get('sync_manager:interval') || 10000;
 const WAIT_TIME_ACTION = 2000;
 
 const syncManagerInstance = (syncId) => {
@@ -32,9 +34,9 @@ const syncManagerInstance = (syncId) => {
   let lastStateSaveTime;
   const handleEvent = (event) => {
     const { type, data, lastEventId } = event;
-    const { data: stixData, context, version } = JSON.parse(data);
+    const { data: stixData, context, version, event_id } = JSON.parse(data);
     if (version === EVENT_CURRENT_VERSION) {
-      eventsQueue.enqueue({ id: lastEventId, type, data: stixData, context });
+      eventsQueue.enqueue({ id: lastEventId, type, data: stixData, context, event_id });
     }
   };
   const startStreamListening = (sseUri, syncElement) => {
@@ -57,18 +59,21 @@ const syncManagerInstance = (syncId) => {
       logApp.info(`[OPENCTI] Sync ${syncId}: listening ${eventSource.url} with id ${connectionId}`);
     });
     eventSource.on('error', (error) => {
-      logApp.error(error, { id: syncId, manager: 'SYNC_MANAGER' });
+      logApp.warn('[OPENCTI] Sync stream error', { id: syncId, manager: 'SYNC_MANAGER', cause: error });
     });
   };
   const manageBackPressure = async (httpClient, { uri }, currentDelay) => {
     if (connectionId) {
       const connectionManagement = `${httpBase(uri)}stream/connection/${connectionId}`;
-      if (currentDelay === lDelay && eventsQueue.getLength() > MAX_QUEUE_SIZE) {
-        await httpClient.post(connectionManagement, { delay: hDelay });
-        logApp.info(`[OPENCTI] Sync ${syncId}: connection setup to use ${hDelay} delay`);
-        return hDelay;
+      const currentQueueLength = eventsQueue.getLength();
+      // If queue length keeps increasing even with an increased delay, we keep increasing the delay until we are able to go back below MIN_QUEUE_SIZE
+      if (currentQueueLength > MAX_QUEUE_SIZE && currentDelay * MAX_QUEUE_SIZE < hDelay * (currentQueueLength - MAX_QUEUE_SIZE)) {
+        const newDelay = currentDelay + hDelay;
+        await httpClient.post(connectionManagement, { delay: newDelay });
+        logApp.info(`[OPENCTI] Sync ${syncId}: connection setup to use ${newDelay} delay`);
+        return newDelay;
       }
-      if (currentDelay === hDelay && eventsQueue.getLength() < MIN_QUEUE_SIZE) {
+      if (currentQueueLength < MIN_QUEUE_SIZE && currentDelay !== lDelay) {
         await httpClient.post(connectionManagement, { delay: lDelay });
         logApp.info(`[OPENCTI] Sync ${syncId}: connection setup to use ${lDelay} delay`);
         return lDelay;
@@ -86,8 +91,12 @@ const syncManagerInstance = (syncId) => {
     for (let index = 0; index < entityFiles.length; index += 1) {
       const entityFile = entityFiles[index];
       const { uri: fileUri } = entityFile;
-      const response = await httpClient.get(`${httpBase(uri)}${fileUri.substring(fileUri.indexOf('storage/get'))}`);
-      entityFile.data = Buffer.from(response.data, 'utf-8').toString('base64');
+      try {
+        const response = await httpClient.get(`${httpBase(uri)}${fileUri.substring(fileUri.indexOf('storage/get'))}`);
+        entityFile.data = Buffer.from(response.data, 'utf-8').toString('base64');
+      } catch (e) {
+        logApp.warn('[OPENCTI] Sync: Error when trying to get file from storage. Skipping file.', { fileUri, message: e.message });
+      }
     }
     return { data: processingData, previous_standard: idOperation?.value };
   };
@@ -128,8 +137,8 @@ const syncManagerInstance = (syncId) => {
         const event = eventsQueue.dequeue();
         if (event) {
           try {
-            currentDelay = manageBackPressure(httpClient, sync, currentDelay);
-            const { id: eventId, type: eventType, data, context: eventContext } = event;
+            currentDelay = await manageBackPressure(httpClient, sync, currentDelay);
+            const { id: eventId, type: eventType, data, context: eventContext, event_id } = event;
             if (eventType === 'heartbeat') {
               await saveCurrentState(context, eventType, sync, eventId);
             } else {
@@ -137,17 +146,19 @@ const syncManagerInstance = (syncId) => {
               const enrichedEvent = JSON.stringify({ id: eventId, type: eventType, data: syncData, context: eventContext });
               const content = Buffer.from(enrichedEvent, 'utf-8').toString('base64');
               // Applicant_id should be a userId coming from synchronizer
-              await pushToSync({
+              await pushToWorkerForConnector(sync.internal_id, {
                 type: 'event',
+                event_id,
                 synchronized,
                 previous_standard,
                 update: true,
                 applicant_id: sync.user_id ?? OPENCTI_SYSTEM_UUID,
-                content });
+                content
+              });
               await saveCurrentState(context, 'event', sync, eventId);
             }
           } catch (e) {
-            logApp.error(e, { id: syncId, manager: 'SYNC_MANAGER' });
+            logApp.error('[OPENCTI-MODULE] Sync manager event handling error', { cause: e, id: syncId, manager: 'SYNC_MANAGER' });
           }
         }
         await wait(10);
@@ -184,7 +195,7 @@ const initSyncManager = () => {
         const manager = syncManagerInstance(id);
         syncManagers.set(id, manager);
         // noinspection ES6MissingAwait
-        manager.start(context);
+        manager.start(context).catch((reason) => logApp.error('[SYNC MANAGER] global error', { reason }));
       }
     }
     // endregion
@@ -216,14 +227,14 @@ const initSyncManager = () => {
     let lock;
     try {
       logApp.debug('[OPENCTI-MODULE] Running sync manager');
-      lock = await lockResource([SYNC_MANAGER_KEY], { retryCount: 0 });
+      lock = await lockResources([SYNC_MANAGER_KEY], { retryCount: 0 });
       managerRunning = true;
       await processingLoop(lock);
     } catch (e) {
       if (e.name === TYPE_LOCK_ERROR) {
         logApp.debug('[OPENCTI-MODULE] Sync manager already in progress by another API');
       } else {
-        logApp.error(e, { manager: 'SYNC_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Sync manager handler error', { cause: e, manager: 'SYNC_MANAGER' });
       }
     } finally {
       managerRunning = false;

@@ -1,7 +1,6 @@
 import React, { FunctionComponent, useEffect, useMemo, useState } from 'react';
-import { useHistory } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Badge } from '@mui/material';
-import { Link, useLocation } from 'react-router-dom-v5-compat';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import IconButton from '@mui/material/IconButton';
@@ -16,16 +15,20 @@ import makeStyles from '@mui/styles/makeStyles';
 import { usePage } from 'use-analytics';
 import Popover from '@mui/material/Popover';
 import Box from '@mui/material/Box';
+import { OPEN_BAR_WIDTH, SMALL_BAR_WIDTH } from '@components/nav/LeftBar';
+import DraftContextBanner from '@components/drafts/DraftContextBanner';
+import { getDraftModeColor } from '@components/common/draft/DraftChip';
 import { useFormatter } from '../../../components/i18n';
 import SearchInput from '../../../components/SearchInput';
 import { APP_BASE_PATH, fileUri, MESSAGING$ } from '../../../relay/environment';
 import Security from '../../../utils/Security';
 import FeedbackCreation from '../cases/feedbacks/FeedbackCreation';
 import type { Theme } from '../../../components/Theme';
-import { KNOWLEDGE } from '../../../utils/hooks/useGranted';
+import useGranted, { KNOWLEDGE } from '../../../utils/hooks/useGranted';
 import { TopBarQuery } from './__generated__/TopBarQuery.graphql';
 import { TopBarNotificationNumberSubscription$data } from './__generated__/TopBarNotificationNumberSubscription.graphql';
 import useAuth from '../../../utils/hooks/useAuth';
+import useDraftContext from '../../../utils/hooks/useDraftContext';
 import { useSettingsMessagesBannerHeight } from '../settings/settings_messages/SettingsMessagesBanner';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
 import { decodeSearchKeyword, handleSearchByKeyword } from '../../../utils/SearchUtils';
@@ -33,12 +36,14 @@ import octiDark from '../../../static/images/xtm/octi_dark.png';
 import octiLight from '../../../static/images/xtm/octi_light.png';
 import obasDark from '../../../static/images/xtm/obas_dark.png';
 import obasLight from '../../../static/images/xtm/obas_light.png';
-import oermDark from '../../../static/images/xtm/oerm_dark.png';
-import oermLight from '../../../static/images/xtm/oerm_light.png';
-import omtdDark from '../../../static/images/xtm/omtd_dark.png';
-import omtdLight from '../../../static/images/xtm/omtd_light.png';
+import xtmhubDark from '../../../static/images/xtm/xtm_hub_dark.png';
+import xtmhubLight from '../../../static/images/xtm/xtm_hub_light.png';
 import { isNotEmptyField } from '../../../utils/utils';
+import useHelper from '../../../utils/hooks/useHelper';
+import ItemBoolean from '../../../components/ItemBoolean';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   appBar: {
     width: '100%',
@@ -52,7 +57,9 @@ const useStyles = makeStyles<Theme>((theme) => ({
     color: theme.palette.text?.primary,
   },
   logoContainer: {
-    margin: '2px 0 0 10px',
+    marginTop: theme.spacing(0.2),
+    paddingLeft: theme.spacing(1),
+    minWidth: SMALL_BAR_WIDTH,
   },
   logo: {
     cursor: 'pointer',
@@ -65,19 +72,18 @@ const useStyles = makeStyles<Theme>((theme) => ({
     marginRight: 4,
   },
   menuContainer: {
-    width: '50%',
-    float: 'left',
+    width: '30%',
   },
   barRight: {
-    position: 'absolute',
-    top: 0,
-    right: 13,
+    marginRight: theme.spacing(2),
     height: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'end',
+    marginLeft: 'auto',
   },
   barRightContainer: {
     float: 'left',
-    height: '100%',
-    paddingTop: 12,
   },
   subtitle: {
     color: theme.palette.text?.secondary,
@@ -131,15 +137,19 @@ const topBarQuery = graphql`
 const TopBarComponent: FunctionComponent<TopBarProps> = ({
   queryRef,
 }) => {
+  const { isFeatureEnable } = useHelper();
+  const isDraftFeatureEnabled = isFeatureEnable('DRAFT_WORKSPACE');
   const theme = useTheme<Theme>();
-  const history = useHistory();
+  const navigate = useNavigate();
   const location = useLocation();
   const classes = useStyles();
   const { t_i18n } = useFormatter();
   const {
     bannerSettings: { bannerHeightNumber },
-    settings: { platform_openbas_url: openBASUrl },
+    settings: { platform_openbas_url: openBASUrl, platform_enterprise_edition: ee, platform_xtmhub_url: xtmhubUrl },
   } = useAuth();
+  const draftContext = useDraftContext();
+  const hasKnowledgeAccess = useGranted([KNOWLEDGE]);
   const settingsMessagesBannerHeight = useSettingsMessagesBannerHeight();
   const [notificationsNumber, setNotificationsNumber] = useState<null | number>(
     null,
@@ -207,7 +217,7 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
     setXtmOpen({ open: false, anchorEl: null });
   };
   const handleSearch = (searchKeyword: string) => {
-    handleSearchByKeyword(searchKeyword, 'knowledge', history);
+    handleSearchByKeyword(searchKeyword, 'knowledge', navigate);
   };
   const handleOpenDrawer = () => {
     setOpenDrawer(true);
@@ -219,6 +229,9 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
   };
   // global search keyword
   const keyword = decodeSearchKeyword(location.pathname.match(/(?:\/dashboard\/search\/(?:knowledge|files)\/(.*))/)?.[1] ?? '');
+  // draft
+  const draftModeEnabled = isDraftFeatureEnabled && draftContext;
+  const draftModeColor = getDraftModeColor(theme);
   return (
     <AppBar
       position="fixed"
@@ -228,9 +241,14 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
     >
       {/* Header and Footer Banners containing classification level of system */}
       <Toolbar
-        style={{ marginTop: bannerHeightNumber + settingsMessagesBannerHeight, paddingLeft: 0 }}
+        style={{
+          alignItems: 'center',
+          marginTop: bannerHeightNumber + settingsMessagesBannerHeight,
+          padding: 0,
+          borderBottom: draftModeEnabled ? `1px solid ${draftModeColor}` : 'initial',
+        }}
       >
-        <div className={classes.logoContainer}>
+        <div className={classes.logoContainer} style={navOpen ? { width: OPEN_BAR_WIDTH } : {}}>
           <Link to="/dashboard">
             <img
               src={navOpen ? theme.logo : theme.logo_collapsed}
@@ -239,19 +257,26 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
             />
           </Link>
         </div>
-        <div className={classes.menuContainer} style={{ marginLeft: navOpen ? 25 : 30 }}>
-          <SearchInput
-            onSubmit={handleSearch}
-            keyword={keyword}
-            variant="topBar"
-            placeholder={`${t_i18n('Search the platform')}...`}
-            fullWidth={true}
-          />
-        </div>
+        {hasKnowledgeAccess && (
+          <div className={classes.menuContainer} style={{ marginLeft: theme.spacing(3) }}>
+            <SearchInput
+              onSubmit={handleSearch}
+              keyword={keyword}
+              variant="topBar"
+              placeholder={`${t_i18n('Search the platform')}...`}
+              fullWidth={true}
+            />
+          </div>
+        )}
+        {draftModeEnabled && (
+          <DraftContextBanner/>
+        )}
         <div className={classes.barRight}>
           <div className={classes.barRightContainer}>
+            {!draftModeEnabled && (
             <Security needs={[KNOWLEDGE]}>
               <>
+                { ee.license_type === 'nfr' && <ItemBoolean variant="large" label={'EE DEV LICENSE'} status={false}/> }
                 <Tooltip title={t_i18n('Notifications')}>
                   <IconButton
                     size="medium"
@@ -282,6 +307,7 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
                 </Tooltip>
               </>
             </Security>
+            )}
             <IconButton
               color="inherit"
               size="medium"
@@ -309,7 +335,16 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
               <Box sx={{ width: '300px', padding: '15px', textAlign: 'center' }}>
                 <div className={classes.subtitle}>{t_i18n('Filigran eXtended Threat Management')}</div>
                 <Grid container={true} spacing={3}>
-                  <Grid item={true} xs={6}>
+                  <Grid item xs={12}>
+                    <Tooltip title="XTM Hub">
+                      <a className={classes.xtmItem} href={isNotEmptyField(xtmhubUrl) ? xtmhubUrl : 'https://xtmhub.filigran.io'} target="_blank" rel="noreferrer" onClick={handleCloseXtm}>
+                        <Badge variant="dot" color="success">
+                          <img style={{ width: '100%', paddingRight: 8, paddingLeft: 8 }} src={fileUri(theme.palette.mode === 'dark' ? xtmhubDark : xtmhubLight)} alt="XTM Hub" />
+                        </Badge>
+                      </a>
+                    </Tooltip>
+                  </Grid>
+                  <Grid item xs={6}>
                     <Tooltip title={t_i18n('Current platform')}>
                       <a className={classes.xtmItemCurrent}>
                         <Badge variant="dot" color="success">
@@ -319,33 +354,13 @@ const TopBarComponent: FunctionComponent<TopBarProps> = ({
                       </a>
                     </Tooltip>
                   </Grid>
-                  <Grid item={true} xs={6}>
+                  <Grid item xs={6}>
                     <Tooltip title={isNotEmptyField(openBASUrl) ? t_i18n('Platform connected') : t_i18n('Get OpenBAS now')}>
                       <a className={classes.xtmItem} href={isNotEmptyField(openBASUrl) ? openBASUrl : 'https://filigran.io'} target="_blank" rel="noreferrer" onClick={handleCloseXtm}>
                         <Badge variant="dot" color={isNotEmptyField(openBASUrl) ? 'success' : 'warning'}>
                           <img style={{ width: 40 }} src={fileUri(theme.palette.mode === 'dark' ? obasDark : obasLight)} alt="OBAS" />
                         </Badge>
                         <div className={classes.product}>OpenBAS</div>
-                      </a>
-                    </Tooltip>
-                  </Grid>
-                  <Grid item={true} xs={6}>
-                    <Tooltip title={t_i18n('Platform under construction, subscribe to update!')}>
-                      <a className={classes.xtmItem} href="https://filigran.io" target="_blank" rel="noreferrer" onClick={handleCloseXtm}>
-                        <Badge variant="dot" color="info">
-                          <img style={{ width: 40 }} src={fileUri(theme.palette.mode === 'dark' ? oermDark : oermLight)} alt="OERM" />
-                        </Badge>
-                        <div className={classes.product}>OpenERM</div>
-                      </a>
-                    </Tooltip>
-                  </Grid>
-                  <Grid item={true} xs={6}>
-                    <Tooltip title={t_i18n('Platform under construction, subscribe to update!')}>
-                      <a className={classes.xtmItem} href="https://filigran.io" target="_blank" rel="noreferrer" onClick={handleCloseXtm}>
-                        <Badge variant="dot" color="info">
-                          <img style={{ width: 40 }} src={fileUri(theme.palette.mode === 'dark' ? omtdDark : omtdLight)} alt="OMTD" />
-                        </Badge>
-                        <div className={classes.product}>OpenMTD</div>
                       </a>
                     </Tooltip>
                   </Grid>

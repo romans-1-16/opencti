@@ -1,21 +1,19 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
 import * as R from 'ramda';
-import { graphql, createRefetchContainer } from 'react-relay';
+import { createRefetchContainer, graphql } from 'react-relay';
 import withTheme from '@mui/styles/withTheme';
 import withStyles from '@mui/styles/withStyles';
-import { Link, withRouter } from 'react-router-dom';
-import Select from '@mui/material/Select';
+import { Link } from 'react-router-dom';
 import MenuItem from '@mui/material/MenuItem';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
 import Menu from '@mui/material/Menu';
 import { AddCircleOutlineOutlined, InfoOutlined } from '@mui/icons-material';
 import { ListItemIcon, ListItemText } from '@mui/material';
+import withRouter from '../../../../utils/compat_router/withRouter';
+import { attackPatternsLinesQuery } from '../AttackPatterns';
 import inject18n from '../../../../components/i18n';
-import { attackPatternsLinesQuery } from './AttackPatternsLines';
 import { computeLevel } from '../../../../utils/Number';
-import AttackPtternsMatrixBar from './AttackPtternsMatrixBar';
+import AttackPtternsMatrixBar from './AttackPatternsMatrixBar';
 import { truncate } from '../../../../utils/String';
 import { MESSAGING$ } from '../../../../relay/environment';
 import { UserContext } from '../../../../utils/hooks/useAuth';
@@ -232,7 +230,7 @@ class AttackPatternsMatrixColumnsComponent extends Component {
   level(attackPattern, maxNumberOfSameAttackPattern) {
     const { attackPatterns } = this.props;
     const numberOfCorrespondingAttackPatterns = R.filter(
-      (n) => n.id === attackPattern.id
+      (n) => n.id === attackPattern.attack_pattern_id
         || (attackPattern.subAttackPatternsIds
           && R.includes(n.id, attackPattern.subAttackPatternsIds)),
       attackPatterns,
@@ -255,20 +253,15 @@ class AttackPatternsMatrixColumnsComponent extends Component {
       attackPatterns: selectedPatterns,
       marginRight,
       searchTerm,
-      handleChangeKillChain,
       handleToggleModeOnlyActive,
       handleToggleColorsReversed,
-      currentKillChain,
       currentColorsReversed,
       currentModeOnlyActive,
-      hideBar,
       handleAdd,
+      selectedKillChain,
+      noBottomBar,
     } = this.props;
     const { hover, menuElement, navOpen } = this.state;
-    let changeKillChain = handleChangeKillChain;
-    if (typeof changeKillChain !== 'function') {
-      changeKillChain = this.handleChangeKillChain;
-    }
     let toggleModeOnlyActive = handleToggleModeOnlyActive;
     if (typeof toggleModeOnlyActive !== 'function') {
       toggleModeOnlyActive = this.handleToggleModeOnlyActive;
@@ -276,10 +269,6 @@ class AttackPatternsMatrixColumnsComponent extends Component {
     let toggleColorsReversed = handleToggleColorsReversed;
     if (typeof toggleColorsReversed !== 'function') {
       toggleColorsReversed = this.handleToggleColorsReversed;
-    }
-    let killChain = currentKillChain;
-    if (R.isNil(killChain)) {
-      killChain = this.state.currentKillChain;
     }
     let modeOnlyActive = currentModeOnlyActive;
     if (R.isNil(modeOnlyActive)) {
@@ -289,15 +278,13 @@ class AttackPatternsMatrixColumnsComponent extends Component {
     if (R.isNil(modeColorsReversed)) {
       modeColorsReversed = this.state.currentColorsReversed;
     }
-    const sortByOrder = R.sortBy(R.prop('x_opencti_order'));
-    const sortByName = R.sortBy(R.prop('name'));
     const filterByKeyword = (n) => searchTerm === ''
       || n.name.toLowerCase().indexOf(searchTerm.toLowerCase()) !== -1
-      || n.description.toLowerCase().indexOf(searchTerm.toLowerCase()) !== -1
+      || n.description?.toLowerCase().indexOf(searchTerm.toLowerCase()) !== -1
       || R.propOr('', 'x_mitre_id', n)
         .toLowerCase()
         .indexOf(searchTerm.toLowerCase()) !== -1
-      || R.propOr('', 'subattackPatterns_text', n)
+      || R.propOr('', 'subAttackPatternsSearchText', n)
         .toLowerCase()
         .indexOf(searchTerm.toLowerCase()) !== -1;
     const maxNumberOfSameAttackPattern = Math.max(
@@ -311,75 +298,35 @@ class AttackPatternsMatrixColumnsComponent extends Component {
         R.values,
       )(selectedPatterns),
     );
-    const filterSubattackPattern = (n) => n.isSubAttackPattern === false;
-    const attackPatterns = R.pipe(
-      R.map((n) => ({
-        ...n.node,
-        subAttackPatternsIds: R.map(
-          (o) => o.node.id,
-          n.node.subAttackPatterns.edges,
-        ),
-      })),
-      R.map((n) => ({
-        ...n,
-        level: this.level(n, maxNumberOfSameAttackPattern),
-        subattackPatterns_text: R.pipe(
-          R.map(
-            (o) => `${o.node.x_mitre_id} ${o.node.name} ${o.node.description}`,
-          ),
-          R.join(' | '),
-        )(R.pathOr([], ['subAttackPatterns', 'edges'], n)),
-        subAttackPatterns: R.pipe(
-          R.map((o) => R.assoc(
-            'level',
-            this.level(o.node, maxNumberOfSameAttackPattern),
-            o.node,
-          )),
-          sortByName,
-        )(n.subAttackPatterns.edges),
-        killChainPhasesIds: R.map((o) => o.id, n.killChainPhases),
-      })),
-      R.filter(filterSubattackPattern),
-      R.filter(filterByKeyword),
-      R.filter((o) => (modeOnlyActive ? o.level > 0 : o.level >= 0)),
-    )(data.attackPatterns.edges);
-    const killChainPhases = R.pipe(
-      R.map((n) => n.node.killChainPhases),
-      R.flatten,
-      R.uniq,
-      R.filter((n) => n.kill_chain_name === killChain),
-      sortByOrder,
-    )(data.attackPatterns.edges);
-    const killChains = R.uniq([
-      'mitre-attack',
-      ...R.pipe(
-        R.map((n) => n.node.killChainPhases),
-        R.flatten,
-        R.map((n) => n.kill_chain_name),
-      )(data.attackPatterns.edges),
-    ]);
-    const attackPatternsOfPhases = R.map(
-      (n) => ({
-        ...n,
-        attackPatterns: R.pipe(
-          R.filter((o) => R.includes(n.id, o.killChainPhasesIds)),
-          sortByName,
-        )(attackPatterns),
-      }),
-      killChainPhases,
-    );
+
+    const killChains = R.uniq(data.attackPatternsMatrix.attackPatternsOfPhases.map((a) => a.kill_chain_name))
+      .sort((a, b) => a.localeCompare(b));
+    let activKillChainValue;
+    if (noBottomBar && killChains.includes(selectedKillChain)) {
+      activKillChainValue = selectedKillChain;
+    } else if (!noBottomBar && killChains.includes(this.state.currentKillChain)) {
+      activKillChainValue = this.state.currentKillChain;
+    } else {
+      activKillChainValue = killChains.length > 0 ? killChains[0] : undefined;
+    }
+    const attackPatternsOfPhases = data.attackPatternsMatrix.attackPatternsOfPhases
+      .filter((a) => a.kill_chain_name === activKillChainValue)
+      .sort((a, b) => a.x_opencti_order - b.x_opencti_order)
+      .map((a) => {
+        return {
+          ...a,
+          id: a.kill_chain_id,
+          attackPatterns: R.sortBy(R.prop('name'), a.attackPatterns.filter(filterByKeyword).map((ap) => {
+            return { ...ap, id: ap.attack_pattern_id, level: this.level(ap, maxNumberOfSameAttackPattern) };
+          })).filter((o) => (modeOnlyActive ? o.level > 0 : o.level >= 0)),
+        };
+      });
     let heightCalc = 310;
     let className = navOpen ? classes.containerNavOpen : classes.container;
     if (marginRight) {
-      if (hideBar) {
-        className = navOpen
-          ? classes.containerWithMarginRightNoBarNavOpen
-          : classes.containerWithMarginRightNoBar;
-      } else {
-        className = navOpen
-          ? classes.containerWithMarginRightNavOpen
-          : classes.containerWithMarginRight;
-      }
+      className = navOpen
+        ? classes.containerWithMarginRightNavOpen
+        : classes.containerWithMarginRight;
     }
     return (
       <UserContext.Consumer>
@@ -394,37 +341,14 @@ class AttackPatternsMatrixColumnsComponent extends Component {
                 maxHeight: `calc(100vh - ${heightCalc}px)`,
               }}
             >
-              {hideBar ? (
-                <div
-                  className={
-                    navOpen
-                      ? classes.switchKillChainNavOpen
-                      : classes.switchKillChain
-                  }
-                >
-                  <FormControl sx={{ m: 1, minWidth: 120 }}>
-                    <InputLabel>{t('Kill chain')}</InputLabel>
-                    <Select
-                      size="small"
-                      value={killChain}
-                      onChange={changeKillChain.bind(this)}
-                    >
-                      {killChains.map((killChainName) => (
-                        <MenuItem key={killChainName} value={killChainName}>
-                          {killChainName}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </div>
-              ) : (
+              {!noBottomBar && (
                 <AttackPtternsMatrixBar
                   currentModeOnlyActive={modeOnlyActive}
                   handleToggleModeOnlyActive={toggleModeOnlyActive.bind(this)}
                   currentColorsReversed={modeColorsReversed}
                   handleToggleColorsReversed={toggleColorsReversed.bind(this)}
-                  currentKillChain={killChain}
-                  handleChangeKillChain={changeKillChain.bind(this)}
+                  currentKillChain={activKillChainValue}
+                  handleChangeKillChain={this.handleChangeKillChain.bind(this)}
                   killChains={killChains}
                   navOpen={navOpen}
                 />
@@ -496,7 +420,7 @@ class AttackPatternsMatrixColumnsComponent extends Component {
                 anchorEl={this.state.anchorEl}
                 open={Boolean(this.state.anchorEl)}
                 onClose={this.handleClose.bind(this)}
-                disableAutoFocusItem={true}
+                disableAutoFocusitem
               >
                 <MenuItem
                   component={Link}
@@ -536,84 +460,47 @@ AttackPatternsMatrixColumnsComponent.propTypes = {
   attackPatterns: PropTypes.array,
   marginRight: PropTypes.bool,
   searchTerm: PropTypes.string,
-  handleChangeKillChain: PropTypes.func,
   handleToggleModeOnlyActive: PropTypes.func,
   handleToggleColorsReversed: PropTypes.func,
-  currentKillChain: PropTypes.bool,
   currentColorsReversed: PropTypes.bool,
   currentModeOnlyActive: PropTypes.bool,
-  hideBar: PropTypes.bool,
   handleAdd: PropTypes.func,
+  selectedKillChain: PropTypes.string,
+  noBottomBar: PropTypes.bool,
 };
 
 export const attackPatternsMatrixColumnsQuery = graphql`
-  query AttackPatternsMatrixColumnsQuery(
-    $orderBy: AttackPatternsOrdering
-    $orderMode: OrderingMode
-    $count: Int!
-    $cursor: ID
-    $filters: FilterGroup
-  ) {
+  query AttackPatternsMatrixColumnsQuery {
     ...AttackPatternsMatrixColumns_data
-      @arguments(
-        orderBy: $orderBy
-        orderMode: $orderMode
-        count: $count
-        cursor: $cursor
-        filters: $filters
-      )
   }
+`;
+
+export const attackPatternsMatrixColumnsFragment = graphql`
+    fragment AttackPatternsMatrixColumns_data on Query {
+        attackPatternsMatrix {
+            attackPatternsOfPhases {
+                kill_chain_id
+                kill_chain_name
+                phase_name
+                x_opencti_order
+                attackPatterns {
+                    attack_pattern_id
+                    name
+                    description
+                    x_mitre_id
+                    subAttackPatternsIds
+                    subAttackPatternsSearchText
+                    killChainPhasesIds
+                }
+            }
+        }
+    }
 `;
 
 const AttackPatternsMatrixColumns = createRefetchContainer(
   AttackPatternsMatrixColumnsComponent,
   {
-    data: graphql`
-      fragment AttackPatternsMatrixColumns_data on Query
-      @argumentDefinitions(
-        orderBy: { type: "AttackPatternsOrdering", defaultValue: x_mitre_id }
-        orderMode: { type: "OrderingMode", defaultValue: asc }
-        count: { type: "Int", defaultValue: 25 }
-        cursor: { type: "ID" }
-        filters: { type: "FilterGroup" }
-      ) {
-        attackPatterns(
-          orderBy: $orderBy
-          orderMode: $orderMode
-          first: $count
-          after: $cursor
-          filters: $filters
-        ) {
-          edges {
-            node {
-              id
-              entity_type
-              parent_types
-              name
-              description
-              isSubAttackPattern
-              x_mitre_id
-              subAttackPatterns {
-                edges {
-                  node {
-                    id
-                    name
-                    description
-                    x_mitre_id
-                  }
-                }
-              }
-              killChainPhases {
-                id
-                kill_chain_name
-                phase_name
-                x_opencti_order
-              }
-            }
-          }
-        }
-      }
-    `,
+    data: attackPatternsMatrixColumnsFragment,
   },
   attackPatternsLinesQuery,
 );

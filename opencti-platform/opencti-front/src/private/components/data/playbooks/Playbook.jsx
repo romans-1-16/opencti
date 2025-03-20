@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -18,14 +18,18 @@ import { graphql, createFragmentContainer } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import 'reactflow/dist/style.css';
 import ReactFlow, { ReactFlowProvider } from 'reactflow';
-import { ErrorBoundary, SimpleError } from '../../Error';
+import { ErrorBoundary } from '../../Error';
 import PlaybookHeader from './PlaybookHeader';
 import useLayout from './hooks/useLayout';
 import nodeTypes from './types/nodes';
 import edgeTypes from './types/edges';
 import { addPlaceholders, computeNodes, computeEdges } from './utils/playbook';
 import useManipulateComponents from './hooks/useManipulateComponents';
+import Breadcrumbs from '../../../../components/Breadcrumbs';
+import { useFormatter } from '../../../../components/i18n';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -39,6 +43,7 @@ const fitViewOptions = { padding: 0.8 };
 
 const PlaybookComponent = ({ playbook, playbookComponents }) => {
   const classes = useStyles();
+  const { t_i18n } = useFormatter();
   const definition = JSON.parse(playbook.playbook_definition);
   const width = window.innerWidth - 80;
   const height = window.innerHeight - 160;
@@ -89,14 +94,17 @@ const PlaybookComponent = ({ playbook, playbookComponents }) => {
   };
   return (
     <>
+      <Breadcrumbs
+        variant="list"
+        elements={[
+          { label: t_i18n('Data') },
+          { label: t_i18n('Processing') },
+          { label: t_i18n('Automation'), link: '/dashboard/data/processing/automation' },
+          { label: playbook.name, current: true },
+        ]}
+      />
       <PlaybookHeader playbook={playbook} />
-      <ErrorBoundary
-        display={
-          <div style={{ paddingTop: 28 }}>
-            <SimpleError />
-          </div>
-        }
-      >
+      <ErrorBoundary>
         <div className={classes.container} style={{ width, height }}>
           <ReactFlowProvider>
             <Flow />

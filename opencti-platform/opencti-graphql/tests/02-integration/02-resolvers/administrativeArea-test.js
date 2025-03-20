@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import gql from 'graphql-tag';
-import { ADMIN_USER, editorQuery, participantQuery, testContext } from '../../utils/testQuery';
+import { ADMIN_USER, editorQuery, testContext, USER_PARTICIPATE } from '../../utils/testQuery';
 import { elLoadById } from '../../../src/database/engine';
 import { MARKING_TLP_GREEN, MARKING_TLP_RED } from '../../../src/schema/identifier';
+import { queryAsUserIsExpectedForbidden } from '../../utils/testQueryHelper';
+import { utcDate } from '../../../src/utils/format';
 
 const LIST_QUERY = gql`
   query administrativeAreas(
@@ -68,13 +70,10 @@ describe('AdministrativeArea resolver standard behavior', () => {
         description: 'Administrative-Area description',
       },
     };
-    const queryResult = await participantQuery({
+    await queryAsUserIsExpectedForbidden(USER_PARTICIPATE.client, {
       query: CREATE_QUERY,
       variables: ADMINISTRATIVEAREA_TO_CREATE,
     });
-    expect(queryResult).not.toBeNull();
-    expect(queryResult.errors.length).toEqual(1);
-    expect(queryResult.errors.at(0).name).toEqual('FORBIDDEN_ACCESS');
   });
   it('Editor should fail administrativeArea creation', async () => {
     const CREATE_QUERY = gql`
@@ -101,7 +100,7 @@ describe('AdministrativeArea resolver standard behavior', () => {
     });
     expect(queryResult).not.toBeNull();
     expect(queryResult.errors.length).toEqual(1);
-    expect(queryResult.errors.at(0).name).toEqual('MISSING_REFERENCE_ERROR');
+    expect(queryResult.errors.at(0).extensions.code).toEqual('MISSING_REFERENCE_ERROR');
   });
   it('should administrativeArea created', async () => {
     const CREATE_QUERY = gql`
@@ -110,6 +109,11 @@ describe('AdministrativeArea resolver standard behavior', () => {
           id
           name
           description
+          standard_id
+          objectLabel {
+            id
+            value
+          }
         }
       }
     `;
@@ -119,6 +123,7 @@ describe('AdministrativeArea resolver standard behavior', () => {
         name: 'Administrative-Area',
         stix_id: administrativeAreaStixId,
         description: 'Administrative-Area description',
+        objectLabel: ['report', 'note', 'malware']
       },
     };
     const queryResult = await editorQuery({
@@ -128,7 +133,41 @@ describe('AdministrativeArea resolver standard behavior', () => {
     expect(queryResult).not.toBeNull();
     expect(queryResult.data.administrativeAreaAdd).not.toBeNull();
     expect(queryResult.data.administrativeAreaAdd.name).toEqual('Administrative-Area');
+    expect(queryResult.data.administrativeAreaAdd.standard_id).toEqual('location--9904c841-f308-58bf-a39a-6ecd6024d3e0');
+    expect(queryResult.data.administrativeAreaAdd.objectLabel.length).toEqual(3);
     administrativeAreaInternalId = queryResult.data.administrativeAreaAdd.id; // bc1f31d7-4d9d-4754-89b1-9a7813c7c521
+  });
+  it('should administrativeArea upsert with synchronized-upsert', async () => {
+    const CREATE_QUERY = gql`
+            mutation AdministrativeAreaAdd($input: AdministrativeAreaAddInput!) {
+                administrativeAreaAdd(input: $input) {
+                    id
+                    name
+                    description
+                    objectLabel {
+                        id
+                        value
+                    }
+                }
+            }
+        `;
+    // Create the administrativeArea
+    const ADMINISTRATIVEAREA_TO_CREATE = {
+      input: {
+        name: 'Administrative-Area',
+        stix_id: administrativeAreaStixId,
+        objectLabel: ['opinion']
+      },
+    };
+    const queryResult = await editorQuery({
+      query: CREATE_QUERY,
+      variables: ADMINISTRATIVEAREA_TO_CREATE
+    }, { synchronizedUpsert: 'true' });
+    expect(queryResult).not.toBeNull();
+    expect(queryResult.data.administrativeAreaAdd).not.toBeNull();
+    expect(queryResult.data.administrativeAreaAdd.name).toEqual('Administrative-Area');
+    expect(queryResult.data.administrativeAreaAdd.objectLabel.length).toEqual(1);
+    expect(queryResult.data.administrativeAreaAdd.objectLabel[0].value).toEqual('opinion');
   });
   it('should administrativeArea loaded by internal id', async () => {
     const queryResult = await editorQuery({ query: READ_QUERY, variables: { id: administrativeAreaInternalId } });
@@ -164,14 +203,63 @@ describe('AdministrativeArea resolver standard behavior', () => {
             administrativeAreaFieldPatch(id: $id, input: $input) {
                 id
                 name
+                description
+                standard_id
             }
         }
     `;
     const queryResult = await editorQuery({
       query: UPDATE_QUERY,
-      variables: { id: administrativeAreaInternalId, input: { key: 'name', value: ['Administrative-Area - test'] } },
+      variables: {
+        id: administrativeAreaInternalId,
+        input: [
+          { key: 'name', value: ['Administrative-Area - test'] },
+          { key: 'description', value: ['Administrative-Area - test'] }
+        ]
+      },
     });
     expect(queryResult.data.administrativeAreaFieldPatch.name).toEqual('Administrative-Area - test');
+    expect(queryResult.data.administrativeAreaFieldPatch.standard_id).toEqual('location--345ba2b4-3c57-5b5e-bc6d-b79aaa36d941');
+    expect(queryResult.data.administrativeAreaFieldPatch.description).toEqual('Administrative-Area - test');
+  });
+  it('should update administrativeArea via previous standard', async () => {
+    const CREATE_QUERY = gql`
+      mutation AdministrativeAreaAdd($input: AdministrativeAreaAddInput!) {
+        administrativeAreaAdd(input: $input) {
+          id
+          name
+        }
+      }
+    `;
+    const ADMINISTRATIVEAREA_TO_CREATE = {
+      input: {
+        name: 'Administrative-Area by previous'
+      },
+    };
+    const previousStandard = 'location--345ba2b4-3c57-5b5e-bc6d-b79aaa36d941';
+    const queryResult = await editorQuery({ query: CREATE_QUERY, variables: ADMINISTRATIVEAREA_TO_CREATE }, { previousStandard });
+    expect(queryResult.data.administrativeAreaAdd.name).toEqual('Administrative-Area by previous');
+  });
+  it('should not upsert administrativeArea if outdated', async () => {
+    const eventId = `${utcDate().subtract(1, 'minute').valueOf()}-0`;
+    const CREATE_QUERY = gql`
+          mutation AdministrativeAreaAdd($input: AdministrativeAreaAddInput!) {
+              administrativeAreaAdd(input: $input) {
+                  id
+                  name
+                  description
+              }
+          }
+      `;
+    const ADMINISTRATIVEAREA_TO_CREATE = {
+      input: {
+        name: 'Administrative-Area description previous standard',
+        stix_id: administrativeAreaStixId,
+        description: 'Administrative-Area description'
+      },
+    };
+    const queryResult = await editorQuery({ query: CREATE_QUERY, variables: ADMINISTRATIVEAREA_TO_CREATE }, { eventId });
+    expect(queryResult.data.administrativeAreaAdd.description).toEqual('Administrative-Area - test');
   });
   it('should context patch administrativeArea', async () => {
     const CONTEXT_PATCH_QUERY = gql`
@@ -247,7 +335,6 @@ describe('AdministrativeArea resolver standard behavior', () => {
         relationship_type: 'object-marking',
       },
     });
-    console.log(JSON.stringify(queryResult));
     expect(queryResult.data.administrativeAreaRelationDelete.objectMarking.length).toEqual(0);
   });
   it('should administrativeArea deleted', async () => {

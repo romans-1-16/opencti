@@ -30,11 +30,11 @@ import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
 import Transition from '../../../../components/Transition';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -71,7 +71,7 @@ const IndicatorDetailsComponent: FunctionComponent<IndicatorDetailsComponentProp
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Typography variant="h3" gutterBottom={true}>
           {t_i18n('Indicator pattern')}
         </Typography>
@@ -81,7 +81,7 @@ const IndicatorDetailsComponent: FunctionComponent<IndicatorDetailsComponentProp
           spacing={3}
           sx={{ marginTop: '10px', marginBottom: '10px' }}
         >
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Valid from')}
             </Typography>
@@ -140,7 +140,7 @@ const IndicatorDetailsComponent: FunctionComponent<IndicatorDetailsComponentProp
             >
               {t_i18n('Description')}
             </Typography>
-            <ExpandableMarkdown source={indicator.description} limit={400} />
+            <ExpandableMarkdown source={indicator.description} limit={400} removeLinks />
             <Typography
               variant="h3"
               gutterBottom={true}
@@ -156,7 +156,7 @@ const IndicatorDetailsComponent: FunctionComponent<IndicatorDetailsComponentProp
               />
             ))}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Valid until')}
             </Typography>

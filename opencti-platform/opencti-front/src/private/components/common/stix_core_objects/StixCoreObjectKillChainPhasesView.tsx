@@ -7,7 +7,10 @@ import React, { FunctionComponent } from 'react';
 import { makeStyles } from '@mui/styles';
 import ItemIcon from '../../../../components/ItemIcon';
 import { useFormatter } from '../../../../components/i18n';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   killChainPhaseItem: {
     paddingLeft: 10,
@@ -37,8 +40,8 @@ const StixCoreObjectKillChainPhasesView: FunctionComponent<StixCoreObjectKillCha
       <Typography variant="h3" gutterBottom={true} style={firstLine ? undefined : { marginTop: 20 }}>
         {t_i18n('Kill chain phases')}
       </Typography>
-      {killChainPhases.length > 0
-        ? <List>
+      <FieldOrEmpty source={killChainPhases}>
+        <List>
           {killChainPhases.map((killChainPhase) => {
             return (
               <ListItem
@@ -55,8 +58,7 @@ const StixCoreObjectKillChainPhasesView: FunctionComponent<StixCoreObjectKillCha
             );
           })}
         </List>
-        : ('-')
-      }
+      </FieldOrEmpty>
     </div>
   );
 };

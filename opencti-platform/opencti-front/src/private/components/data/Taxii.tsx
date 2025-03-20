@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useHistory } from 'react-router-dom';
-import { useLocation } from 'react-router-dom-v5-compat';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { TaxiiLinesPaginationQuery$data } from '@components/data/taxii/__generated__/TaxiiLinesPaginationQuery.graphql';
 import Box from '@mui/material/Box';
 import { QueryRenderer } from '../../../relay/environment';
@@ -12,14 +11,19 @@ import SharingMenu from './SharingMenu';
 import { OrderMode, PaginationOptions } from '../../../components/list_lines';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { useFormatter } from '../../../components/i18n';
+import { TAXIIAPI_SETCOLLECTIONS } from '../../../utils/hooks/useGranted';
+import Security from '../../../utils/Security';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const Taxii = () => {
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('TAXII Collections | Data sharing | Data'));
   const LOCAL_STORAGE_KEY = 'taxii';
-  const history = useHistory();
+  const navigate = useNavigate();
   const location = useLocation();
   const params = buildViewParamsFromUrlAndStorage(
-    history,
+    navigate,
     location,
     LOCAL_STORAGE_KEY,
   );
@@ -32,7 +36,7 @@ const Taxii = () => {
 
   const saveView = () => {
     saveViewParameters(
-      history,
+      navigate,
       location,
       LOCAL_STORAGE_KEY,
       taxiiState,
@@ -67,7 +71,7 @@ const Taxii = () => {
       description: {
         label: 'Description',
         width: '15%',
-        isSortable: true,
+        isSortable: false,
       },
       id: {
         label: 'Collection',
@@ -115,11 +119,14 @@ const Taxii = () => {
       margin: 0,
       padding: '0 200px 50px 0',
     }}
+      aria-label="TaxiiCollections"
     >
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Data') }, { label: t_i18n('Data sharing') }, { label: t_i18n('TAXII collections'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Data') }, { label: t_i18n('Data sharing') }, { label: t_i18n('TAXII collections'), current: true }]} />
       <SharingMenu/>
       {taxiiState.view === 'lines' ? renderLines(paginationOptions) : null}
-      <TaxiiCollectionCreation paginationOptions={paginationOptions}/>
+      <Security needs={[TAXIIAPI_SETCOLLECTIONS]}>
+        <TaxiiCollectionCreation paginationOptions={paginationOptions} />
+      </Security>
     </Box>
   );
 };

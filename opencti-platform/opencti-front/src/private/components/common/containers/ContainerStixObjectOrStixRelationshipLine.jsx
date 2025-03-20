@@ -8,7 +8,6 @@ import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import { MoreVert } from '@mui/icons-material';
 import Skeleton from '@mui/material/Skeleton';
 import makeStyles from '@mui/styles/makeStyles';
-import Chip from '@mui/material/Chip';
 import * as R from 'ramda';
 import IconButton from '@mui/material/IconButton';
 import { useFormatter } from '../../../../components/i18n';
@@ -16,10 +15,15 @@ import ItemIcon from '../../../../components/ItemIcon';
 import ContainerStixCoreObjectPopover from './ContainerStixCoreObjectPopover';
 import { resolveLink } from '../../../../utils/Entity';
 import ItemMarkings from '../../../../components/ItemMarkings';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import StixCoreObjectLabels from '../stix_core_objects/StixCoreObjectLabels';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import ItemEntityType from '../../../../components/ItemEntityType';
+import { DraftChip } from '../draft/DraftChip';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   item: {
     paddingLeft: 15,
@@ -40,14 +44,6 @@ const useStyles = makeStyles((theme) => ({
   itemIconDisabled: {
     color: theme.palette.grey[700],
   },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
 }));
 
 const ContainerStixObjectOrStixRelationshipLineComponent = ({
@@ -55,27 +51,20 @@ const ContainerStixObjectOrStixRelationshipLineComponent = ({
   dataColumns,
   containerId,
   paginationOptions,
+  enableReferences,
 }) => {
   const classes = useStyles();
-  const { t_i18n, fd } = useFormatter();
+  const { fd } = useFormatter();
   const restrictedWithFrom = node.from === null;
   // eslint-disable-next-line no-nested-ternary
   const link = node.relationship_type
-    ? !restrictedWithFrom
-      ? `${resolveLink(node.from.entity_type)}/${node.from.id}/knowledge/${
-        node.relationship_type === 'stix-sighting-relationship'
-          ? 'sightings'
-          : 'relations'
-      }/${node.id}`
-      : null
-    : `${resolveLink(node.entity_type)}/${node.id}`;
-  const entityType = !restrictedWithFrom ? node.entity_type : 'unknown';
   // eslint-disable-next-line no-nested-ternary
-  const entityTypeLabel = node.relationship_type
-    ? !restrictedWithFrom
-      ? t_i18n(`relationship_${node.entity_type}`)
-      : t_i18n('Restricted')
-    : t_i18n(`entity_${node.entity_type}`);
+    ? node.relationship_type === 'stix-sighting-relationship'
+      ? `${resolveLink(node.relationship_type)}/${node.id}`
+      : !restrictedWithFrom
+        ? `${resolveLink(node.from.entity_type)}/${node.from.id}/knowledge/relations/${node.id}`
+        : null
+    : `${resolveLink(node.entity_type)}/${node.id}`;
   return (
     <ListItem
       classes={{ root: classes.item }}
@@ -95,21 +84,17 @@ const ContainerStixObjectOrStixRelationshipLineComponent = ({
               className={classes.bodyItem}
               style={{ width: dataColumns.entity_type.width }}
             >
-              <Chip
-                classes={{ root: classes.chipInList }}
-                style={{
-                  backgroundColor: hexToRGB(itemColor(entityType), 0.08),
-                  color: itemColor(entityType),
-                  border: `1px solid ${itemColor(entityType)}`,
-                }}
-                label={entityTypeLabel}
+              <ItemEntityType
+                entityType={node.entity_type}
+                isRestricted={node.relationship_type && restrictedWithFrom}
               />
             </div>
             <div
               className={classes.bodyItem}
               style={{ width: dataColumns.name.width }}
             >
-              {defaultValue(node)}
+              {getMainRepresentative(node)}
+              {node.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}
@@ -146,14 +131,17 @@ const ContainerStixObjectOrStixRelationshipLineComponent = ({
         }
       />
       <ListItemSecondaryAction>
-        <ContainerStixCoreObjectPopover
-          containerId={containerId}
-          toId={node.id}
-          toStandardId={node.standard_id}
-          relationshipType="object"
-          paginationKey="Pagination_objects"
-          paginationOptions={paginationOptions}
-        />
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <ContainerStixCoreObjectPopover
+            containerId={containerId}
+            toId={node.id}
+            toStandardId={node.standard_id}
+            relationshipType="object"
+            paginationKey="Pagination_objects"
+            paginationOptions={paginationOptions}
+            enableReferences={enableReferences}
+          />
+        </Security>
       </ListItemSecondaryAction>
     </ListItem>
   );
@@ -168,6 +156,10 @@ export const ContainerStixObjectOrStixRelationshipLine = createFragmentContainer
           entity_type
         }
         ... on StixCoreObject {
+          draftVersion {
+            draft_id
+            draft_operation
+          }
           created_at
           createdBy {
             ... on Identity {
@@ -247,6 +239,9 @@ export const ContainerStixObjectOrStixRelationshipLine = createFragmentContainer
         ... on Malware {
           name
         }
+        ... on Task {
+          name
+        }
         ... on ThreatActor {
           name
         }
@@ -292,6 +287,10 @@ export const ContainerStixObjectOrStixRelationshipLine = createFragmentContainer
           entity_type
         }
         ... on StixCoreRelationship {
+          draftVersion {
+            draft_id
+            draft_operation
+          }
           relationship_type
           objectMarking {
             id
@@ -361,6 +360,9 @@ export const ContainerStixObjectOrStixRelationshipLine = createFragmentContainer
               name
             }
             ... on Malware {
+              name
+            }
+            ... on Task {
               name
             }
             ... on ThreatActor {
@@ -452,6 +454,9 @@ export const ContainerStixObjectOrStixRelationshipLine = createFragmentContainer
               name
             }
             ... on Malware {
+              name
+            }
+            ... on Task {
               name
             }
             ... on ThreatActor {
@@ -562,6 +567,9 @@ export const ContainerStixObjectOrStixRelationshipLine = createFragmentContainer
               name
             }
             ... on Malware {
+              name
+            }
+            ... on Task {
               name
             }
             ... on ThreatActor {

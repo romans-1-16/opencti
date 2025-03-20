@@ -19,10 +19,15 @@ import ItemIcon from '../../../../components/ItemIcon';
 import ContainerStixCoreObjectPopover from './ContainerStixCoreObjectPopover';
 import { resolveLink } from '../../../../utils/Entity';
 import StixCoreObjectLabels from '../stix_core_objects/StixCoreObjectLabels';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import ItemMarkings from '../../../../components/ItemMarkings';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import ItemEntityType from '../../../../components/ItemEntityType';
+import { DraftChip } from '../draft/DraftChip';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   item: {
     paddingLeft: 10,
@@ -61,14 +66,6 @@ const useStyles = makeStyles((theme) => ({
     textTransform: 'uppercase',
     borderRadius: 4,
   },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
 }));
 
 const ContainerStixDomainObjectLineComponent = (props) => {
@@ -83,6 +80,7 @@ const ContainerStixDomainObjectLineComponent = (props) => {
     deSelectedElements,
     selectAll,
     onToggleShiftEntity,
+    enableReferences,
     index,
   } = props;
   const classes = useStyles();
@@ -131,15 +129,7 @@ const ContainerStixDomainObjectLineComponent = (props) => {
               className={classes.bodyItem}
               style={{ width: dataColumns.entity_type.width }}
             >
-              <Chip
-                classes={{ root: classes.chipInList }}
-                style={{
-                  backgroundColor: hexToRGB(itemColor(node.entity_type), 0.08),
-                  color: itemColor(node.entity_type),
-                  border: `1px solid ${itemColor(node.entity_type)}`,
-                }}
-                label={t_i18n(`entity_${node.entity_type}`)}
-              />
+              <ItemEntityType entityType={node.entity_type} />
             </div>
             <div
               className={classes.bodyItem}
@@ -147,7 +137,8 @@ const ContainerStixDomainObjectLineComponent = (props) => {
             >
               {node.x_mitre_id
                 ? `[${node.x_mitre_id}] ${node.name}`
-                : defaultValue(node)}
+                : getMainRepresentative(node)}
+              {node.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}
@@ -213,14 +204,17 @@ const ContainerStixDomainObjectLineComponent = (props) => {
             <AutoFix fontSize="small" style={{ marginLeft: -30 }} />
           </Tooltip>
         ) : (
-          <ContainerStixCoreObjectPopover
-            containerId={containerId}
-            toId={node.id}
-            toStandardId={node.standard_id}
-            relationshipType="object"
-            paginationKey="Pagination_objects"
-            paginationOptions={paginationOptions}
-          />
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <ContainerStixCoreObjectPopover
+              containerId={containerId}
+              toId={node.id}
+              toStandardId={node.standard_id}
+              relationshipType="object"
+              paginationKey="Pagination_objects"
+              paginationOptions={paginationOptions}
+              enableReferences={enableReferences}
+            />
+          </Security>
         )}
       </ListItemSecondaryAction>
     </ListItem>
@@ -233,6 +227,10 @@ export const ContainerStixDomainObjectLine = createFragmentContainer(
     node: graphql`
       fragment ContainerStixDomainObjectLine_node on StixDomainObject {
         id
+        draftVersion {
+          draft_id
+          draft_operation
+        }
         standard_id
         entity_type
         parent_types

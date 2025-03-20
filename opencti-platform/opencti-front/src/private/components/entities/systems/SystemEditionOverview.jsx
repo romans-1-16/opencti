@@ -9,7 +9,7 @@ import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
 import StatusField from '../../common/form/StatusField';
@@ -19,6 +19,8 @@ import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySet
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useHelper from '../../../../utils/hooks/useHelper';
+import SystemDeletion from './SystemDeletion';
 
 const systemMutationFieldPatch = graphql`
   mutation SystemEditionOverviewFieldPatchMutation(
@@ -82,9 +84,10 @@ const systemMutationRelationDelete = graphql`
 const SystemEditionOverviewComponent = (props) => {
   const { system, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
     contact_information: Yup.string().nullable(),
@@ -183,7 +186,7 @@ const SystemEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={system} />
           <Field
             component={TextField}
@@ -196,7 +199,7 @@ const SystemEditionOverviewComponent = (props) => {
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus context={context} fieldName="name" />
-              }
+            }
           />
           <Field
             component={MarkdownField}
@@ -210,7 +213,7 @@ const SystemEditionOverviewComponent = (props) => {
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus context={context} fieldName="description" />
-              }
+            }
           />
           <ConfidenceField
             onFocus={editor.changeFocus}
@@ -233,7 +236,7 @@ const SystemEditionOverviewComponent = (props) => {
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus context={context} fieldName="contact_information" />
-              }
+            }
           />
           <OpenVocabField
             label={t_i18n('Reliability')}
@@ -248,17 +251,17 @@ const SystemEditionOverviewComponent = (props) => {
             containerStyle={fieldSpacingContainerStyle}
           />
           {system.workflowEnabled && (
-          <StatusField
-            name="x_opencti_workflow_id"
-            type="System"
-            onFocus={editor.changeFocus}
-            onChange={handleSubmitField}
-            setFieldValue={setFieldValue}
-            style={{ marginTop: 20 }}
-            helpertext={
-              <SubscriptionFocus context={context} fieldName="x_opencti_workflow_id" />
-                }
-          />
+            <StatusField
+              name="x_opencti_workflow_id"
+              type="System"
+              onFocus={editor.changeFocus}
+              onChange={handleSubmitField}
+              setFieldValue={setFieldValue}
+              style={{ marginTop: 20 }}
+              helpertext={
+                <SubscriptionFocus context={context} fieldName="x_opencti_workflow_id" />
+              }
+            />
           )}
           <CreatedByField
             name="createdBy"
@@ -266,7 +269,7 @@ const SystemEditionOverviewComponent = (props) => {
             setFieldValue={setFieldValue}
             helpertext={
               <SubscriptionFocus context={context} fieldName="createdBy" />
-              }
+            }
             onChange={editor.changeCreated}
           />
           <ObjectMarkingField
@@ -274,20 +277,27 @@ const SystemEditionOverviewComponent = (props) => {
             style={fieldSpacingContainerStyle}
             helpertext={
               <SubscriptionFocus context={context} fieldname="objectMarking" />
-              }
+            }
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-          <CommitMessage
-            submitForm={submitForm}
-            disabled={isSubmitting || !isValid || !dirty}
-            setFieldValue={setFieldValue}
-            open={false}
-            values={values.references}
-            id={system.id}
-          />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <SystemDeletion
+                  id={system.id}
+                />
+              : <div />}
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={system.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -301,6 +311,7 @@ export default createFragmentContainer(SystemEditionOverviewComponent, {
         name
         description
         confidence
+        entity_type
         contact_information
         x_opencti_reliability
         createdBy {

@@ -11,15 +11,18 @@ import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import { Link } from 'react-router-dom';
-import { LockOutlined, NoEncryptionOutlined } from '@mui/icons-material';
+import { LockOutlined, NoEncryptionOutlined, Visibility, VisibilityOff } from '@mui/icons-material';
 import Alert from '@mui/material/Alert';
 import DialogContent from '@mui/material/DialogContent';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import { useTheme } from '@mui/styles';
+import { ListItem, ListItemText, Switch } from '@mui/material';
+import IconButton from '@mui/material/IconButton';
+import NotifierField from '../common/form/NotifierField';
 import inject18n, { useFormatter } from '../../../components/i18n';
 import TextField from '../../../components/TextField';
-import SelectField from '../../../components/SelectField';
+import SelectField from '../../../components/fields/SelectField';
 import { commitMutation, MESSAGING$, QueryRenderer } from '../../../relay/environment';
 import { OPENCTI_ADMIN_UUID } from '../../../utils/hooks/useGranted';
 import Loader from '../../../components/Loader';
@@ -30,6 +33,10 @@ import { fieldSpacingContainerStyle } from '../../../utils/field';
 import OtpInputField, { OTP_CODE_SIZE } from '../../../public/components/OtpInputField';
 import ItemCopy from '../../../components/ItemCopy';
 import { availableLanguage } from '../../../components/AppIntlProvider';
+import { maskString } from '../../../utils/String';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
+import ProfileLocalStorage from './ProfileLocalStorage';
+import useHelper from '../../../utils/hooks/useHelper';
 
 const styles = () => ({
   container: {
@@ -39,11 +46,14 @@ const styles = () => ({
   paper: {
     width: '100%',
     margin: '0 auto',
-    marginBottom: 30,
+    marginBottom: 24,
     padding: 20,
     textAlign: 'left',
     borderRadius: 4,
     position: 'relative',
+  },
+  switchField: {
+    padding: '20px 0 0',
   },
 });
 
@@ -96,6 +106,7 @@ const userValidation = (t) => Yup.object().shape({
   user_email: Yup.string()
     .required(t('This field is required'))
     .email(t('The value must be an email address')),
+  personal_notifiers: Yup.array(),
   firstname: Yup.string().nullable(),
   lastname: Yup.string().nullable(),
   theme: Yup.string().nullable(),
@@ -103,6 +114,9 @@ const userValidation = (t) => Yup.object().shape({
   description: Yup.string().nullable(),
   otp_activated: Yup.boolean(),
   unit_system: Yup.string().nullable(),
+  submenu_show_icons: Yup.boolean(),
+  submenu_auto_collapse: Yup.boolean(),
+  monochrome_labels: Yup.boolean(),
 });
 
 const passwordValidation = (t) => Yup.object().shape({
@@ -140,12 +154,6 @@ const Otp = ({ closeFunction, secret, uri }) => {
   useEffect(() => {
     qrcode.toDataURL(
       uri,
-      {
-        color: {
-          dark: theme.palette.mode === 'dark' ? '#ffffff' : '#000000',
-          light: '#0000', // Transparent background
-        },
-      },
       (err, imageUrl) => {
         if (err) {
           setOtpQrImage('');
@@ -204,9 +212,15 @@ const OtpComponent = ({ closeFunction }) => (
 
 const ProfileOverviewComponent = (props) => {
   const { t, me, classes, about, settings } = props;
+  const theme = useTheme();
   const { external, otp_activated: useOtp } = me;
+  const { t_i18n } = useFormatter();
+  const { isPlaygroundEnable } = useHelper();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Profile'));
   const objectOrganization = convertOrganizations(me);
   const [display2FA, setDisplay2FA] = useState(false);
+  const [showToken, setShowToken] = useState(false);
   const fieldNames = [
     'name',
     'description',
@@ -217,8 +231,16 @@ const ProfileOverviewComponent = (props) => {
     'language',
     'otp_activated',
     'unit_system',
+    'submenu_show_icons',
+    'submenu_auto_collapse',
+    'monochrome_labels',
   ];
-  const initialValues = { ...pick(fieldNames, me), objectOrganization };
+
+  const initialValues = {
+    ...pick(fieldNames, me),
+    objectOrganization,
+    personal_notifiers: (me.personal_notifiers ?? []).map(({ id, name }) => ({ value: id, label: name })),
+  };
 
   const disableOtp = () => {
     commitMutation({
@@ -260,6 +282,7 @@ const ProfileOverviewComponent = (props) => {
       },
     });
   };
+
   return (
     <div className={classes.container}>
       <Dialog
@@ -275,7 +298,13 @@ const ProfileOverviewComponent = (props) => {
           <OtpComponent closeFunction={() => setDisplay2FA(false)} />
         </DialogContent>
       </Dialog>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper
+        classes={{ root: classes.paper }}
+        variant="outlined"
+        sx={{
+          height: 'unset',
+        }}
+      >
         <Typography variant="h1" gutterBottom={true}>
           {t('Profile')} {external && `(${t('external')})`}
         </Typography>
@@ -302,7 +331,7 @@ const ProfileOverviewComponent = (props) => {
                 disabled={external}
                 label={t('Email address')}
                 fullWidth={true}
-                style={{ marginTop: 20 }}
+                style={{ marginTop: 16 }}
                 onSubmit={handleSubmitField}
               />
               <ObjectOrganizationField
@@ -318,7 +347,7 @@ const ProfileOverviewComponent = (props) => {
                 name="firstname"
                 label={t('Firstname')}
                 fullWidth={true}
-                style={{ marginTop: 20 }}
+                style={{ marginTop: 16 }}
                 onSubmit={handleSubmitField}
               />
               <Field
@@ -327,9 +356,35 @@ const ProfileOverviewComponent = (props) => {
                 name="lastname"
                 label={t('Lastname')}
                 fullWidth={true}
-                style={{ marginTop: 20 }}
+                style={{ marginTop: 16 }}
                 onSubmit={handleSubmitField}
               />
+              <Field
+                component={TextField}
+                variant="standard"
+                name="description"
+                label={t('Description')}
+                fullWidth={true}
+                multiline={true}
+                rows={4}
+                style={{ marginTop: 16 }}
+                onSubmit={handleSubmitField}
+              />
+            </Form>
+          )}
+        </Formik>
+      </Paper>
+      <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Typography variant="h1" gutterBottom={true} style={{ float: 'left' }}>
+          {t('User experience')}
+        </Typography>
+        <Formik
+          enableReinitialize={true}
+          initialValues={initialValues}
+          validationSchema={userValidation(t)}
+        >
+          {() => (
+            <Form style={{ margin: '20px 0 20px 0' }}>
               <Field
                 component={SelectField}
                 variant="standard"
@@ -369,7 +424,7 @@ const ProfileOverviewComponent = (props) => {
                 component={SelectField}
                 variant="standard"
                 name="unit_system"
-                label={t('Unit System')}
+                label={t('Unit system')}
                 fullWidth={true}
                 inputProps={{ name: 'unit_system', id: 'unit_system' }}
                 containerstyle={fieldSpacingContainerStyle}
@@ -379,16 +434,47 @@ const ProfileOverviewComponent = (props) => {
                 <MenuItem value={'Imperial'}>{t('Imperial')}</MenuItem>
                 <MenuItem value={'Metric'}>{t('Metric')}</MenuItem>
               </Field>
-              <Field
-                component={TextField}
-                variant="standard"
-                name="description"
-                label={t('Description')}
-                fullWidth={true}
-                multiline={true}
-                rows={4}
-                style={{ marginTop: 20 }}
-                onSubmit={handleSubmitField}
+              <ListItem style={{ padding: '20px 0 0 0' }}>
+                <ListItemText
+                  primary={t('Show left navigation submenu icons')}
+                />
+                <Field
+                  component={Switch}
+                  variant="standard"
+                  name="submenu_show_icons"
+                  checked={initialValues.submenu_show_icons}
+                  onChange={(_, value) => handleSubmitField('submenu_show_icons', value)}
+                />
+              </ListItem>
+              <ListItem style={{ padding: '10px 0 0 0' }}>
+                <ListItemText
+                  primary={t('Auto collapse submenus in left navigation')}
+                />
+                <Field
+                  component={Switch}
+                  variant="standard"
+                  name="submenu_auto_collapse"
+                  checked={initialValues.submenu_auto_collapse}
+                  onChange={(_, value) => handleSubmitField('submenu_auto_collapse', value)}
+                />
+              </ListItem>
+              {/* <ListItem style={{ padding: '10px 0 0 0' }}>
+                <ListItemText
+                  primary={t('Monochrome labels and entity types')}
+                />
+                <Field
+                  component={Switch}
+                  variant="standard"
+                  name="monochrome_labels"
+                  checked={initialValues.monochrome_labels}
+                  onChange={(_, value) => handleSubmitField('monochrome_labels', value)}
+                />
+              </ListItem> */}
+              <pre>{t('When an event happens on a knowledge your participate, you will receive notification through your personal notifiers')}</pre>
+              <NotifierField
+                label={t('Personal notifiers')}
+                name="personal_notifiers"
+                onChange={(name, values) => handleSubmitField(name, values.map(({ value }) => value))}
               />
             </Form>
           )}
@@ -454,7 +540,7 @@ const ProfileOverviewComponent = (props) => {
                   label={t('New password')}
                   type="password"
                   fullWidth={true}
-                  style={{ marginTop: 20 }}
+                  style={{ marginTop: 16 }}
                   disabled={external}
                 />
                 <Field
@@ -464,10 +550,10 @@ const ProfileOverviewComponent = (props) => {
                   label={t('Confirmation')}
                   type="password"
                   fullWidth={true}
-                  style={{ marginTop: 20 }}
+                  style={{ marginTop: 16 }}
                   disabled={external}
                 />
-                <div style={{ marginTop: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'end', marginTop: 16 }}>
                   <Button
                     variant="contained"
                     type="button"
@@ -488,7 +574,7 @@ const ProfileOverviewComponent = (props) => {
         <Typography variant="h1" gutterBottom={true}>
           {t('API access')}
         </Typography>
-        <div style={{ marginTop: 20 }}>
+        <div style={{ marginTop: 16 }}>
           <Typography variant="h4" gutterBottom={true}>
             {t('OpenCTI version')}
           </Typography>
@@ -496,39 +582,110 @@ const ProfileOverviewComponent = (props) => {
           <Typography
             variant="h4"
             gutterBottom={true}
-            style={{ marginTop: 20 }}
+            style={{ marginTop: 16 }}
           >
             {t('API key')}
           </Typography>
-          <pre><ItemCopy content={me.api_token} /></pre>
+          <pre
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              width: '100%',
+              padding: `${theme.spacing(1)}`,
+            }}
+          >
+            <span style={{ flexGrow: 1 }}>
+              <ItemCopy
+                content={showToken ? me.api_token : maskString(me.api_token)}
+                value={me.api_token}
+              />
+            </span>
+            <IconButton
+              style={{
+                cursor: 'pointer',
+                color: theme.palette.primary.main,
+                padding: `0 ${theme.spacing(1)}`,
+              }}
+              disableRipple
+              onClick={() => setShowToken((value) => !value)}
+              aria-label={showToken ? t('Hide') : t('Show')}
+            >
+              {showToken ? <VisibilityOff/> : <Visibility/>}
+            </IconButton>
+          </pre>
           {me.id !== OPENCTI_ADMIN_UUID && (
-            <Button variant="contained" color="primary" onClick={renewToken}>
-              {t('Renew')}
-            </Button>
+            <div style={{ display: 'flex', justifyContent: 'end', marginTop: 16 }}>
+              <Button variant="contained" color="primary" onClick={renewToken}>
+                {t('Renew')}
+              </Button>
+            </div>
           )}
           <Typography
             variant="h4"
             gutterBottom={true}
-            style={{ marginTop: 20 }}
+            style={{ marginTop: 16 }}
           >
             {t('Required headers')}
           </Typography>
-          <pre>
-            Content-Type: application/json
-            <br />
-            Authorization: Bearer {me.api_token}
-          </pre>
-          <Button
-            variant="contained"
-            color="primary"
-            component={Link}
-            to="/graphql"
-            target="_blank"
+          <pre
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              width: '100%',
+            }}
           >
-            {t('Playground')}
-          </Button>
+            <span
+              style={{
+                flexGrow: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <ItemCopy
+                content={
+                  <>
+                    Content-Type: application/json
+                    <br/>
+                    Authorization: Bearer {showToken ? me.api_token : maskString(me.api_token)}
+                  </>
+                  }
+                value={`Content-Type: application/json\nAuthorization: Bearer ${me.api_token}`}
+              />
+            </span>
+            <IconButton
+              style={{
+                cursor: 'pointer',
+                color: theme.palette.primary.main,
+                padding: `0 ${theme.spacing(1)}`,
+                position: 'relative',
+                top: '-8px',
+              }}
+              disableRipple
+              onClick={() => setShowToken((value) => !value)}
+              aria-label={showToken ? t('Hide') : t('Show')}
+            >
+              {showToken ? <VisibilityOff/> : <Visibility/>}
+            </IconButton>
+          </pre>
+          { isPlaygroundEnable() && (
+            <div style={{ display: 'flex', justifyContent: 'end', marginTop: 16 }}>
+              <Button
+                variant="contained"
+                color="primary"
+                component={Link}
+                to="/public/graphql"
+                target="_blank"
+              >
+                {t('Playground')}
+              </Button>
+            </div>
+          )}
         </div>
       </Paper>
+
+      <ProfileLocalStorage />
     </div>
   );
 };
@@ -556,6 +713,13 @@ const ProfileOverview = createFragmentContainer(ProfileOverviewComponent, {
       otp_qr
       description
       unit_system
+      submenu_show_icons
+      submenu_auto_collapse
+      monochrome_labels
+      personal_notifiers {
+        id
+        name
+      }
       objectOrganization {
         edges {
           node {

@@ -9,11 +9,9 @@ import Grid from '@mui/material/Grid';
 import StixCoreObjectsDonut from '../../common/stix_core_objects/StixCoreObjectsDonut';
 import inject18n from '../../../../components/i18n';
 
-const styles = () => ({
+const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -49,9 +47,9 @@ class ObservedDataDetailsComponent extends Component {
         <Typography variant="h4" gutterBottom={true}>
           {t('Entity details')}
         </Typography>
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           <Grid container={true} spacing={3}>
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Typography variant="h3" gutterBottom={true}>
                 {t('First observed')}
               </Typography>
@@ -65,7 +63,7 @@ class ObservedDataDetailsComponent extends Component {
               </Typography>
               {observedData.number_observed}
             </Grid>
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Typography variant="h3" gutterBottom={true}>
                 {t('Last observed')}
               </Typography>

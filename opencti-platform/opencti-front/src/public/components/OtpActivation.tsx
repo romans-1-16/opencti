@@ -1,16 +1,18 @@
 import { makeStyles } from '@mui/styles';
 import React, { FunctionComponent, useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import qrcode from 'qrcode';
-import { useTheme } from '@mui/material/styles';
 import Loader from '../../components/Loader';
 import { QueryRenderer } from '../../relay/environment';
 import { useFormatter } from '../../components/i18n';
 import { OtpActivationQuery$data } from './__generated__/OtpActivationQuery.graphql';
 import type { Theme } from '../../components/Theme';
 import OtpInputField, { OTP_CODE_SIZE } from './OtpInputField';
+import useApiMutation from '../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>(() => ({
   input: {
     display: 'flex',
@@ -43,13 +45,12 @@ interface OtpProps {
 const Otp: FunctionComponent<OtpProps> = ({ secret, uri }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
-  const theme = useTheme();
   const [otpQrImage, setOtpQrImage] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [inputDisable, setInputDisable] = useState(false);
   const handleChange = (data: string) => setCode(data);
-  const [commit] = useMutation(validateOtpPatch);
+  const [commit] = useApiMutation(validateOtpPatch);
   if (code.length === OTP_CODE_SIZE && !inputDisable) {
     setInputDisable(true);
     commit({
@@ -67,12 +68,6 @@ const Otp: FunctionComponent<OtpProps> = ({ secret, uri }) => {
   useEffect(() => {
     qrcode.toDataURL(
       uri,
-      {
-        color: {
-          dark: `${theme.palette.mode}` === 'dark' ? '#ffffff' : '#000000',
-          light: '#0000', // Transparent background
-        },
-      },
       (err: Error | null | undefined, imageUrl: string) => {
         if (err) {
           setOtpQrImage('');

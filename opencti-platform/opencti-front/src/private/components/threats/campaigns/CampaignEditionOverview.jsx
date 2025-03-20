@@ -3,12 +3,13 @@ import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import * as R from 'ramda';
+import { useTheme } from '@mui/styles';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
@@ -18,6 +19,8 @@ import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import CampaignDeletion from './CampaignDeletion';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const campaignMutationFieldPatch = graphql`
   mutation CampaignEditionOverviewFieldPatchMutation(
@@ -84,9 +87,12 @@ export const campaignMutationRelationDelete = graphql`
 const CampaignEditionOverviewComponent = (props) => {
   const { campaign, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
+  const theme = useTheme();
 
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     confidence: Yup.number().nullable(),
     description: Yup.string().nullable(),
     references: Yup.array(),
@@ -181,7 +187,7 @@ const CampaignEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form style={{ marginTop: theme.spacing(2) }}>
           <AlertConfidenceForEntity entity={campaign} />
           <Field
             component={TextField}
@@ -252,16 +258,24 @@ const CampaignEditionOverviewComponent = (props) => {
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={campaign.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <CampaignDeletion
+                  id={campaign.id}
+                />
+              : <div />
+            }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={campaign.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -274,6 +288,7 @@ export default createFragmentContainer(CampaignEditionOverviewComponent, {
       id
       name
       confidence
+      entity_type
       description
       createdBy {
         ... on Identity {

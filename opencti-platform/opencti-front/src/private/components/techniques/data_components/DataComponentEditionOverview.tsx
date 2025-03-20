@@ -7,7 +7,7 @@ import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
 import { useFormatter } from '../../../../components/i18n';
 import { DataComponentEditionOverview_dataComponent$key } from './__generated__/DataComponentEditionOverview_dataComponent.graphql';
@@ -20,6 +20,8 @@ import { adaptFieldValue } from '../../../../utils/String';
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEditor';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import useHelper from '../../../../utils/hooks/useHelper';
+import DataComponentDeletion from './DataComponentDeletion';
 
 const dataComponentMutationFieldPatch = graphql`
   mutation DataComponentEditionOverviewFieldPatchMutation(
@@ -85,6 +87,7 @@ const DataComponentEditionOverviewFragment = graphql`
     id
     name
     confidence
+    entity_type
     description
     createdBy {
       ... on Identity {
@@ -139,11 +142,12 @@ const DataComponentEditionOverview: FunctionComponent<
 DataComponentEditionOverviewComponentProps
 > = ({ data, context, enableReferences = false, handleClose }) => {
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const dataComponent = useFragment(DataComponentEditionOverviewFragment, data);
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
     references: Yup.array(),
@@ -244,7 +248,7 @@ DataComponentEditionOverviewComponentProps
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={dataComponent} />
           <Field
             component={TextField}
@@ -313,16 +317,23 @@ DataComponentEditionOverviewComponentProps
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={dataComponent.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <DataComponentDeletion
+                  id={dataComponent.id}
+                />
+              : <div />}
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={dataComponent.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

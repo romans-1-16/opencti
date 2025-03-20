@@ -3,16 +3,31 @@ kind: pipeline
 name: opencti-tests
 
 steps:
+  - name: dependencies-checkout
+    image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
+    environment:
+      GITHUB_TOKEN:
+          from_secret: github_token
+    commands:
+      - apk add git github-cli
+      - chmod 777 scripts/*
+      - ./scripts/clone-dependencies.sh "${DRONE_SOURCE_BRANCH}" "${DRONE_TARGET_BRANCH}" "$(pwd)" "${DRONE_PULL_REQUEST}"
+      - ls -lart
+      - cd "$DRONE_WORKSPACE/client-python"
+      - echo "[INFO] using client-python on branch $(git branch --show-current)"
+      - git log -n 1
+
   - name: api-tests
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
     - name: cache-node-backend
       path: /drone/src/opencti-platform/opencti-graphql/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       APP__BASE_URL: http://api-tests:4010/
       APP__ADMIN__PASSWORD: admin
+      APP__CHILD_LOCKING_PROCESS__ENABLED: true
+      APP__ENTERPRISE_EDITION_LICENSE:
+        from_secret: ee_license
       APP__SYNC_RAW_START_REMOTE_URI: http://opencti-raw-start:4100/graphql
       APP__SYNC_LIVE_START_REMOTE_URI: http://opencti-live-start:4200/graphql
       APP__SYNC_DIRECT_START_REMOTE_URI: http://opencti-direct-start:4300/graphql
@@ -32,25 +47,17 @@ steps:
     commands:
       - apk add build-base git libffi-dev cargo
       - pip3 install --upgrade setuptools
-      - cd opencti-platform
-      - OPENCTI_COMMIT=$(git rev-parse --short HEAD)
-      - echo [INFO] using opencti@$DRONE_COMMIT_BRANCH:$OPENCTI_COMMIT
-      - cd ..
-      - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - CONNECTOR_BRANCH=$([[ $(git ls-remote --heads https://github.com/OpenCTI-Platform/connectors.git opencti/$BRANCH) ]] && echo opencti/$BRANCH || echo 'master')
-      - git clone -b $CONNECTOR_BRANCH https://github.com/OpenCTI-Platform/connectors.git opencti-connectors
-      - cd opencti-connectors
-      - CONNECTOR_COMMIT=$(git rev-parse --short HEAD)
-      - echo [INFO] using connectors@$CONNECTOR_BRANCH:$CONNECTOR_COMMIT
-      - cd ../opencti-platform/opencti-graphql
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
+      - cd "$DRONE_WORKSPACE/opencti-platform/opencti-graphql"
       - yarn install
       - yarn build
       - yarn check-ts
       - yarn lint
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
-      - echo [INFO] using package client-python@$CLIENT_PYTHON_BRANCH
       - NODE_OPTIONS=--max_old_space_size=8192 yarn test
+    depends_on:
+      - dependencies-checkout
 
   - name: api-coverage
     image: plugins/codecov
@@ -63,12 +70,10 @@ steps:
       - api-tests
 
   - name: frontend-tests
-    image: node:20-alpine
+    image: node:22-alpine
     volumes:
     - name: cache-node-frontend
       path: /drone/src/opencti-platform/opencti-front/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     commands:
       - apk add git tini gcc g++ make musl-dev cargo python3 python3-dev postfix postfix-pcre
       - npm install -g node-gyp
@@ -79,17 +84,16 @@ steps:
       - yarn lint
       - NODE_OPTIONS=--max_old_space_size=8192 yarn test
 
-
   - name: frontend-e2e-tests
-    image: node:20.11.1
+    image: node:22.14.0
     volumes:
     - name: cache-node-frontend-e2e
       path: /drone/src/opencti-platform/opencti-front/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       BACK_END_URL: http://opencti-e2e-start:4500
       E2E_TEST: true
+      TEAMS_WEBHOOK: teams-webhook-url
+    ipc: host
     commands:
       - apt-get update
       - apt-get -y install netcat-traditional
@@ -99,18 +103,56 @@ steps:
       - yarn build
       - yarn test:e2e
     depends_on:
-      - frontend-tests      
+      - frontend-tests
+
+  - name: upload-build-artefact
+    image: node:22.14.0
+    failure: ignore
+    when:
+      status:
+        - failure
+        - success
+    environment:
+      JFROG_TOKEN:
+          from_secret: jfrog_token
+      JFROG_BUILD_NAME: opencti-build
+      JFROG_REPOSITORY: opencti-drone
+      JFROG_URL: https://filigran.jfrog.io/artifactory
+    commands:
+      - apt-get update
+      # see https://docs.jfrog-applications.jfrog.io/jfrog-applications/jfrog-cli/cli-for-jfrog-artifactory
+      - npm install -g jfrog-cli-v2-jf
+      # Collect git info
+      - jf rt bag $JFROG_BUILD_NAME $DRONE_BUILD_NUMBER
+      # Archive and upload each artefact that we need, if folder are present.
+      - test -d opencti-platform/opencti-front/test-results && tar -czvf frontend-test-results-$DRONE_BUILD_NUMBER.tar.gz opencti-platform/opencti-front/test-results
+      - test -d opencti-platform/opencti-front/test-results && jf rt u frontend-test-results-$DRONE_BUILD_NUMBER.tar.gz $JFROG_REPOSITORY --build-name=$JFROG_BUILD_NAME --build-number=$DRONE_BUILD_NUMBER --url=$JFROG_URL --access-token=$JFROG_TOKEN
+      - test -d opencti-platform/opencti-graphql/test-results && tar -czvf backend-test-results-$DRONE_BUILD_NUMBER.tar.gz opencti-platform/opencti-graphql/test-results
+      - test -d opencti-platform/opencti-graphql/test-results && jf rt u backend-test-results-$DRONE_BUILD_NUMBER.tar.gz $JFROG_REPOSITORY --build-name=$JFROG_BUILD_NAME --build-number=$DRONE_BUILD_NUMBER --url=$JFROG_URL --access-token=$JFROG_TOKEN
+      # Next line should be done only once at the end: it's recording and gathering build info
+      - jf rt bp $JFROG_BUILD_NAME $DRONE_BUILD_NUMBER --url=$JFROG_URL --access-token=$JFROG_TOKEN --build-url=$DRONE_BUILD_LINK
+      # Cleaning up old build in JFrog
+      - jf rt bdi $JFROG_BUILD_NAME --max-days=30 --url=$JFROG_URL --access-token=$JFROG_TOKEN
+    depends_on:
+      - frontend-e2e-tests
+
+  - name: frontend-verify-translation
+    image: node:22.14.0
+    commands:
+      - cd opencti-platform/opencti-front
+      - node script/verify-translation.js
 
   - name: build-circleci
     image: curlimages/curl
     commands:
-      - curl -X POST --data "branch=master" https://circleci.com/api/v1.1/project/github/OpenCTI-Platform/opencti/build?circle-token=$CIRCLECI_TOKEN
+      - curl -X POST --data "branch=$DRONE_COMMIT_BRANCH" https://circleci.com/api/v1.1/project/github/OpenCTI-Platform/opencti/build?circle-token=$CIRCLECI_TOKEN
     environment:
       CIRCLECI_TOKEN:
         from_secret: circleci_token
     when:
       branch:
         - master
+        - release/*
       event:
         exclude:
           - pull_request
@@ -151,9 +193,9 @@ steps:
 
 services:
   - name: redis
-    image: redis:7.2.4
+    image: redis:7.4.2
   - name: elastic
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.3
     environment:
       discovery.type: single-node
       xpack.security.enabled: false
@@ -165,18 +207,20 @@ services:
       MINIO_ROOT_PASSWORD: ChangeMe
     command: [server, /data]
   - name: rabbitmq
-    image: rabbitmq:3.13-management
+    image: rabbitmq:4.0-management
   - name: opencti-raw-start
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
     - name: cache-node-raw-start-backend
       path: /tmp/raw-start-platform/opencti-graphql/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       APP__PORT: 4100
       APP__ADMIN__PASSWORD: admin
+      APP__CHILD_LOCKING_PROCESS__ENABLED: true
+      APP__ENTERPRISE_EDITION_LICENSE:
+        from_secret: ee_license
       APP__ADMIN__TOKEN: bfa014e0-e02e-4aa6-a42b-603b19dcf159
+      APP__APP_LOG__EXTENDED_ERROR_MESSAGE: true
       REDIS__HOSTNAME: redis
       REDIS__NAMESPACE: raw-start
       ELASTICSEARCH__URL: http://elastic:9200
@@ -184,29 +228,34 @@ services:
       MINIO__ENDPOINT: minio
       MINIO__BUCKET_NAME: raw-start-bucket
       RABBITMQ__HOSTNAME: rabbitmq
+      RABBITMQ__QUEUE_PREFIX: raw-start
       EXPIRATION_SCHEDULER__ENABLED: false
       SUBSCRIPTION_SCHEDULER__ENABLED: false
     commands:
+      - sleep 10
+      - ls -lart
       - cp -a opencti-platform/* /tmp/raw-start-platform/
       - apk add build-base git libffi-dev cargo
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
       - cd /tmp/raw-start-platform/opencti-graphql
       - yarn install
       - yarn install:python
-      - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
       - NODE_OPTIONS=--max_old_space_size=8192 yarn start
   - name: opencti-live-start
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
     - name: cache-node-live-start-backend
       path: /tmp/live-start-platform/opencti-graphql/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       APP__PORT: 4200
       APP__ADMIN__PASSWORD: admin
+      APP__CHILD_LOCKING_PROCESS__ENABLED: true
+      APP__ENTERPRISE_EDITION_LICENSE:
+        from_secret: ee_license
       APP__ADMIN__TOKEN: bfa014e0-e02e-4aa6-a42b-603b19dcf159
+      APP__APP_LOG__EXTENDED_ERROR_MESSAGE: true
       REDIS__HOSTNAME: redis
       REDIS__NAMESPACE: live-start
       ELASTICSEARCH__URL: http://elastic:9200
@@ -214,29 +263,33 @@ services:
       MINIO__ENDPOINT: minio
       MINIO__BUCKET_NAME: live-start-bucket
       RABBITMQ__HOSTNAME: rabbitmq
+      RABBITMQ__QUEUE_PREFIX: live-start
       EXPIRATION_SCHEDULER__ENABLED: false
       SUBSCRIPTION_SCHEDULER__ENABLED: false
     commands:
+      - sleep 10
       - cp -a opencti-platform/* /tmp/live-start-platform/
       - apk add build-base git libffi-dev cargo
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
       - cd /tmp/live-start-platform/opencti-graphql
       - yarn install
       - yarn install:python
-      - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
       - NODE_OPTIONS=--max_old_space_size=8192 yarn start
   - name: opencti-direct-start
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
     - name: cache-node-direct-start-backend
       path: //tmp/direct-start-platform/opencti-graphql/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       APP__PORT: 4300
       APP__ADMIN__PASSWORD: admin
+      APP__CHILD_LOCKING_PROCESS__ENABLED: true
+      APP__ENTERPRISE_EDITION_LICENSE:
+        from_secret: ee_license
       APP__ADMIN__TOKEN: bfa014e0-e02e-4aa6-a42b-603b19dcf159
+      APP__APP_LOG__EXTENDED_ERROR_MESSAGE: true
       REDIS__HOSTNAME: redis
       REDIS__NAMESPACE: direct-start
       ELASTICSEARCH__URL: http://elastic:9200
@@ -244,48 +297,53 @@ services:
       MINIO__ENDPOINT: minio
       MINIO__BUCKET_NAME: direct-start-bucket
       RABBITMQ__HOSTNAME: rabbitmq
+      RABBITMQ__QUEUE_PREFIX: direct-start
       EXPIRATION_SCHEDULER__ENABLED: false
       SUBSCRIPTION_SCHEDULER__ENABLED: false
     commands:
+      - sleep 10
       - cp -a opencti-platform/* /tmp/direct-start-platform/
       - apk add build-base git libffi-dev cargo
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
       - cd /tmp/direct-start-platform/opencti-graphql
       - yarn install
       - yarn install:python
-      - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
       - NODE_OPTIONS=--max_old_space_size=8192 yarn start
   - name: opencti-direct-worker
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
-    - name: cache-python
-      path: /usr/lib/python3.11
+    - name: cache-node-direct-start-backend
+      path: /tmp/direct-start-platform/node_modules
     environment:
       OPENCTI_URL: http://opencti-direct-start:4300
       OPENCTI_TOKEN: bfa014e0-e02e-4aa6-a42b-603b19dcf159
       WORKER_LOG_LEVEL: info
     commands:
+      - sleep 10
       - cp -a opencti-worker /tmp/direct-start-worker
       - apk add build-base git libffi-dev cargo
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
       - while ! nc -z opencti-direct-start 4300 ; do sleep 1 ; done
       - cd /tmp/direct-start-worker
       - pip3 install -r src/requirements.txt
-      - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
       - python3 src/worker.py
   - name: opencti-restore-start
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
     - name: cache-node-restore-start-backend
       path: /tmp/restore-start-platform/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       APP__PORT: 4400
       APP__ADMIN__PASSWORD: admin
+      APP__CHILD_LOCKING_PROCESS__ENABLED: true
+      APP__ENTERPRISE_EDITION_LICENSE:
+        from_secret: ee_license
       APP__ADMIN__TOKEN: bfa014e0-e02e-4aa6-a42b-603b19dcf159
+      APP__APP_LOG__EXTENDED_ERROR_MESSAGE: true
       REDIS__HOSTNAME: redis
       REDIS__NAMESPACE: restore-start
       ELASTICSEARCH__URL: http://elastic:9200
@@ -293,29 +351,34 @@ services:
       MINIO__ENDPOINT: minio
       MINIO__BUCKET_NAME: restore-start-bucket
       RABBITMQ__HOSTNAME: rabbitmq
+      RABBITMQ__QUEUE_PREFIX: restore-start
       EXPIRATION_SCHEDULER__ENABLED: false
       SUBSCRIPTION_SCHEDULER__ENABLED: false
     commands:
+      - sleep 10
       - cp -a opencti-platform/* /tmp/restore-start-platform/
       - apk add build-base git libffi-dev cargo
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
       - cd /tmp/restore-start-platform/opencti-graphql
       - yarn install
       - yarn install:python
-      - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
       - NODE_OPTIONS=--max_old_space_size=8192 yarn start
   - name: opencti-e2e-start
     image: nikolaik/python-nodejs:python3.11-nodejs20-alpine
     volumes:
     - name: cache-node-e2e-start-backend
       path: /tmp/e2e-start-platform/node_modules
-    - name: cache-python
-      path: /usr/lib/python3.11
     environment:
       APP__PORT: 4500
+      APP__ENABLED_DEV_FEATURES: '["*"]'
       APP__ADMIN__PASSWORD: admin
+      APP__CHILD_LOCKING_PROCESS__ENABLED: true
+      APP__ENTERPRISE_EDITION_LICENSE:
+        from_secret: ee_license
       APP__ADMIN__TOKEN: bfa014e0-e02e-4aa6-a42b-603b19dcf159
+      APP__APP_LOG__EXTENDED_ERROR_MESSAGE: true
       REDIS__HOSTNAME: redis
       REDIS__NAMESPACE: e2e-start
       ELASTICSEARCH__URL: http://elastic:9200
@@ -323,17 +386,22 @@ services:
       MINIO__ENDPOINT: minio
       MINIO__BUCKET_NAME: e2e-start-bucket
       RABBITMQ__HOSTNAME: rabbitmq
+      RABBITMQ__QUEUE_PREFIX: e2e-start
       EXPIRATION_SCHEDULER__ENABLED: false
       SUBSCRIPTION_SCHEDULER__ENABLED: false
+      PUBLISHER_MANAGER__ENABLED: false
     commands:
       - cp -a opencti-platform/* /tmp/e2e-start-platform/
       - apk add build-base git libffi-dev cargo
+      - cd "$DRONE_WORKSPACE/client-python"
+      - pip install -r requirements.txt
+      - pip install -e .[dev,doc]
       - cd /tmp/e2e-start-platform/opencti-graphql
       - yarn install
       - yarn install:python
       - BRANCH=$(echo $DRONE_COMMIT_BRANCH | cut -d "/" -f 2)
-      - CLIENT_PYTHON_BRANCH=$([[ "$(echo "$(git ls-remote --heads https://github.com/OpenCTI-Platform/client-python.git opencti/$BRANCH)")" != '' ]] && echo opencti/$BRANCH || echo 'master')
-      - pip3 install --upgrade --force git+https://github.com/OpenCTI-Platform/client-python@$CLIENT_PYTHON_BRANCH
+      - yarn build:dev
+      - yarn wait-api && node build/script-insert-dataset.js --datasets=DATA-TEST-STIX2_v2,data-test-stix-e2e,poisonivy &
       - NODE_OPTIONS=--max_old_space_size=8192 yarn start
 
 volumes:
@@ -354,13 +422,10 @@ volumes:
       path: /tmp/cache-node-restore-start-backend
   - name: cache-node-e2e-start-backend
     host:
-      path: /tmp/cache-node-e2e-start-backend      
+      path: /tmp/cache-node-e2e-start-backend
   - name: cache-node-frontend
     host:
       path: /tmp/cache-node-frontend
   - name: cache-node-frontend-e2e
     host:
       path: /tmp/cache-node-frontend-e2e
-  - name: cache-python
-    host:
-      path: /tmp/cache-python

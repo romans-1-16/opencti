@@ -6,11 +6,14 @@ import MenuItem from '@mui/material/MenuItem';
 import ListItemText from '@mui/material/ListItemText';
 import makeStyles from '@mui/styles/makeStyles';
 import ListItemIcon from '@mui/material/ListItemIcon';
+import EEMenu from '@components/common/entreprise_edition/EEMenu';
 import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
 import useAuth from '../../../../utils/hooks/useAuth';
 import { useSettingsMessagesBannerHeight } from '../../settings/settings_messages/SettingsMessagesBanner';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   drawer: {
     minHeight: '100vh',
@@ -27,6 +30,7 @@ export interface MenuEntry {
   path: string;
   label: string;
   icon?: ReactElement;
+  isEE?: boolean;
 }
 
 const NavToolbarMenu: FunctionComponent<{ entries: MenuEntry[] }> = ({ entries }) => {
@@ -47,15 +51,15 @@ const NavToolbarMenu: FunctionComponent<{ entries: MenuEntry[] }> = ({ entries }
               key={idx}
               component={Link}
               to={entry.path}
-              selected={location.pathname.includes(entry.path)}
+              selected={location.pathname.startsWith(entry.path)}
               dense={false}
             >
               {entry.icon && (
-                <ListItemIcon classes={{ root: classes.itemIcon }}>
-                  {entry.icon}
-                </ListItemIcon>
+              <ListItemIcon>
+                {entry.icon}
+              </ListItemIcon>
               )}
-              <ListItemText primary={t_i18n(entry.label)} />
+              <ListItemText primary={entry.isEE ? <EEMenu><span>{t_i18n(entry.label)}</span></EEMenu> : t_i18n(entry.label)} />
             </MenuItem>
           );
         })}

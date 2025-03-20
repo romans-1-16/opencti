@@ -2,15 +2,14 @@ import React, { FunctionComponent } from 'react';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import { FormikConfig } from 'formik/dist/types';
 import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
-import { MESSAGING$ } from '../../../../relay/environment';
 import StixCoreObjectsField from '../../common/form/StixCoreObjectsField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
-import RatingField from '../../../../components/RatingField';
+import RatingField from '../../../../components/fields/RatingField';
 import useAuth from '../../../../utils/hooks/useAuth';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { Option } from '../../common/form/ReferenceField';
@@ -22,7 +21,10 @@ import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
 import SimpleMarkdownField from '../../../../components/SimpleMarkdownField';
 import Drawer from '../../common/drawer/Drawer';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -36,7 +38,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
 const feedbackMutation = graphql`
   mutation FeedbackCreationMutation($input: FeedbackAddInput!) {
     feedbackAdd(input: $input) {
-      ...FeedbackLine_node
+      ...FeedbacksLine_node
     }
   }
 `;
@@ -61,7 +63,11 @@ const FeedbackCreation: FunctionComponent<{
   const classes = useStyles();
   const { t_i18n } = useFormatter();
   const { me } = useAuth();
-  const [commit] = useMutation(feedbackMutation);
+  const [commit] = useApiMutation(
+    feedbackMutation,
+    undefined,
+    { successMessage: 'Thank you for your feedback!' },
+  );
   const userIsKnowledgeEditor = useGranted([KNOWLEDGE_KNUPDATE]);
 
   const basicShape = {
@@ -92,7 +98,6 @@ const FeedbackCreation: FunctionComponent<{
         setSubmitting(false);
         resetForm();
         handleCloseDrawer();
-        MESSAGING$.notifySuccess('Thank you for your feedback!');
       },
     });
   };
@@ -131,7 +136,7 @@ const FeedbackCreation: FunctionComponent<{
           setFieldValue,
           values,
         }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={SimpleMarkdownField}
               name="description"

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { emptyFilterGroup, Filter, FilterGroup, FilterValue } from './filtersUtils';
+import { emptyFilterGroup } from './filtersUtils';
 import {
   handleAddFilterWithEmptyValueUtil,
   handleAddRepresentationFilterUtil,
@@ -10,15 +10,15 @@ import {
   handleRemoveRepresentationFilterUtil,
   handleSwitchLocalModeUtil,
 } from './filtersManageStateUtil';
-import { handleFilterHelpers } from '../hooks/useLocalStorage';
+import { Filter, FilterGroup, FilterValue, handleFilterHelpers } from './filtersHelpers-types';
 
 interface useFiltersStateProps {
   filters: FilterGroup,
   latestAddFilterId?: string
 }
-const useFiltersState = (initFilters: FilterGroup = emptyFilterGroup, defaultClearFilters: FilterGroup = emptyFilterGroup): [FilterGroup, handleFilterHelpers] => {
+const useFiltersState = (initFilters: FilterGroup | null = emptyFilterGroup, defaultClearFilters: FilterGroup = emptyFilterGroup): [FilterGroup, handleFilterHelpers] => {
   const [filtersState, setFiltersState] = useState<useFiltersStateProps>({
-    filters: initFilters,
+    filters: initFilters ?? emptyFilterGroup,
     latestAddFilterId: undefined,
   });
   const helpers: handleFilterHelpers = {
@@ -28,7 +28,7 @@ const useFiltersState = (initFilters: FilterGroup = emptyFilterGroup, defaultCle
     handleAddFilterWithEmptyValue: (filter: Filter) => {
       setFiltersState((prevState) => ({
         ...prevState,
-        filters: handleAddFilterWithEmptyValueUtil({ filters: prevState.filters, filter }),
+        filters: handleAddFilterWithEmptyValueUtil({ filters: prevState.filters ?? emptyFilterGroup, filter }),
         latestAddFilterId: filter.id,
       }));
     },

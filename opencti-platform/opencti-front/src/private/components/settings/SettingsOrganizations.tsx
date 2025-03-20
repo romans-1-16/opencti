@@ -1,8 +1,8 @@
 import React from 'react';
 import makeStyles from '@mui/styles/makeStyles';
+import { SettingsOrganizationLineDummy } from '@components/settings/organizations/SettingsOrganizationLine';
 import ListLines from '../../../components/list_lines/ListLines';
 import SettingsOrganizationsLines, { settingsOrganizationsLinesQuery } from './organizations/SettingsOrganizationsLines';
-import Loader, { LoaderVariant } from '../../../components/Loader';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
 import {
   SettingsOrganizationsLinesPaginationQuery,
@@ -14,7 +14,10 @@ import { useFormatter } from '../../../components/i18n';
 import { SettingsOrganizationLine_node$data as Organization } from './organizations/__generated__/SettingsOrganizationLine_node.graphql';
 import useAuth from '../../../utils/hooks/useAuth';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -46,6 +49,8 @@ const SettingsOrganizations = () => {
 
   const queryRef = useQueryLoading<SettingsOrganizationsLinesPaginationQuery>(settingsOrganizationsLinesQuery, paginationOptions);
   const { fd, t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Organizations | Security | Settings'));
 
   const dataColumns = {
     name: {
@@ -58,24 +63,24 @@ const SettingsOrganizations = () => {
       label: 'Type',
       width: '20%',
       isSortable: true,
-      render: (node: Organization) => (node.x_opencti_organization_type ?? ''),
+      render: (node: Organization) => (node.x_opencti_organization_type ?? '-'),
     },
     created: {
       label: 'Original creation date',
-      width: '15%',
+      width: '25%',
       isSortable: true,
       render: (node: Organization) => fd(node.created),
     },
     modified: {
       label: 'Modification date',
-      width: '15%',
+      width: '25%',
       isSortable: true,
       render: (node: Organization) => fd(node.modified),
     },
   };
   return (
     <div className={classes.container}>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Security') }, { label: t_i18n('Organizations'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Security') }, { label: t_i18n('Organizations'), current: true }]} />
       <AccessesMenu />
       <ListLines
         sortBy={viewStorage.sortBy}
@@ -89,7 +94,15 @@ const SettingsOrganizations = () => {
         {queryRef && (
           <>
             <React.Suspense
-              fallback={<Loader variant={LoaderVariant.inElement} />}
+              fallback={
+                <>
+                  {Array(20)
+                    .fill(0)
+                    .map((_, idx) => (
+                      <SettingsOrganizationLineDummy key={idx} dataColumns={dataColumns} />
+                    ))}
+                </>
+            }
             >
               <SettingsOrganizationsLines
                 queryRef={queryRef}

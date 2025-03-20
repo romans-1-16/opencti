@@ -1,5 +1,5 @@
 import * as R from 'ramda';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION } from '@opentelemetry/semantic-conventions';
 import { ABSTRACT_STIX_CORE_RELATIONSHIP, ABSTRACT_STIX_CYBER_OBSERVABLE, ABSTRACT_STIX_DOMAIN_OBJECT } from '../schema/general';
 import { STIX_SIGHTING_RELATIONSHIP } from '../schema/stixSightingRelationship';
 import { buildPagination } from '../database/utils';
@@ -10,6 +10,7 @@ import { ABSTRACT_STIX_NESTED_REF_RELATIONSHIP } from '../schema/stixRefRelation
 import { ENTITY_HASHED_OBSERVABLE_ARTIFACT } from '../schema/stixCyberObservable';
 import { telemetry } from '../config/tracing';
 import type { AuthContext, AuthUser } from '../types/user';
+import { ENTITY_TYPE_EXTERNAL_REFERENCE } from '../schema/stixMetaObject';
 
 // -- ENTITY TYPES --
 
@@ -23,6 +24,7 @@ export const queryDefaultSubTypes = async (context: AuthContext, user: AuthUser,
       R.append({ node: { id: ABSTRACT_STIX_CORE_RELATIONSHIP, label: ABSTRACT_STIX_CORE_RELATIONSHIP } }),
       R.append({ node: { id: STIX_SIGHTING_RELATIONSHIP, label: STIX_SIGHTING_RELATIONSHIP } }),
       R.append({ node: { id: ABSTRACT_STIX_CYBER_OBSERVABLE, label: ABSTRACT_STIX_CYBER_OBSERVABLE } }),
+      R.append({ node: { id: ENTITY_TYPE_EXTERNAL_REFERENCE, label: ENTITY_TYPE_EXTERNAL_REFERENCE } }),
       R.append({ node: { id: ENTITY_HASHED_OBSERVABLE_ARTIFACT, label: ENTITY_HASHED_OBSERVABLE_ARTIFACT } }),
       R.uniqBy(R.path(['node', 'id'])),
     )(types);
@@ -30,8 +32,8 @@ export const queryDefaultSubTypes = async (context: AuthContext, user: AuthUser,
   };
 
   return telemetry(context, user, 'QUERY default subtypes', {
-    [SemanticAttributes.DB_NAME]: 'subtypes_domain',
-    [SemanticAttributes.DB_OPERATION]: 'read',
+    [SEMATTRS_DB_NAME]: 'subtypes_domain',
+    [SEMATTRS_DB_OPERATION]: 'read',
   }, queryDefaultSubTypesFn);
 };
 

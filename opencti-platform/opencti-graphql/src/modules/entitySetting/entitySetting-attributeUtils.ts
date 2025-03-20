@@ -1,4 +1,4 @@
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION } from '@opentelemetry/semantic-conventions';
 import type { AuthContext, AuthUser } from '../../types/user';
 import type { BasicStoreEntityEntitySetting } from './entitySetting-types';
 import { defaultScale, type EntitySettingSchemaAttribute, getAttributesConfiguration } from './entitySetting-utils';
@@ -9,6 +9,7 @@ import type { AttributeDefinition, RefAttribute } from '../../schema/attribute-d
 import { isNotEmptyField } from '../../database/utils';
 import { internalFindByIdsMapped } from '../../database/middleware-loader';
 import { extractRepresentative } from '../../database/entity-representative';
+import { isUserHasCapability, KNOWLEDGE_KNUPDATE_KNBYPASSFIELDS } from '../../utils/access';
 
 // ==================================================================
 // Need a specific utils file to those functions because
@@ -24,8 +25,8 @@ export const getEntitySettingSchemaAttributes = async (
   entitySetting: BasicStoreEntityEntitySetting
 ): Promise<EntitySettingSchemaAttribute[]> => {
   return telemetry(context, user, 'ATTRIBUTES', {
-    [SemanticAttributes.DB_NAME]: 'attributes_domain',
-    [SemanticAttributes.DB_OPERATION]: 'attributes_definition',
+    [SEMATTRS_DB_NAME]: 'attributes_domain',
+    [SEMATTRS_DB_OPERATION]: 'attributes_definition',
   }, async () => {
     if (!entitySetting) {
       return [];
@@ -83,7 +84,7 @@ export const getEntitySettingSchemaAttributes = async (
             schemaAttribute.mandatory = userDefinedAttr.mandatory;
           }
           if (isNotEmptyField(userDefinedAttr.default_values)) {
-            schemaAttribute.defaultValues = userDefinedAttr.default_values?.map((v) => ({ id: v, name: v }));
+            schemaAttribute.defaultValues = (userDefinedAttr.default_values as string[])?.map((v) => ({ id: v, name: v }));
             // If the default value is a ref with an id, save it to resolve it below.
             if (schemaAttribute.name !== 'objectMarking' && refsNames.includes(schemaAttribute.name)) {
               attributesDefaultValuesToResolve[schemaIndex] = userDefinedAttr.default_values ?? [];
@@ -123,5 +124,8 @@ export const getMandatoryAttributesForSetting = async (
   entitySetting: BasicStoreEntityEntitySetting
 ) => {
   const attributes = await getEntitySettingSchemaAttributes(context, user, entitySetting);
+  if (isUserHasCapability(user, KNOWLEDGE_KNUPDATE_KNBYPASSFIELDS)) {
+    return attributes.filter((a) => a.mandatory && a.mandatoryType !== 'customizable').map((a) => a.name);
+  }
   return attributes.filter((a) => a.mandatory).map((a) => a.name);
 };

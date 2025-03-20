@@ -1,8 +1,7 @@
-import Markdown from 'react-markdown';
+import Markdown, { Options as MarkdownProps } from 'react-markdown';
 import remarkParse from 'remark-parse';
 import remarkFlexibleMarkers from 'remark-flexible-markers';
 import { useTheme } from '@mui/styles';
-import { PluggableList } from 'react-markdown/lib';
 import React, { FunctionComponent, SyntheticEvent, useState } from 'react';
 import remarkGfm from 'remark-gfm';
 import type { Theme } from './Theme';
@@ -55,7 +54,9 @@ interface MarkdownWithRedirectionWarningProps {
   commonmark?: boolean;
   removeLinks?: boolean;
   removeLineBreaks?: boolean;
-  remarkPlugins?: PluggableList;
+  remarkPlugins?: MarkdownProps['remarkPlugins'];
+  emptyStringIfUndefined?: boolean;
+  disableWarningAtLinkClick?: boolean;
 }
 
 const MarkdownDisplay: FunctionComponent<
@@ -70,6 +71,8 @@ MarkdownWithRedirectionWarningProps
   removeLinks,
   removeLineBreaks,
   remarkPlugins,
+  emptyStringIfUndefined,
+  disableWarningAtLinkClick,
 }) => {
   const theme = useTheme<Theme>();
   const [displayExternalLink, setDisplayExternalLink] = useState(false);
@@ -115,13 +118,11 @@ MarkdownWithRedirectionWarningProps
       return (
         <Markdown
           className="markdown"
-          remarkPlugins={
-            [
-              remarkGfm,
-              remarkFlexibleMarkers,
-              [remarkParse, { commonmark: !!commonmark }],
-            ] as PluggableList
-          }
+          remarkPlugins={[
+            remarkGfm,
+            remarkFlexibleMarkers,
+            [remarkParse, { commonmark: !!commonmark }],
+          ]}
           components={MarkDownComponents(theme)}
           disallowedElements={disallowedElements}
           unwrapDisallowed={true}
@@ -133,13 +134,11 @@ MarkdownWithRedirectionWarningProps
     return (
       <Markdown
         className="markdown"
-        remarkPlugins={
-          [
-            remarkGfm,
-            remarkFlexibleMarkers,
-            [remarkParse, { commonmark: !!commonmark }],
-          ] as PluggableList
-        }
+        remarkPlugins={[
+          remarkGfm,
+          remarkFlexibleMarkers,
+          [remarkParse, { commonmark: !!commonmark }],
+        ]}
         disallowedElements={disallowedElements}
         unwrapDisallowed={true}
       >
@@ -158,15 +157,11 @@ MarkdownWithRedirectionWarningProps
       handleOpenExternalLink(link.href);
     }
   };
-  if (removeLinks || removeLineBreaks) {
-    return (
-      <FieldOrEmpty source={content}>
-        {remarkGfmPlugin ? remarkGfmMarkdownElement() : markdownElement()}
-      </FieldOrEmpty>
-    );
-  }
-  return (
-    <FieldOrEmpty source={content}>
+  let markdownDisplayContent;
+  if (disableWarningAtLinkClick || removeLinks || removeLineBreaks) {
+    markdownDisplayContent = remarkGfmPlugin ? remarkGfmMarkdownElement() : markdownElement();
+  } else {
+    markdownDisplayContent = <>
       <div onClick={(event) => browseLinkWarning(event)}>
         {remarkGfmPlugin ? remarkGfmMarkdownElement() : markdownElement()}
       </div>
@@ -176,8 +171,9 @@ MarkdownWithRedirectionWarningProps
         setDisplayExternalLink={setDisplayExternalLink}
         setExternalLink={setExternalLink}
       />
-    </FieldOrEmpty>
-  );
+    </>;
+  }
+  return emptyStringIfUndefined ? markdownDisplayContent : <FieldOrEmpty source={content}>{markdownDisplayContent}</FieldOrEmpty>;
 };
 
 export default MarkdownDisplay;

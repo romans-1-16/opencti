@@ -1,6 +1,7 @@
 import type { BasicStoreEntity, StoreEntity } from '../../types/store';
 import type { StixObject, StixOpenctiExtensionSDO } from '../../types/stix-common';
 import { STIX_EXT_OCTI } from '../../types/stix-extensions';
+import type { FintelTemplate } from '../fintelTemplate/fintelTemplate-types';
 
 export const ENTITY_TYPE_ENTITY_SETTING = 'EntitySetting';
 
@@ -36,6 +37,14 @@ export interface BasicStoreEntityEntitySetting extends BasicStoreEntity {
   attributes_configuration?: string;
   workflow_configuration: boolean;
   availableSettings?: string[];
+  overview_layout_customization?: Array<OverviewLayoutCustomization>;
+  templates?: Array<FintelTemplate>;
+}
+
+export interface OverviewLayoutCustomization {
+  key: string;
+  width: number;
+  label: string;
 }
 
 export interface StoreEntityEntitySetting extends StoreEntity {
@@ -46,6 +55,8 @@ export interface StoreEntityEntitySetting extends StoreEntity {
   attributes_configuration?: string;
   workflow_configuration: boolean;
   availableSettings?: string[];
+  overviewLayoutCustomization?: Array<string>;
+  templates?: Array<FintelTemplate>;
 }
 
 export interface StixEntitySetting extends StixObject {
@@ -56,6 +67,7 @@ export interface StixEntitySetting extends StixObject {
   attributes_configuration?: string;
   workflow_configuration: boolean;
   available_settings?: string[];
+  templates?: Array<FintelTemplate>;
   extensions: {
     [STIX_EXT_OCTI] : StixOpenctiExtensionSDO
   }

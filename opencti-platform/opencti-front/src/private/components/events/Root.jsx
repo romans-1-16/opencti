@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
-import { Redirect, Switch } from 'react-router-dom';
-import { BoundaryRoute } from '../Error';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { boundaryWrapper } from '../Error';
 import { useIsHiddenEntity } from '../../../utils/hooks/useEntitySettings';
 import Loader from '../../../components/Loader';
 
@@ -22,41 +22,36 @@ const Root = () => {
   }
   return (
     <Suspense fallback={<Loader />}>
-      <Switch>
-        <BoundaryRoute
-          exact
-          path="/dashboard/events"
-          render={() => <Redirect to={`/dashboard/events/${redirect}`} />}
+      <Routes>
+        <Route
+          path="/"
+          element={<Navigate to={`/dashboard/events/${redirect}`} replace={true} />}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/events/incidents"
-          component={Incidents}
+        <Route
+          path="/incidents"
+          element={boundaryWrapper(Incidents)}
         />
-        <BoundaryRoute
-          path="/dashboard/events/incidents/:incidentId"
-          component={RootIncident}
+        <Route
+          path="/incidents/:incidentId/*"
+          element={boundaryWrapper(RootIncident)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/events/observed_data"
-          component={ObservedDatas}
+        <Route
+          path="/observed_data"
+          element={boundaryWrapper(ObservedDatas)}
         />
-        <BoundaryRoute
-          path="/dashboard/events/observed_data/:observedDataId"
-          component={RootObservedData}
+        <Route
+          path="/observed_data/:observedDataId/*"
+          element={boundaryWrapper(RootObservedData)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/events/sightings"
-          component={StixSightingRelationships}
+        <Route
+          path="/sightings"
+          element={boundaryWrapper(StixSightingRelationships)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/events/sightings/:sightingId"
-          component={StixSightingRelationship}
+        <Route
+          path="/sightings/:sightingId/*"
+          element={boundaryWrapper(StixSightingRelationship)}
         />
-      </Switch>
+      </Routes>
     </Suspense>
   );
 };

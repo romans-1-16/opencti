@@ -1,10 +1,11 @@
 import session from 'express-session';
 import nconf from 'nconf';
 import * as R from 'ramda';
+import { uniq } from 'ramda';
 import conf, { booleanConf, OPENCTI_SESSION } from '../config/conf';
 import SessionStoreMemory from './sessionStore-memory';
 import RedisStore from './sessionStore-redis';
-import { getSession, setSession } from './redis';
+import { getSession } from './redis';
 
 const sessionManager = nconf.get('app:session_manager');
 const sessionSecret = nconf.get('app:session_secret') || nconf.get('app:admin:password');
@@ -64,6 +65,20 @@ export const findSessions = () => {
   });
 };
 
+// return the list of users ids that have a session activ in the last maxInactivityDuration min
+export const usersWithActiveSession = (maxInactivityDurationInMin = 1) => {
+  const { store } = applicationSession;
+  return new Promise((accept) => {
+    store.all((_, result) => {
+      const usersWithSession = uniq(result
+        .filter((n) => n.user
+          && (n.cookie.originalMaxAge / 1000 - n.redis_key_ttl) / 60 < maxInactivityDurationInMin) // the time with no activity in the session is < to 1 hour
+        .map((s) => s.user.id));
+      accept(usersWithSession);
+    });
+  });
+};
+
 export const findUserSessions = async (userId) => {
   const sessions = await findSessions();
   const userSessions = sessions.filter((s) => s.user_id === userId);
@@ -76,31 +91,43 @@ export const findUserSessions = async (userId) => {
 export const killSession = async (id) => {
   const { store } = applicationSession;
   return new Promise((accept) => {
-    store.destroy(id, (_, data) => {
+    // eslint-disable-next-line no-void
+    void store.destroy(id, (_, data) => {
       accept(data);
     });
   });
 };
 
 export const killUserSessions = async (userId) => {
+  const { store } = applicationSession;
   const sessions = await findUserSessions(userId);
   const sessionsIds = sessions.map((s) => s.id);
   const killedSessions = [];
   for (let index = 0; index < sessionsIds.length; index += 1) {
     const sessionId = sessionsIds[index];
-    const killedSession = await killSession(sessionId);
+    const sessId = sessionId.split(store.prefix)[1];
+    const killedSession = await killSession(sessId);
     killedSessions.push(killedSession);
   }
   return killedSessions;
 };
 
 export const markSessionForRefresh = async (id) => {
+  const { store } = applicationSession;
   const currentSession = await getSession(id);
   if (currentSession) {
     const newSession = { ...currentSession, session_refresh: true };
-    await setSession(id, newSession, currentSession.expiration);
+    const sessId = id.includes(store.prefix) ? id.split(store.prefix)[1] : id;
+    store.set(sessId, newSession); // this will ensure the session is updated in the cache
+    // TODO check what to do with currentSession.expiration
+    // await setSession(id, newSession, currentSession.expiration);
   }
   return undefined;
+};
+
+export const markAllSessionsForRefresh = async () => {
+  const sessions = (await findSessions()).map((s) => s.sessions).flat();
+  await Promise.all(sessions.map((s) => markSessionForRefresh(s.id)));
 };
 
 export const findSessionsForUsers = async (userIds) => {

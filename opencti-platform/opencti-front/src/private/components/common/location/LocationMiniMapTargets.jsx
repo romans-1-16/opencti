@@ -10,11 +10,12 @@ import inject18n from '../../../../components/i18n';
 import { UserContext } from '../../../../utils/hooks/useAuth';
 import { fileUri } from '../../../../relay/environment';
 import CityOrange from '../../../../static/images/leaflet/city_orange.png';
+import { usePublicSettings } from '../../../../public/PublicSettingsProvider';
 
-const styles = () => ({
+const styles = (theme) => ({
   paper: {
     height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 8,
   },
@@ -42,7 +43,10 @@ const pointerIcon = new L.Icon({
 });
 
 const LocationMiniMapTargets = (props) => {
-  const { settings } = useContext(UserContext);
+  const { settings: privateSettings } = useContext(UserContext);
+  const { settings: publicSettings } = usePublicSettings();
+  const settings = privateSettings ?? publicSettings;
+
   const countriesAliases = pipe(
     pluck('x_opencti_aliases'),
     flatten,
@@ -114,7 +118,7 @@ LocationMiniMapTargets.propTypes = {
   classes: PropTypes.object,
   t: PropTypes.func,
   fd: PropTypes.func,
-  history: PropTypes.object,
+  navigate: PropTypes.func,
 };
 
 export default compose(

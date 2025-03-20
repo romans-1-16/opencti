@@ -92,6 +92,21 @@ export const extractObservablesFromIndicatorPattern = (pattern) => {
   return observables;
 };
 
+export const validateObservableGeneration = (observableType, indicatorPattern) => {
+  if (observableType === C.ENTITY_NETWORK_TRAFFIC && (indicatorPattern.includes('dst_ref') || indicatorPattern.includes('src_ref'))) {
+    return false; // we can't create this type of observables (issue #5293)
+  }
+  if (observableType === C.ENTITY_EMAIL_MESSAGE && (indicatorPattern.includes('from_ref') || indicatorPattern.includes('sender_ref'))) {
+    return false; // we can't create this type of observables (issue #5293)
+  }
+  return true;
+};
+
+export const extractValidObservablesFromIndicatorPattern = (pattern) => {
+  const observables = extractObservablesFromIndicatorPattern(pattern);
+  return observables.filter((obs) => validateObservableGeneration(obs.type, pattern));
+};
+
 export const cleanupIndicatorPattern = (patternType, pattern) => {
   if (pattern && patternType.toLowerCase() === STIX_PATTERN_TYPE) {
     const grabInterestingTokens = (ctx, parser, acc) => {
@@ -120,7 +135,7 @@ export const cleanupIndicatorPattern = (patternType, pattern) => {
 };
 
 export const systemChecker = /^\d{0,10}$/;
-export const domainChecker = /^(|([\p{L}\d]|[\p{L}\d][\p{L}\d\p{Pd}]*[\p{L}\d])\.)*([\p{L}\d]|[\p{L}\d][\p{L}\d\p{Pd}]*[\p{L}\d])$/u;
+export const domainChecker = /^(?=.{1,253}$)(?!-)(?:[^\s.](?:[^\s.]{0,61}[^\s.])?\.)+[^\s.]{2,63}$/;
 export const hostnameChecker = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-_]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-_]*[A-Za-z0-9])$/;
 export const emailChecker = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 export const ipv6Checker = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))(?:\/([0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8]))?$/;

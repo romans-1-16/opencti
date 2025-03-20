@@ -1,19 +1,27 @@
+import { ENTITY_TYPE_WORKSPACE } from '../modules/workspace/workspace-types';
+import { ENTITY_TYPE_PUBLIC_DASHBOARD } from '../modules/publicDashboard/publicDashboard-types';
 import { elIndex, elPaginate } from '../database/engine';
-import { INDEX_INTERNAL_OBJECTS, READ_DATA_INDICES, READ_DATA_INDICES_WITHOUT_INFERRED, } from '../database/utils';
-import { ENTITY_TYPE_BACKGROUND_TASK } from '../schema/internalObject';
+import { INDEX_INTERNAL_OBJECTS, READ_DATA_INDICES } from '../database/utils';
+import { ENTITY_TYPE_BACKGROUND_TASK, ENTITY_TYPE_INTERNAL_FILE } from '../schema/internalObject';
 import { deleteElementById, patchAttribute } from '../database/middleware';
 import { getUserAccessRight, MEMBER_ACCESS_RIGHT_ADMIN, SYSTEM_USER } from '../utils/access';
 import { ABSTRACT_STIX_CORE_OBJECT, ABSTRACT_STIX_CORE_RELATIONSHIP, RULE_PREFIX } from '../schema/general';
 import { buildEntityFilters, listEntities, storeLoadById } from '../database/middleware-loader';
 import { checkActionValidity, createDefaultTask, TASK_TYPE_QUERY, TASK_TYPE_RULE } from './backgroundTask-common';
 import { publishUserAction } from '../listener/UserActionListener';
-import { ForbiddenAccess } from '../config/errors';
+import { ForbiddenAccess, UnsupportedError } from '../config/errors';
 import { STIX_SIGHTING_RELATIONSHIP } from '../schema/stixSightingRelationship';
 import { ENTITY_TYPE_VOCABULARY } from '../modules/vocabulary/vocabulary-types';
 import { ENTITY_TYPE_NOTIFICATION } from '../modules/notification/notification-types';
 import { ENTITY_TYPE_CASE_TEMPLATE } from '../modules/case/case-template/case-template-types';
-import { ENTITY_TYPE_LABEL } from '../schema/stixMetaObject';
-import { adaptFiltersWithUserConfidence } from '../utils/confidence-level';
+import { ENTITY_TYPE_EXTERNAL_REFERENCE, ENTITY_TYPE_LABEL } from '../schema/stixMetaObject';
+import { ENTITY_TYPE_DELETE_OPERATION } from '../modules/deleteOperation/deleteOperation-types';
+import { BackgroundTaskScope, FilterMode } from '../generated/graphql';
+import { findAll as findAllWorkspaces } from '../modules/workspace/workspace-domain';
+import { addFilter } from '../utils/filtering/filtering-utils';
+import { getDraftContext } from '../utils/draftContext';
+import { ENTITY_TYPE_DRAFT_WORKSPACE } from '../modules/draftWorkspace/draftWorkspace-types';
+import { ENTITY_TYPE_PLAYBOOK } from '../modules/playbook/playbook-types';
 
 export const DEFAULT_ALLOWED_TASK_ENTITY_TYPES = [
   ABSTRACT_STIX_CORE_OBJECT,
@@ -22,7 +30,11 @@ export const DEFAULT_ALLOWED_TASK_ENTITY_TYPES = [
   ENTITY_TYPE_VOCABULARY,
   ENTITY_TYPE_NOTIFICATION,
   ENTITY_TYPE_CASE_TEMPLATE,
-  ENTITY_TYPE_LABEL
+  ENTITY_TYPE_LABEL,
+  ENTITY_TYPE_DELETE_OPERATION,
+  ENTITY_TYPE_EXTERNAL_REFERENCE,
+  ENTITY_TYPE_INTERNAL_FILE,
+  ENTITY_TYPE_DRAFT_WORKSPACE,
 ];
 
 export const MAX_TASK_ELEMENTS = 500;
@@ -45,23 +57,60 @@ export const findAll = (context, user, args) => {
   return listEntities(context, user, [ENTITY_TYPE_BACKGROUND_TASK], args);
 };
 
-const buildQueryFilters = async (user, filters, search, taskPosition) => {
-  const inputFilters = filters ? JSON.parse(filters) : undefined;
-  const finalFilters = adaptFiltersWithUserConfidence(user, inputFilters);
+const buildQueryFilters = async (context, user, filters, search, taskPosition, scope, orderMode) => {
+  let inputFilters = filters ? JSON.parse(filters) : undefined;
+  if (scope === BackgroundTaskScope.Import) {
+    const entityIdFilters = inputFilters.filters.findIndex(({ key }) => key.includes('entity_id'));
+    const fileIdFilters = inputFilters.filters.findIndex(({ key }) => key.includes('file_id'));
+    if (entityIdFilters >= 0) {
+      inputFilters.filters[entityIdFilters] = {
+        ...inputFilters.filters[entityIdFilters],
+        key: ['metaData.entity_id'],
+      };
+    }
+    if (fileIdFilters >= 0) {
+      inputFilters.filters[fileIdFilters] = {
+        ...inputFilters.filters[fileIdFilters],
+        key: ['internal_id'],
+      };
+    }
+  }
+  let types = DEFAULT_ALLOWED_TASK_ENTITY_TYPES;
+  if (scope === BackgroundTaskScope.PublicDashboard) {
+    const dashboards = await findAllWorkspaces(
+      context,
+      user,
+      {
+        filters: {
+          mode: FilterMode.And,
+          filters: [{ key: ['type'], values: ['dashboard'] }],
+          filterGroups: []
+        }
+      }
+    );
+    const dashboardIds = dashboards.edges.map((n) => (n.node.id));
+    inputFilters = addFilter(inputFilters, 'dashboard_id', dashboardIds);
+    types = [ENTITY_TYPE_PUBLIC_DASHBOARD];
+  } else if (scope === BackgroundTaskScope.Dashboard || scope === BackgroundTaskScope.Investigation) {
+    types = [ENTITY_TYPE_WORKSPACE];
+  } else if (scope === BackgroundTaskScope.Playbook) {
+    types = [ENTITY_TYPE_PLAYBOOK];
+  }
   // Construct filters
   return {
-    types: DEFAULT_ALLOWED_TASK_ENTITY_TYPES,
+    types,
     first: MAX_TASK_ELEMENTS,
-    orderMode: 'asc',
+    orderMode: orderMode || 'desc',
     orderBy: 'created_at',
     after: taskPosition,
-    filters: finalFilters,
+    filters: inputFilters,
     search: search && search.length > 0 ? search : null,
   };
 };
-export const executeTaskQuery = async (context, user, filters, search, start = null) => {
-  const options = await buildQueryFilters(user, filters, search, start);
-  return elPaginate(context, user, READ_DATA_INDICES_WITHOUT_INFERRED, options);
+
+export const executeTaskQuery = async (context, user, filters, search, scope, orderMode, start = null) => {
+  const options = await buildQueryFilters(context, user, filters, search, start, scope, orderMode);
+  return elPaginate(context, user, READ_DATA_INDICES, options);
 };
 
 export const createRuleTask = async (context, user, ruleDefinition, input) => {
@@ -84,17 +133,22 @@ export const createRuleTask = async (context, user, ruleDefinition, input) => {
 };
 
 export const createQueryTask = async (context, user, input) => {
-  const { actions, filters, excluded_ids = [], search = null, scope } = input;
+  if (getDraftContext(context, user)) {
+    throw UnsupportedError('Cannot create background task in draft');
+  }
+  const { actions, filters, excluded_ids = [], search = null, scope, orderMode } = input;
   await checkActionValidity(context, user, input, scope, TASK_TYPE_QUERY);
-  const queryData = await executeTaskQuery(context, user, filters, search);
+  const queryData = await executeTaskQuery(context, user, filters, search, scope, orderMode);
   const countExpected = queryData.pageInfo.globalCount - excluded_ids.length;
   const task = createDefaultTask(user, input, TASK_TYPE_QUERY, countExpected, scope);
   const queryTask = {
     ...task,
     actions,
+    draft_context: getDraftContext(context, user),
     task_filters: filters,
     task_search: search,
     task_excluded_ids: excluded_ids,
+    task_order_mode: orderMode,
   };
   await publishUserAction({
     user,

@@ -20,7 +20,7 @@ import {
 import useEntityToggle from '../../../../../../utils/hooks/useEntityToggle';
 import { EntityStixCoreRelationshipsIndicatorsContextualViewLine_node$data } from './__generated__/EntityStixCoreRelationshipsIndicatorsContextualViewLine_node.graphql';
 import useAuth from '../../../../../../utils/hooks/useAuth';
-import { defaultValue } from '../../../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../../../utils/defaultRepresentatives';
 import StixCoreObjectLabels from '../../../stix_core_objects/StixCoreObjectLabels';
 import ItemMarkings from '../../../../../../components/ItemMarkings';
 import ListLines from '../../../../../../components/list_lines/ListLines';
@@ -30,8 +30,11 @@ import useQueryLoading from '../../../../../../utils/hooks/useQueryLoading';
 import { EntityStixCoreRelationshipsContextualViewLine_node$data } from '../__generated__/EntityStixCoreRelationshipsContextualViewLine_node.graphql';
 import { resolveLink } from '../../../../../../utils/Entity';
 import type { Theme } from '../../../../../../components/Theme';
-import { FilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../../utils/filters/filtersUtils';
+import { isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../../../utils/filters/filtersUtils';
+import { FilterGroup } from '../../../../../../utils/filters/filtersHelpers-types';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   chip: {
     fontSize: 13,
@@ -147,7 +150,7 @@ const EntityStixCoreRelationshipsIndicatorsContextualViewComponent: FunctionComp
       label: 'Name',
       width: '20%',
       isSortable: true,
-      render: (stixCoreObject: EntityStixCoreRelationshipsIndicatorsContextualViewLine_node$data) => defaultValue(stixCoreObject),
+      render: (stixCoreObject: EntityStixCoreRelationshipsIndicatorsContextualViewLine_node$data) => getMainRepresentative(stixCoreObject),
     },
     objectLabel: {
       label: 'Labels',
@@ -206,13 +209,17 @@ const EntityStixCoreRelationshipsIndicatorsContextualViewComponent: FunctionComp
 
   const containers = stixDomainObject.containers?.edges?.map((e) => e?.node)
     .filter((r) => isNotEmptyField(r)) as { id: string }[] ?? [];
+  const containersIds = containers.map((r) => r.id);
+  const containersSubFilter = containers.length > 0
+    ? { key: 'objects', operator: 'eq', mode: 'or', values: containersIds }
+    : { key: 'objects', operator: 'nil', mode: 'or', values: [] };
 
   const userFilters = useRemoveIdAndIncorrectKeysFromFilterGroupObject(filters, stixCoreObjectTypes);
   const contextFilters: FilterGroup = {
     mode: 'and',
     filters: [
       { key: 'entity_type', operator: 'eq', mode: 'or', values: stixCoreObjectTypes },
-      { key: 'objects', operator: 'eq', mode: 'or', values: containers.map((r) => r.id) },
+      containersSubFilter,
     ],
     filterGroups: userFilters && isFilterGroupNotEmpty(userFilters) ? [userFilters] : [],
   };
@@ -266,6 +273,9 @@ const EntityStixCoreRelationshipsIndicatorsContextualViewComponent: FunctionComp
         enableContextualView
         currentView={currentView}
         searchContext={{ elementId: [entityId] }}
+        additionalFilterKeys={{
+          filtersRestrictions: { preventFilterValuesEditionFor: new Map([['objects', containersIds]]) } }
+        }
       >
         {queryRef ? (
           <React.Suspense fallback={<Loader variant={LoaderVariant.inElement}/>}>
@@ -294,7 +304,7 @@ const EntityStixCoreRelationshipsIndicatorsContextualViewComponent: FunctionComp
         variant="medium"
         warning={true}
         warningMessage={t_i18n(
-          'Be careful, you are about to delete the selected entities.',
+          'Be careful, you are about to delete the selected entities',
         )}
       />
     </>

@@ -5,14 +5,15 @@ import { Theme } from '@mui/material/styles/createTheme';
 import makeStyles from '@mui/styles/makeStyles';
 import classNames from 'classnames';
 import InputLabel from '@mui/material/InputLabel';
+import { FieldProps } from 'formik';
 import VisuallyHiddenInput from '../VisuallyHiddenInput';
 import { useFormatter } from '../../../../components/i18n';
 import { truncate } from '../../../../utils/String';
 
-interface CustomFileUploadProps {
+interface CustomFileUploadProps extends Partial<FieldProps<File | null | undefined>> {
   setFieldValue: (
     field: string,
-    value: File | string | undefined,
+    value: File | string | null | undefined,
     shouldValidate?: boolean | undefined,
   ) => Promise<unknown>;
   isEmbeddedInExternalReferenceCreation?: boolean;
@@ -22,8 +23,14 @@ interface CustomFileUploadProps {
   }
   acceptMimeTypes?: string; // html input "accept" with MIME types only
   sizeLimit?: number; // in bytes
+  disabled?: boolean;
+  noFileSelectedLabel?: string
+  noMargin?: boolean
+  required?: boolean;
 }
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   box: {
     width: '100%',
@@ -64,11 +71,25 @@ const CustomFileUploader: FunctionComponent<CustomFileUploadProps> = ({
   acceptMimeTypes,
   sizeLimit = 0, // defaults to 0 = no limit
   formikErrors,
+  disabled = false,
+  field,
+  noFileSelectedLabel,
+  noMargin = false,
+  required = false,
 }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
   const [fileNameForDisplay, setFileNameForDisplay] = useState('');
   const [errorText, setErrorText] = useState('');
+
+  useEffect(() => {
+    if (field) {
+      const fileName = field.value?.name ?? '';
+      if (fileName !== fileNameForDisplay) {
+        setFileNameForDisplay(fileName);
+      }
+    }
+  }, [field, fileNameForDisplay, setFileNameForDisplay]);
 
   useEffect(() => {
     if (formikErrors?.file) {
@@ -119,10 +140,12 @@ const CustomFileUploader: FunctionComponent<CustomFileUploadProps> = ({
     }
   };
 
+  const noFileLabel = noFileSelectedLabel ?? t_i18n('No file selected.');
+
   return (
-    <div className={classes.div}>
-      <InputLabel shrink={true} variant="standard">
-        {label ? t_i18n(label) : t_i18n('Associated file')}
+    <div className={classes.div} style={noMargin ? { margin: 0 } : {}}>
+      <InputLabel shrink={true} variant="standard" className={classNames({ [classes.error]: !!errorText })}>
+        {label ? t_i18n(label) : t_i18n('Associated file')} {required && '*'}
       </InputLabel>
       <Box
         className={classNames({
@@ -135,15 +158,19 @@ const CustomFileUploader: FunctionComponent<CustomFileUploadProps> = ({
           variant="contained"
           onChange={onChange}
           className={classes.button}
+          disabled={disabled}
         >
           {t_i18n('Select your file')}
           <VisuallyHiddenInput type="file" accept={acceptMimeTypes} />
         </Button>
         <span
-          title={fileNameForDisplay || t_i18n('No file selected.')}
-          className={classes.span}
+          title={fileNameForDisplay || noFileLabel}
+          className={classNames({
+            [classes.span]: true,
+            [classes.error]: !!errorText,
+          })}
         >
-          {fileNameForDisplay || t_i18n('No file selected.')}
+          {fileNameForDisplay || noFileLabel}
         </span>
       </Box>
       {!!errorText && (

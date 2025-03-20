@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -20,21 +20,23 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import makeStyles from '@mui/styles/makeStyles';
 import { useTheme } from '@mui/styles';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import Chart from '../charts/Chart';
 import { QueryRenderer } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
 import { horizontalBarsChartOptions } from '../../../../utils/Charts';
-import { itemColor } from '../../../../utils/Colors';
 import { simpleNumberFormat } from '../../../../utils/Number';
-import { defaultValue } from '../../../../utils/Graph';
-import useGranted, { SETTINGS } from '../../../../utils/hooks/useGranted';
+import useGranted, { SETTINGS_SECURITYACTIVITY, SETTINGS_SETACCESSES, VIRTUAL_ORGANIZATION_ADMIN } from '../../../../utils/hooks/useGranted';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
+import useDistributionGraphData from '../../../../utils/hooks/useDistributionGraphData';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles((theme) => ({
   paper: {
     height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 4,
   },
@@ -69,142 +71,26 @@ const auditsHorizontalBarsDistributionQuery = graphql`
       value
       entity {
         ... on BasicObject {
-          entity_type
           id
+          entity_type
         }
         ... on BasicRelationship {
-          entity_type
           id
+          entity_type
         }
-        ... on AttackPattern {
-          name
-          description
+        ... on StixObject {
+          representative {
+            main
+          }
         }
-        ... on Campaign {
-          name
-          description
+        ... on StixRelationship {
+          representative {
+            main
+          }
         }
-        ... on CourseOfAction {
-          name
-          description
-        }
-        ... on Individual {
-          name
-          description
-        }
-        ... on Organization {
-          name
-          description
-        }
-        ... on Sector {
-          name
-          description
-        }
-        ... on System {
-          name
-          description
-        }
-        ... on Indicator {
-          name
-          description
-        }
-        ... on Infrastructure {
-          name
-          description
-        }
-        ... on IntrusionSet {
-          name
-          description
-        }
-        ... on Position {
-          name
-          description
-        }
-        ... on City {
-          name
-          description
-        }
-        ... on AdministrativeArea {
-          name
-          description
-        }
-        ... on Country {
-          name
-          description
-        }
-        ... on Region {
-          name
-          description
-        }
-        ... on Malware {
-          name
-          description
-        }
-        ... on MalwareAnalysis {
-          result_name
-        }
-        ... on ThreatActor {
-          name
-          description
-        }
-        ... on Tool {
-          name
-          description
-        }
-        ... on Vulnerability {
-          name
-          description
-        }
-        ... on Incident {
-          name
-          description
-        }
-        ... on Event {
-          name
-          description
-        }
-        ... on Channel {
-          name
-          description
-        }
-        ... on Narrative {
-          name
-          description
-        }
-        ... on Language {
-          name
-        }
-        ... on DataComponent {
-          name
-        }
-        ... on DataSource {
-          name
-        }
-        ... on Case {
-          name
-        }
-        ... on StixCyberObservable {
-          observable_value
-        }
-        ... on MarkingDefinition {
-          definition_type
-          definition
-        }
+        # objects without representative
         ... on Creator {
           name
-        }
-        ... on Report {
-          name
-        }
-        ... on Grouping {
-          name
-        }
-        ... on Note {
-          attribute_abstract
-          content
-        }
-        ... on Opinion {
-          opinion
         }
         ... on Group {
           name
@@ -219,10 +105,10 @@ const auditsHorizontalBarsDistributionQuery = graphql`
 `;
 
 const AuditsHorizontalBars = ({
-  variant = null,
+  variant,
   height,
-  startDate = null,
-  endDate = null,
+  startDate,
+  endDate,
   dataSelection,
   parameters = {},
   withExportPopover = false,
@@ -232,8 +118,10 @@ const AuditsHorizontalBars = ({
   const theme = useTheme();
   const { t_i18n } = useFormatter();
   const navigate = useNavigate();
-  const isGrantedToSettings = useGranted([SETTINGS]);
+  const isGrantedToSettings = useGranted([SETTINGS_SETACCESSES, SETTINGS_SECURITYACTIVITY, VIRTUAL_ORGANIZATION_ADMIN]);
   const isEnterpriseEdition = useEnterpriseEdition();
+  const { buildWidgetProps } = useDistributionGraphData();
+
   const renderContent = () => {
     if (!isGrantedToSettings || !isEnterpriseEdition) {
       return (
@@ -277,41 +165,7 @@ const AuditsHorizontalBars = ({
             && props.auditsDistribution
             && props.auditsDistribution.length > 0
           ) {
-            const data = props.auditsDistribution.map((n) => ({
-              x:
-                // eslint-disable-next-line no-nested-ternary
-                selection.attribute.endsWith('.id')
-                || selection.attribute.endsWith('_id')
-                || selection.attribute.endsWith('_ids')
-                  ? defaultValue(n.entity)
-                  : selection.attribute === 'entity_type'
-                    ? t_i18n(`entity_${n.label}`)
-                    : n.label,
-              y: n.value,
-              fillColor:
-                selection.attribute.endsWith('.id')
-                || selection.attribute.endsWith('_id')
-                || selection.attribute.endsWith('_ids')
-                  ? itemColor(n.entity.entity_type)
-                  : itemColor(n.label),
-            }));
-            const chartData = [
-              {
-                name: selection.label || t_i18n('Number of history entries'),
-                data,
-              },
-            ];
-            const redirectionUtils = selection.attribute.endsWith('.id')
-              || selection.attribute.endsWith('_id')
-              || selection.attribute.endsWith('_ids')
-              ? props.auditsDistribution.map((n) => ({
-                id: n.entity.id,
-                entity_type:
-                      n.entity.entity_type === 'Workspace'
-                        ? n.entity.type
-                        : n.entity.entity_type,
-              }))
-              : null;
+            const { series, redirectionUtils } = buildWidgetProps(props.auditsDistribution, selection, 'Number of history entries');
             return (
               <Chart
                 options={horizontalBarsChartOptions(
@@ -323,7 +177,7 @@ const AuditsHorizontalBars = ({
                   navigate,
                   redirectionUtils,
                 )}
-                series={chartData}
+                series={series}
                 type="bar"
                 width="100%"
                 height="100%"
@@ -342,7 +196,7 @@ const AuditsHorizontalBars = ({
                     textAlign: 'center',
                   }}
                 >
-                  {t_i18n('No entities of this type has been found.')}
+                  {t_i18n(NO_DATA_WIDGET_MESSAGE)}
                 </span>
               </div>
             );

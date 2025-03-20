@@ -16,7 +16,7 @@ import Select from '@mui/material/Select';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Slide from '@mui/material/Slide';
-import { AddOutlined, CloseOutlined, MoveToInboxOutlined, LockPersonOutlined, Delete } from '@mui/icons-material';
+import { CloseOutlined, Delete, LabelOutlined, LockPersonOutlined, MoveToInboxOutlined } from '@mui/icons-material';
 import { DotsHorizontalCircleOutline } from 'mdi-material-ui';
 import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
@@ -36,14 +36,19 @@ import WorkspaceTurnToContainerDialog from './WorkspaceTurnToContainerDialog';
 import { commitMutation, fetchQuery, MESSAGING$ } from '../../../relay/environment';
 import Security from '../../../utils/Security';
 import { nowUTC } from '../../../utils/Time';
-import { EXPLORE_EXUPDATE, EXPLORE_EXUPDATE_PUBLISH } from '../../../utils/hooks/useGranted';
+import useGranted, { EXPLORE_EXUPDATE, EXPLORE_EXUPDATE_PUBLISH, INVESTIGATION_INUPDATE } from '../../../utils/hooks/useGranted';
 import WorkspacePopover from './WorkspacePopover';
 import ExportButtons from '../../../components/ExportButtons';
 import { useFormatter } from '../../../components/i18n';
 import WorkspaceManageAccessDialog from './WorkspaceManageAccessDialog';
 import Transition from '../../../components/Transition';
+import { useGetCurrentUserAccessRight } from '../../../utils/authorizedMembers';
+import { truncate } from '../../../utils/String';
 import useHelper from '../../../utils/hooks/useHelper';
+import WorkspaceWidgetConfig from './dashboards/WorkspaceWidgetConfig';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   title: {
     float: 'left',
@@ -53,16 +58,16 @@ const useStyles = makeStyles(() => ({
     marginTop: '-13px',
   },
   manageAccess: {
-    margin: '-8px 4px 0 0',
+    margin: '-5px 4px 0 0',
     float: 'right',
   },
   turnToReportOrCase: {
-    margin: '-8px 4px 0 0',
+    margin: '-5px 4px 0 0',
     float: 'right',
   },
   export: {
     float: 'right',
-    margin: '-8px 0 0 0',
+    margin: '-5px 0 0 0',
     display: 'flex',
   },
   tags: {
@@ -70,7 +75,7 @@ const useStyles = makeStyles(() => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'end',
-    marginTop: '-8px',
+    marginTop: '-5px',
   },
   tag: {
     marginRight: 7,
@@ -106,20 +111,22 @@ const WorkspaceHeader = ({
   variant,
   adjust,
   handleDateChange,
+  widgetActions,
+  handleAddWidget,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const openTagsCreate = false;
   const [openTag, setOpenTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [openTags, setOpenTags] = useState(false);
-  const userCanManage = workspace.currentUserAccessRight === 'admin';
-  const userCanEdit = userCanManage || workspace.currentUserAccessRight === 'edit';
+  const { canManage, canEdit } = useGetCurrentUserAccessRight(workspace.currentUserAccessRight);
   const [displayDuplicate, setDisplayDuplicate] = useState(false);
   const handleCloseDuplicate = () => setDisplayDuplicate(false);
   const [duplicating, setDuplicating] = useState(false);
   const tags = workspace.tags ? workspace.tags : [];
-  const { isFeatureEnable } = useHelper();
 
   const handleOpenTag = () => {
     setOpenTag(!openTag);
@@ -179,8 +186,8 @@ const WorkspaceHeader = ({
         const toStixBundleData = data?.workspace?.toStixReportBundle;
         if (toStixBundleData) {
           const blob = new Blob([toStixBundleData], { type: 'text/json' });
-          const fileName = `${nowUTC()}_(export-stix-report)_${workspace.name}`;
-          fileDownload(blob, fileName, 'application/json');
+          const fileName = `${nowUTC()}_(export-stix-report)_${workspace.name}.json`;
+          fileDownload(blob, fileName);
         }
       });
   };
@@ -196,95 +203,29 @@ const WorkspaceHeader = ({
   ] = useState(false);
   const handleOpenTurnToReportOrCaseContainer = () => setDisplayTurnToReportOrCaseContainer(true);
   const handleCloseTurnToReportOrCaseContainer = () => setDisplayTurnToReportOrCaseContainer(false);
+  const isGrantedToUpdateDashboard = useGranted([EXPLORE_EXUPDATE]);
   return (
     <>
       <div style={{ margin: variant === 'dashboard' ? '0 20px 0 20px' : 0 }}>
-        <Typography
-          variant="h1"
-          gutterBottom={true}
-          classes={{ root: classes.title }}
-          style={{ marginRight: userCanEdit ? 0 : 10 }}
-        >
-          {workspace.name}
-        </Typography>
-        <Security needs={[EXPLORE_EXUPDATE]} hasAccess={userCanEdit}>
+        <Tooltip title={workspace.name}>
+          <Typography
+            variant="h1"
+            gutterBottom={true}
+            classes={{ root: classes.title }}
+            style={{ marginRight: canEdit ? 0 : 10 }}
+          >
+            {truncate(workspace.name, 40)}
+          </Typography>
+        </Tooltip>
+        <Security needs={[EXPLORE_EXUPDATE, INVESTIGATION_INUPDATE]} hasAccess={canEdit}>
           <div className={classes.popover}>
             <WorkspacePopover workspace={workspace} />
           </div>
         </Security>
-        {variant === 'dashboard' && (
+        {variant === 'dashboard' && !isFABReplaced && (
           <Security
-            needs={[EXPLORE_EXUPDATE]}
-            hasAccess={userCanEdit}
-            placeholder={
-              <div
-                style={{
-                  display: 'flex',
-                  margin: '-5px 0 0 5px',
-                  float: 'left',
-                }}
-              >
-                <FormControl
-                  variant="outlined"
-                  size="small"
-                  style={{ width: 194, marginRight: 20 }}
-                >
-                  <InputLabel id="relative" variant="outlined">
-                    {t_i18n('Relative time')}
-                  </InputLabel>
-                  <Select
-                    labelId="relative"
-                    value={relativeDate ?? ''}
-                    onChange={(value) => handleDateChange('relativeDate', value)
-                    }
-                    disabled={true}
-                    variant="outlined"
-                  >
-                    <MenuItem value="none">{t_i18n('None')}</MenuItem>
-                    <MenuItem value="days-1">{t_i18n('Last 24 hours')}</MenuItem>
-                    <MenuItem value="days-7">{t_i18n('Last 7 days')}</MenuItem>
-                    <MenuItem value="months-1">{t_i18n('Last month')}</MenuItem>
-                    <MenuItem value="months-3">{t_i18n('Last 3 months')}</MenuItem>
-                    <MenuItem value="months-6">{t_i18n('Last 6 months')}</MenuItem>
-                    <MenuItem value="years-1">{t_i18n('Last year')}</MenuItem>
-                  </Select>
-                </FormControl>
-                <DatePicker
-                  value={R.propOr(null, 'startDate', config)}
-                  disableToolbar={true}
-                  autoOk={true}
-                  label={t_i18n('Start date')}
-                  clearable={true}
-                  disableFuture={true}
-                  disabled={true}
-                  onChange={(value, context) => !context.validationError && handleDateChange('startDate', value)}
-                  slotProps={{
-                    textField: {
-                      style: { marginRight: 20 },
-                      variant: 'outlined',
-                      size: 'small',
-                    },
-                  }}
-                />
-                <DatePicker
-                  value={R.propOr(null, 'endDate', config)}
-                  disableToolbar={true}
-                  autoOk={true}
-                  label={t_i18n('End date')}
-                  clearable={true}
-                  disabled={true}
-                  disableFuture={true}
-                  onChange={(value, context) => !context.validationError && handleDateChange('endDate', value)}
-                  slotProps={{
-                    textField: {
-                      style: { marginRight: 20 },
-                      variant: 'outlined',
-                      size: 'small',
-                    },
-                  }}
-                />
-              </div>
-            }
+            needs={[EXPLORE_EXUPDATE, INVESTIGATION_INUPDATE]}
+            hasAccess={canEdit}
           >
             <div
               style={{ display: 'flex', margin: '-5px 0 0 5px', float: 'left' }}
@@ -299,7 +240,7 @@ const WorkspaceHeader = ({
                 </InputLabel>
                 <Select
                   labelId="relative"
-                  value={relativeDate ?? relativeDate}
+                  value={relativeDate ?? ''}
                   onChange={(value) => handleDateChange('relativeDate', value)}
                   label={t_i18n('Relative time')}
                   variant="outlined"
@@ -349,9 +290,19 @@ const WorkspaceHeader = ({
             </div>
           </Security>
         )}
-        {isFeatureEnable('PUBLIC_DASHBOARD') && (
-          <Security needs={[EXPLORE_EXUPDATE_PUBLISH]}>
-            <div style={{ margin: '-8px 0 0 4px', float: 'right' }}>
+        {variant === 'dashboard' && isFABReplaced && (
+          <Security
+            needs={[EXPLORE_EXUPDATE]}
+            hasAccess={canEdit}
+          >
+            <div style={{ marginTop: '-6px', float: 'right' }}>
+              <WorkspaceWidgetConfig onComplete={handleAddWidget} workspace={workspace}></WorkspaceWidgetConfig>
+            </div>
+          </Security>
+        )}
+        {variant === 'dashboard' && (
+          <Security needs={[EXPLORE_EXUPDATE_PUBLISH]} hasAccess={canManage}>
+            <div style={{ margin: '-5px 0 0 0px', float: 'right' }}>
               <WorkspaceShareButton workspaceId={workspace.id} />
             </div>
           </Security>
@@ -371,32 +322,35 @@ const WorkspaceHeader = ({
             adjust={adjust}
             handleDownloadAsStixReport={handleDownloadAsStixReport}
             handleExportDashboard={handleExportDashboard}
-            handleDashboardDuplication={handleDashboardDuplication}
+            handleDashboardDuplication={isGrantedToUpdateDashboard && handleDashboardDuplication}
             variant={variant}
           />
+          {widgetActions}
         </div>
         {variant === 'investigation' && (
-          <div className={classes.turnToReportOrCase}>
-            <Tooltip title={t_i18n('Add to a container')}>
-              <ToggleButtonGroup size="small" color="primary" exclusive={true}>
-                <ToggleButton
-                  aria-label="Label"
-                  onClick={handleOpenTurnToReportOrCaseContainer}
-                  size="small"
-                  value="add-to-a-container"
-                >
-                  <MoveToInboxOutlined color="primary" fontSize="small" />
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Tooltip>
-          </div>
+          <Security needs={[INVESTIGATION_INUPDATE]}>
+            <div className={classes.turnToReportOrCase}>
+              <Tooltip title={t_i18n('Add to a container')}>
+                <ToggleButtonGroup size="small" color="primary" exclusive={true}>
+                  <ToggleButton
+                    aria-label="Label"
+                    onClick={handleOpenTurnToReportOrCaseContainer}
+                    size="small"
+                    value="add-to-a-container"
+                  >
+                    <MoveToInboxOutlined color="primary" fontSize="small" />
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Tooltip>
+            </div>
+          </Security>
         )}
-        <Security needs={[EXPLORE_EXUPDATE]} hasAccess={userCanManage}>
+        <Security needs={[EXPLORE_EXUPDATE, INVESTIGATION_INUPDATE]} hasAccess={canManage}>
           <div className={classes.manageAccess}>
             <Tooltip title={t_i18n('Manage access restriction')}>
               <ToggleButtonGroup size="small" color="warning" exclusive={true}>
                 <ToggleButton
-                  aria-label="Label"
+                  aria-label={t_i18n('Manage access restriction')}
                   onClick={handleOpenManageAccess}
                   size="small"
                   value="manage-access"
@@ -425,11 +379,11 @@ const WorkspaceHeader = ({
             />
             ),
           )}
-          <Security needs={[EXPLORE_EXUPDATE]} hasAccess={userCanEdit}>
+          <Security needs={[EXPLORE_EXUPDATE, INVESTIGATION_INUPDATE]} hasAccess={canEdit}>
             {tags.length > 1 ? (
               <IconButton
                 color="primary"
-                aria-tag="More"
+                aria-label="More"
                 onClick={handleToggleOpenTags}
                 size="large"
                 style={{ fontSize: 14, marginRight: '7px', marginTop: '-4px' }}
@@ -437,18 +391,18 @@ const WorkspaceHeader = ({
                 <DotsHorizontalCircleOutline fontSize="small" />
               </IconButton>
             ) : (
-              <Tooltip title={t_i18n('Add tag')}>
+              <Tooltip title={openTag ? t_i18n('Cancel') : t_i18n('Add tag')}>
                 <IconButton
                   style={{ float: 'left', marginTop: '-5px', marginRight: '3px' }}
                   color="primary"
-                  aria-tag="Tag"
+                  aria-label="Add tag"
                   onClick={handleOpenTag}
                   size="large"
                 >
                   {openTag ? (
                     <CloseOutlined fontSize="small" />
                   ) : (
-                    <AddOutlined fontSize="small" />
+                    <LabelOutlined fontSize="small" />
                   )}
                 </IconButton>
               </Tooltip>
@@ -469,6 +423,7 @@ const WorkspaceHeader = ({
                       component={TextField}
                       variant="standard"
                       name="new_tag"
+                      aria-label="tag field"
                       autoFocus={true}
                       placeholder={t_i18n('New tag')}
                       onChange={handleChangeNewTags}

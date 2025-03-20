@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as PropTypes from 'prop-types';
 import { compose } from 'ramda';
-import { graphql, createRefetchContainer } from 'react-relay';
+import { createRefetchContainer, graphql } from 'react-relay';
 import { interval } from 'rxjs';
 import Grid from '@mui/material/Grid';
 import Typography from '@mui/material/Typography';
@@ -14,13 +14,13 @@ import { TEN_SECONDS } from '../../../../../utils/Time';
 import inject18n from '../../../../../components/i18n';
 import WorkbenchFileLine from './WorkbenchFileLine';
 import WorkbenchFileCreator from './WorkbenchFileCreator';
+import { KNOWLEDGE_KNASKIMPORT } from '../../../../../utils/hooks/useGranted';
+import Security from '../../../../../utils/Security';
 
 const interval$ = interval(TEN_SECONDS);
 
 const styles = () => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     padding: '10px 15px 10px 15px',
     marginTop: -2,
     borderRadius: 4,
@@ -57,20 +57,22 @@ const WorkbenchFileViewerBase = ({
   };
 
   return (
-    <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+    <Grid item xs={6}>
       <div style={{ height: '100%' }}>
         <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
           {t('Analyst workbenches')}
         </Typography>
-        <IconButton
-          color="primary"
-          aria-label="Add"
-          onClick={() => setOpenCreate(true)}
-          classes={{ root: classes.createButton }}
-          size="large"
-        >
-          <Add fontSize="small" />
-        </IconButton>
+        <Security needs={[KNOWLEDGE_KNASKIMPORT]} placeholder={<div style={{ height: 28 }}/>}>
+          <IconButton
+            color="primary"
+            aria-label="Add"
+            onClick={() => setOpenCreate(true)}
+            classes={{ root: classes.createButton }}
+            size="large"
+          >
+            <Add fontSize="small" />
+          </IconButton>
+        </Security>
         <WorkbenchFileCreator
           handleCloseCreate={() => setOpenCreate(false)}
           openCreate={openCreate}
@@ -78,7 +80,7 @@ const WorkbenchFileViewerBase = ({
           entity={entity}
         />
         <div className="clearfix" />
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           {edges.length ? (
             <List>
               {edges.map((file) => (
@@ -136,7 +138,7 @@ const WorkbenchFileViewer = createRefetchContainer(
           edges {
             node {
               id
-              ...WorkbenchFileLine_file
+              ...ImportWorkbenchesContentFileLine_file
               metaData {
                 mimetype
               }

@@ -11,9 +11,13 @@ import {
   RELATION_CITIZEN_OF,
   RELATION_COMPROMISES,
   RELATION_COOPERATES_WITH,
+  RELATION_DERIVED_FROM,
   RELATION_EMPLOYED_BY,
   RELATION_HOSTS,
   RELATION_IMPERSONATES,
+  RELATION_KNOWN_AS,
+  RELATION_REPORTS_TO,
+  RELATION_SUPPORTS,
   RELATION_LOCATED_AT,
   RELATION_NATIONAL_OF,
   RELATION_OWNS,
@@ -43,7 +47,7 @@ import { REL_BUILT_IN, REL_EXTENDED, REL_NEW } from '../../database/stix';
 import { ENTITY_TYPE_NARRATIVE } from '../narrative/narrative-types';
 import { ENTITY_TYPE_CHANNEL } from '../channel/channel-types';
 import { ENTITY_TYPE_EVENT } from '../event/event-types';
-import { ENTITY_HASHED_OBSERVABLE_STIX_FILE } from '../../schema/stixCyberObservable';
+import { ENTITY_HASHED_OBSERVABLE_STIX_FILE, ENTITY_PERSONA } from '../../schema/stixCyberObservable';
 import { ENTITY_TYPE_LOCATION_ADMINISTRATIVE_AREA } from '../administrativeArea/administrativeArea-types';
 import { ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../organization/organization-types';
 
@@ -51,6 +55,7 @@ interface Measures {
   measure: number | null
   date_seen: object | string | null
 }
+
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 export const schemaMeasure: JSONSchemaType<Measures[]> = {
@@ -82,6 +87,17 @@ const THREAT_ACTOR_INDIVIDUAL_DEFINITION: ModuleDefinition<StoreEntityThreatActo
       },
     },
   },
+  overviewLayoutCustomization: [
+    { key: 'details', width: 6, label: 'Entity details' },
+    { key: 'basicInformation', width: 6, label: 'Basic information' },
+    { key: 'demographics', width: 6, label: 'Demographics' },
+    { key: 'biographics', width: 6, label: 'Biographics' },
+    { key: 'latestCreatedRelationships', width: 6, label: 'Latest created relationships' },
+    { key: 'latestContainers', width: 6, label: 'Latest containers' },
+    { key: 'externalReferences', width: 6, label: 'External references' },
+    { key: 'mostRecentHistory', width: 6, label: 'Most recent history' },
+    { key: 'notes', width: 12, label: 'Notes about this entity' },
+  ],
   attributes: [
     { name: 'name', label: 'Name', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'description', label: 'Description', type: 'string', format: 'text', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
@@ -216,7 +232,6 @@ const THREAT_ACTOR_INDIVIDUAL_DEFINITION: ModuleDefinition<StoreEntityThreatActo
       name: RELATION_PART_OF,
       targets: [
         { name: ENTITY_TYPE_THREAT_ACTOR_GROUP, type: REL_NEW },
-        { name: ENTITY_TYPE_THREAT_ACTOR_INDIVIDUAL, type: REL_NEW },
       ]
     },
     {
@@ -247,6 +262,42 @@ const THREAT_ACTOR_INDIVIDUAL_DEFINITION: ModuleDefinition<StoreEntityThreatActo
         { name: ENTITY_TYPE_LOCATION_COUNTRY, type: REL_EXTENDED },
       ]
     },
+    { name: RELATION_KNOWN_AS,
+      targets: [
+        { name: ENTITY_PERSONA, type: REL_EXTENDED },
+      ]
+    },
+    { name: RELATION_KNOWN_AS,
+      targets: [
+        { name: ENTITY_TYPE_THREAT_ACTOR_INDIVIDUAL, type: REL_EXTENDED },
+      ]
+    },
+    { name: RELATION_REPORTS_TO,
+      targets: [
+        { name: ENTITY_TYPE_THREAT_ACTOR_INDIVIDUAL, type: REL_EXTENDED },
+      ]
+    },
+    { name: RELATION_SUPPORTS,
+      targets: [
+        { name: ENTITY_TYPE_THREAT_ACTOR_INDIVIDUAL, type: REL_EXTENDED },
+      ]
+    },
+    { name: RELATION_REPORTS_TO,
+      targets: [
+        { name: ENTITY_TYPE_THREAT_ACTOR_GROUP, type: REL_EXTENDED },
+      ]
+    },
+    { name: RELATION_SUPPORTS,
+      targets: [
+        { name: ENTITY_TYPE_THREAT_ACTOR_GROUP, type: REL_EXTENDED },
+      ]
+    },
+    {
+      name: RELATION_DERIVED_FROM,
+      targets: [
+        { name: ENTITY_TYPE_THREAT_ACTOR_GROUP, type: REL_BUILT_IN },
+      ]
+    }
   ],
   relationsRefs: [
     objectOrganization,

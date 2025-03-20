@@ -12,7 +12,9 @@ import type { ScaleConfig, Tick, UndefinedTick } from './scale';
 import ScaleConfigurationLine from './ScaleConfigurationLine';
 import ScaleBar from './ScaleBar';
 
-const useStyles = makeStyles<Theme>(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     height: '100%',
     position: 'relative',
@@ -24,9 +26,7 @@ const useStyles = makeStyles<Theme>(() => ({
     marginBottom: 0,
   },
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 15,
     borderRadius: 4,
   },

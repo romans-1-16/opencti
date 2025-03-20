@@ -1,16 +1,27 @@
 import { clearIntervalAsync, setIntervalAsync, type SetIntervalAsyncTimer } from 'set-interval-async/fixed';
+import { clearIntervalAsync as clearDynamicIntervalAsync, setIntervalAsync as setDynamicIntervalAsync } from 'set-interval-async/dynamic';
 import moment from 'moment/moment';
-import { createStreamProcessor, lockResource, type StreamProcessor } from '../database/redis';
+import { createStreamProcessor, type StreamProcessor } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import type { BasicStoreSettings } from '../types/settings';
 import { logApp } from '../config/conf';
 import { TYPE_LOCK_ERROR } from '../config/errors';
 import { SYSTEM_USER } from '../utils/access';
 import { utcDate } from '../utils/format';
+import { wait } from '../database/utils';
+
+export interface HandlerInput {
+  shutdown?: () => Promise<void>
+}
 
 export interface ManagerCronScheduler {
-  handler: () => void;
-  interval: number;
-  lockKey: string;
+  handler: (input?: any) => Promise<void>
+  interval: number
+  lockKey: string
+  infiniteInterval?: number
+  handlerInitializer?: () => Promise<HandlerInput>
+  lockInHandlerParams?: boolean
+  dynamicSchedule?: boolean
 }
 
 export interface ManagerStreamScheduler {
@@ -41,31 +52,39 @@ const initManager = (manager: ManagerDefinition) => {
   let streamProcessor: StreamProcessor;
   let running = false;
   let shutdown = false;
-  const wait = (ms: number) => {
-    return new Promise((resolve) => {
-      setTimeout(resolve, ms);
-    });
-  };
 
-  const cronHandler = async () => {
+  const cronHandler = async (cronInputFn?: () => Promise<HandlerInput>) => {
     if (manager.cronSchedulerHandler) {
       let lock;
+      let cronInput;
       const startDate = utcDate();
       try {
         // date
         // Lock the manager
-        lock = await lockResource([manager.cronSchedulerHandler.lockKey], { retryCount: 0 });
+        lock = await lockResources([manager.cronSchedulerHandler.lockKey], { retryCount: 0 });
         running = true;
-        await manager.cronSchedulerHandler.handler();
+        cronInput = cronInputFn ? await cronInputFn() : undefined;
+        if (manager.cronSchedulerHandler.infiniteInterval) {
+          logApp.info(`[OPENCTI-MODULE] Running ${manager.label} infinite cron handler`);
+          while (!shutdown) {
+            await manager.cronSchedulerHandler.handler(cronInput);
+            await wait(manager.cronSchedulerHandler.infiniteInterval);
+          }
+        } else if (manager.cronSchedulerHandler.lockInHandlerParams) {
+          await manager.cronSchedulerHandler.handler(lock);
+        } else {
+          await manager.cronSchedulerHandler.handler(cronInput);
+        }
       } catch (e: any) {
         if (e.name === TYPE_LOCK_ERROR) {
           logApp.debug(`[OPENCTI-MODULE] ${manager.label} already started by another API`);
         } else {
-          logApp.error(e, { manager: manager.id });
+          logApp.error(`[OPENCTI-MODULE] ${manager.label} handling error`, { cause: e, manager: manager.id });
         }
       } finally {
         running = false;
         if (lock) await lock.unlock();
+        if (cronInput && cronInput.shutdown) await cronInput.shutdown();
         if (startDate) {
           const duration = moment.duration(utcDate().diff(startDate)).asMilliseconds();
           logApp.debug(`[OPENCTI-MODULE] ${manager.label} done in ${duration}ms`);
@@ -79,7 +98,7 @@ const initManager = (manager: ManagerDefinition) => {
       let lock;
       try {
       // Lock the manager
-        lock = await lockResource([manager.streamSchedulerHandler.lockKey], { retryCount: 0 });
+        lock = await lockResources([manager.streamSchedulerHandler.lockKey], { retryCount: 0 });
         running = true;
         logApp.info(`[OPENCTI-MODULE] Running ${manager.label} stream handler`);
         streamProcessor = createStreamProcessor(SYSTEM_USER, 'File index manager', manager.streamSchedulerHandler.handler, manager.streamSchedulerHandler.streamOpts);
@@ -94,7 +113,7 @@ const initManager = (manager: ManagerDefinition) => {
         if (e.name === TYPE_LOCK_ERROR) {
           logApp.debug(`[OPENCTI-MODULE] ${manager.label} stream handler already started by another API`);
         } else {
-          logApp.error(e, { manager: manager.id });
+          logApp.error(`[OPENCTI-MODULE] ${manager.label} stream error`, { cause: e, manager: manager.id });
         }
       } finally {
         if (streamProcessor) await streamProcessor.shutdown();
@@ -106,13 +125,16 @@ const initManager = (manager: ManagerDefinition) => {
   return {
     manager,
     start: async () => {
-      logApp.info(`[OPENCTI-MODULE] Starting ${manager.label}`);
       if (manager.cronSchedulerHandler) {
-        scheduler = setIntervalAsync(async () => {
-          await cronHandler();
+        const asyncInterval = manager.cronSchedulerHandler.dynamicSchedule ? setDynamicIntervalAsync : setIntervalAsync;
+        logApp.info(`[OPENCTI-MODULE] Starting ${manager.label} every ${manager.cronSchedulerHandler.interval}`);
+        const { handlerInitializer } = manager.cronSchedulerHandler;
+        scheduler = asyncInterval(async () => {
+          await cronHandler(handlerInitializer);
         }, manager.cronSchedulerHandler.interval);
       }
       if (manager.streamSchedulerHandler) {
+        logApp.info(`[OPENCTI-MODULE] Starting ${manager.label}`);
         streamScheduler = setIntervalAsync(async () => {
           await streamHandler();
         }, manager.streamSchedulerHandler.interval);
@@ -129,7 +151,11 @@ const initManager = (manager: ManagerDefinition) => {
     shutdown: async () => {
       logApp.info(`[OPENCTI-MODULE] Stopping ${manager.label}`);
       shutdown = true;
-      if (scheduler) await clearIntervalAsync(scheduler);
+      if (scheduler) {
+        const asyncCleanInterval = manager.cronSchedulerHandler && manager.cronSchedulerHandler.dynamicSchedule
+          ? clearDynamicIntervalAsync : clearIntervalAsync;
+        await asyncCleanInterval(scheduler);
+      }
       if (streamScheduler) await clearIntervalAsync(streamScheduler);
       return true;
     },

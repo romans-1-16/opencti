@@ -15,11 +15,12 @@ import Skeleton from '@mui/material/Skeleton';
 import inject18n from '../../../../components/i18n';
 import { QueryRenderer } from '../../../../relay/environment';
 import ItemMarkings from '../../../../components/ItemMarkings';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
 const styles = (theme) => ({
   paper: {
     height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 4,
   },
@@ -187,7 +188,7 @@ class SectorTargetedOrganizations extends Component {
                         textAlign: 'center',
                       }}
                     >
-                      {t('No entities of this type has been found.')}
+                      {t(NO_DATA_WIDGET_MESSAGE)}
                     </span>
                   </div>
                 );

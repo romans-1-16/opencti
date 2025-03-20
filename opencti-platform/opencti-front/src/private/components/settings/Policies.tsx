@@ -1,9 +1,9 @@
-import React, { FunctionComponent } from 'react';
-import { graphql, PreloadedQuery, useFragment, useMutation, usePreloadedQuery } from 'react-relay';
+import React, { FunctionComponent, useState } from 'react';
+import { graphql, PreloadedQuery, useFragment, usePreloadedQuery } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import Grid from '@mui/material/Grid';
-import { makeStyles } from '@mui/styles';
+import { makeStyles, useTheme } from '@mui/styles';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
@@ -15,31 +15,42 @@ import { VpnKeyOutlined } from '@mui/icons-material';
 import ListItemText from '@mui/material/ListItemText';
 import EEChip from '@components/common/entreprise_edition/EEChip';
 import EETooltip from '@components/common/entreprise_edition/EETooltip';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import DialogTitle from '@mui/material/DialogTitle';
+import DangerZoneBlock from '../common/danger_zone/DangerZoneBlock';
 import AccessesMenu from './AccessesMenu';
 import ObjectOrganizationField from '../common/form/ObjectOrganizationField';
 import { useFormatter } from '../../../components/i18n';
 import { Option } from '../common/form/ReferenceField';
-import SwitchField from '../../../components/SwitchField';
+import SwitchField from '../../../components/fields/SwitchField';
 import TextField from '../../../components/TextField';
 import { Policies$key } from './__generated__/Policies.graphql';
-import MarkdownField from '../../../components/MarkdownField';
+import MarkdownField from '../../../components/fields/MarkdownField';
 import { PoliciesQuery } from './__generated__/PoliciesQuery.graphql';
-import SelectField from '../../../components/SelectField';
+import SelectField from '../../../components/fields/SelectField';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
 import Loader, { LoaderVariant } from '../../../components/Loader';
 import useEnterpriseEdition from '../../../utils/hooks/useEnterpriseEdition';
 import ItemBoolean from '../../../components/ItemBoolean';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useApiMutation from '../../../utils/hooks/useApiMutation';
+import Transition from '../../../components/Transition';
+import type { Theme } from '../../../components/Theme';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     margin: 0,
     padding: '0 200px 50px 0',
   },
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 20,
     borderRadius: 4,
   },
@@ -115,13 +126,29 @@ interface PoliciesComponentProps {
 const PoliciesComponent: FunctionComponent<PoliciesComponentProps> = ({
   queryRef,
 }) => {
-  const data = usePreloadedQuery(policiesQuery, queryRef);
   const isEnterpriseEdition = useEnterpriseEdition();
+  const [openPlatformOrganizationChanges, setOpenPlatformOrganizationChanges] = useState<boolean>(false);
+
+  const data = usePreloadedQuery(policiesQuery, queryRef);
   const settings = useFragment<Policies$key>(PoliciesFragment, data.settings);
-  const [commitField] = useMutation(policiesFieldPatch);
+  const [platformOrganization, setPlatformOrganization] = useState(
+    settings.platform_organization
+      ? {
+        label: settings.platform_organization?.name,
+        value: settings.platform_organization?.id,
+      }
+      : null,
+  );
+
+  const [commitField] = useApiMutation(policiesFieldPatch);
+
   const classes = useStyles();
+  const theme = useTheme<Theme>();
+
   const { t_i18n } = useFormatter();
-  const handleSubmitField = (name: string, value: string | Option) => {
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Policies | Security | Settings'));
+  const handleSubmitField = (name: string, value: string | string[] | Option | null) => {
     policiesValidation()
       .validateAt(name, { [name]: value })
       .then(() => {
@@ -138,12 +165,7 @@ const PoliciesComponent: FunctionComponent<PoliciesComponentProps> = ({
       .catch(() => false);
   };
   const initialValues = {
-    platform_organization: settings.platform_organization
-      ? {
-        label: settings.platform_organization?.name,
-        value: settings.platform_organization?.id,
-      }
-      : '',
+    platform_organization: platformOrganization,
     platform_login_message: settings.platform_login_message,
     platform_consent_message: settings.platform_consent_message,
     platform_consent_confirm_text: settings.platform_consent_confirm_text,
@@ -162,49 +184,99 @@ const PoliciesComponent: FunctionComponent<PoliciesComponentProps> = ({
   return (
     <div className={classes.container}>
       <AccessesMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Security') }, { label: t_i18n('Policies'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Security') }, { label: t_i18n('Policies'), current: true }]} />
       <Grid container={true} spacing={3}>
-        <Grid item={true} xs={12}>
+        <Grid item xs={12}>
           <Formik
-            onSubmit={() => {}}
+            onSubmit={() => {
+            }}
             initialValues={initialValues}
             enableReinitialize={true}
             validationSchema={policiesValidation()}
           >
-            {() => (
+            {({ values, setFieldValue }) => (
               <Form>
                 <Grid container={true} spacing={3}>
-                  <Grid item={true} xs={6}>
-                    <Typography variant="h4" gutterBottom={true}>
-                      {t_i18n('Platform main organization')} <EEChip />
-                    </Typography>
-                    <Paper classes={{ root: classes.paper }} variant="outlined">
-                      <Alert severity="warning" variant="outlined">
-                        {t_i18n(
-                          'When you set a platform organization, all the pieces of knowledge which are not shared with any organization will be accessible only for users part of the platform one.',
-                        )}
-                      </Alert>
-                      <EETooltip>
-                        <span>
-                          <ObjectOrganizationField
-                            name="platform_organization"
-                            disabled={!isEnterpriseEdition}
-                            label={'Platform organization'}
-                            onChange={(name: string, value: Option) => handleSubmitField(name, value || null)
-                            }
-                            style={{ width: '100%', marginTop: 20 }}
-                            multiple={false}
-                            outlined={false}
-                          />
-                        </span>
-                      </EETooltip>
-                    </Paper>
+                  <Grid item xs={6}>
+                    <DangerZoneBlock
+                      type={'platform_organization'}
+                      title={(
+                        <>
+                          {t_i18n('Platform main organization')} <EEChip />
+                        </>
+                      )}
+                      component={({ disabled, style }) => (
+                        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined" style={style}>
+                          <Alert severity="info" variant="outlined">
+                            {t_i18n('When you set a platform organization you enable the organization sharing and segregation feature.')}
+                            <br/>
+                            {t_i18n('Therefore all pieces of knowledge which are not explicitly shared with any organization won\'t be accessible to user(s) not member of the platform organization.')}
+                          </Alert>
+                          <EETooltip>
+                            <ObjectOrganizationField
+                              name="platform_organization"
+                              disabled={disabled || !isEnterpriseEdition}
+                              label={'Platform organization'}
+                              onChange={() => setOpenPlatformOrganizationChanges(true)}
+                              style={{ width: '100%', marginTop: 20 }}
+                              multiple={false}
+                              outlined={false}
+                            />
+                          </EETooltip>
+                          <Dialog
+                            PaperProps={{ elevation: 1 }}
+                            open={openPlatformOrganizationChanges}
+                            keepMounted
+                            TransitionComponent={Transition}
+                            onClose={() => setOpenPlatformOrganizationChanges(false)}
+                          >
+                            <DialogTitle>{t_i18n('Numerous repercussions linked to the activation of this feature')}</DialogTitle>
+                            <DialogContent>
+                              <DialogContentText>
+                                <Alert
+                                  severity="warning"
+                                  variant="outlined"
+                                  color="dangerZone"
+                                  style={{
+                                    borderColor: theme.palette.dangerZone.main,
+                                  }}
+                                >
+                                  {t_i18n(
+                                    'This feature has implications for the entire platform and must be fully understood before being used. For example, it\'s mandatory to have organizations set up for each user, otherwise they won\'t be able to log in. It is also mandatory to include connector\'s users in the platform main organization to avoid import problems.',
+                                  )}
+                                </Alert>
+                              </DialogContentText>
+                            </DialogContent>
+                            <DialogActions>
+                              <Button
+                                onClick={() => {
+                                  setFieldValue('platform_organization', platformOrganization);
+                                  setOpenPlatformOrganizationChanges(false);
+                                }}
+                              >
+                                {t_i18n('Cancel')}
+                              </Button>
+                              <Button
+                                color="secondary"
+                                onClick={() => {
+                                  setPlatformOrganization(values.platform_organization);
+                                  setOpenPlatformOrganizationChanges(false);
+                                  handleSubmitField('platform_organization', values.platform_organization);
+                                }}
+                              >
+                                {t_i18n('Validate')}
+                              </Button>
+                            </DialogActions>
+                          </Dialog>
+                        </Paper>
+                      )}
+                    />
                   </Grid>
-                  <Grid item={true} xs={6}>
+                  <Grid item xs={6}>
                     <Typography variant="h4" gutterBottom={true}>
                       {t_i18n('Authentication strategies')}
                     </Typography>
-                    <Paper classes={{ root: classes.paper }} variant="outlined">
+                    <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
                       <List style={{ marginTop: -20 }}>
                         {authProviders.map((provider) => (
                           <ListItem key={provider.strategy} divider={true}>
@@ -237,11 +309,11 @@ const PoliciesComponent: FunctionComponent<PoliciesComponentProps> = ({
                       />
                     </Paper>
                   </Grid>
-                  <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+                  <Grid item xs={6}>
                     <Typography variant="h4" gutterBottom={true}>
                       {t_i18n('Local password policies')}
                     </Typography>
-                    <Paper classes={{ root: classes.paper }} variant="outlined">
+                    <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
                       <Field
                         component={TextField}
                         type="number"
@@ -362,7 +434,7 @@ const PoliciesComponent: FunctionComponent<PoliciesComponentProps> = ({
                       />
                     </Paper>
                   </Grid>
-                  <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+                  <Grid item xs={6}>
                     <Typography variant="h4" gutterBottom={true}>
                       {t_i18n('Login messages')}
                     </Typography>
@@ -398,7 +470,7 @@ const PoliciesComponent: FunctionComponent<PoliciesComponentProps> = ({
                       />
                     </Paper>
                   </Grid>
-                  <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+                  <Grid item xs={6}>
                     <Typography variant="h4" gutterBottom={true}>
                       {t_i18n('Platform Banner Configuration')}
                     </Typography>

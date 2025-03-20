@@ -11,6 +11,7 @@ const fsExtra = require("fs-extra");
 const basePath = "";
 const clients = [];
 const buildPath = "./builder/dev/build/";
+const frontPort = process.env.FRONT_END_PORT ?? 3000;
 const debounce = (func, timeout = 500) => {
   let timer;
   return (...args) => {
@@ -20,8 +21,9 @@ const debounce = (func, timeout = 500) => {
     }, timeout);
   };
 };
-const middleware = (target, ws = false) => createProxyMiddleware(basePath + target, {
+const middleware = (target, ws = false) => createProxyMiddleware({
   target: process.env.BACK_END_URL ?? "http://localhost:4000",
+  pathFilter: basePath + target,
   changeOrigin: true,
   ws,
 })
@@ -34,7 +36,7 @@ esbuild.context({
   publicPath: "/",
   bundle: true,
   banner: {
-    js: ' (() => new EventSource("http://localhost:3000/dev").onmessage = () => location.reload())();',
+    js: ` (() => new EventSource("http://localhost:${frontPort}/dev").onmessage = () => location.reload())();`,
   },
   loader: {
     ".js": "jsx",
@@ -118,6 +120,7 @@ esbuild.context({
     const data = readFileSync(`${__dirname}/index.html`, "utf8");
     const withOptionValued = data
       .replace(/%BASE_PATH%/g, basePath)
+      .replace(/%APP_SCRIPT_SNIPPET%/g,  '')
       .replace(/%APP_TITLE%/g, "OpenCTI Dev")
       .replace(/%APP_DESCRIPTION%/g, "OpenCTI Development platform")
       .replace(/%APP_FAVICON%/g, `${basePath}/static/ext/favicon.png`)
@@ -132,6 +135,6 @@ esbuild.context({
     }
     return res.send(withOptionValued);
   });
-  app.listen(3000);
+  app.listen(frontPort);
   // endregion
 });

@@ -2,10 +2,11 @@ import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
 import * as R from 'ramda';
 import { propOr } from 'ramda';
-import { createFragmentContainer, graphql } from 'react-relay';
-import withStyles from '@mui/styles/withStyles';
-import { Route, withRouter } from 'react-router-dom';
-import { QueryRenderer } from '../../../../relay/environment';
+import { createFragmentContainer, createRefetchContainer, graphql, useFragment } from 'react-relay';
+import { Route, Routes } from 'react-router-dom';
+import { containerAddStixCoreObjectsLinesRelationAddMutation } from '../../common/containers/ContainerAddStixCoreObjectsLines';
+import StixCoreRelationship from '../../common/stix_core_relationships/StixCoreRelationship';
+import { commitMutation, QueryRenderer } from '../../../../relay/environment';
 import ContainerHeader from '../../common/containers/ContainerHeader';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import AttackPatternsMatrix from '../../techniques/attack_patterns/AttackPatternsMatrix';
@@ -16,93 +17,146 @@ import CaseRfiKnowledgeGraph, { caseRfiKnowledgeGraphQuery } from './CaseRfiKnow
 import CaseRfiKnowledgeTimeLine, { caseRfiKnowledgeTimeLineQuery } from './CaseRfiKnowledgeTimeLine';
 import CaseRfiKnowledgeCorrelation, { caseRfiKnowledgeCorrelationQuery } from './CaseRfiKnowledgeCorrelation';
 import ContentKnowledgeTimeLineBar from '../../common/containers/ContainertKnowledgeTimeLineBar';
-import ContainerContent, { containerContentQuery } from '../../common/containers/ContainerContent';
 import investigationAddFromContainer from '../../../../utils/InvestigationUtils';
-
-const styles = () => ({
-  container: {
-    width: '100%',
-    height: '100%',
-    margin: 0,
-    padding: 0,
-  },
-});
+import withRouter from '../../../../utils/compat_router/withRouter';
 
 export const caseRfiKnowledgeAttackPatternsGraphQuery = graphql`
-  query CaseRfiKnowledgeAttackPatternsGraphQuery($id: String!) {
-    caseRfi(id: $id) {
-      id
-      name
-      x_opencti_graph_data
-      confidence
-      createdBy {
-        ... on Identity {
-          id
-          name
-          entity_type
-        }
-      }
-      objectMarking {
-        id
-        definition_type
-        definition
-        x_opencti_order
-        x_opencti_color
-      }
-      objects(all: true, types: ["Attack-Pattern"]) {
-        edges {
-          node {
-            ... on AttackPattern {
-              id
-              entity_type
-              parent_types
-              name
-              description
-              x_mitre_platforms
-              x_mitre_permissions_required
-              x_mitre_id
-              x_mitre_detection
-              isSubAttackPattern
-              parentAttackPatterns {
-                edges {
-                  node {
+    query CaseRfiKnowledgeAttackPatternsGraphQuery($id: String!) {
+        caseRfi(id: $id) {
+            id
+            name
+            x_opencti_graph_data
+            confidence
+            createdBy {
+                ... on Identity {
                     id
                     name
-                    description
-                    x_mitre_id
-                  }
+                    entity_type
                 }
-              }
-              subAttackPatterns {
-                edges {
-                  node {
-                    id
-                    name
-                    description
-                    x_mitre_id
-                  }
-                }
-              }
-              killChainPhases {
-                id
-                kill_chain_name
-                phase_name
-                x_opencti_order
-              }
             }
-          }
+            objectMarking {
+                id
+                definition_type
+                definition
+                x_opencti_order
+                x_opencti_color
+            }
+            ...CaseRfiKnowledgeAttackPatterns_fragment
         }
-      }
     }
-  }
 `;
+
+const CaseRfiAttackPatternsFragment = graphql`
+    fragment CaseRfiKnowledgeAttackPatterns_fragment on CaseRfi {
+        objects(all: true, types: ["Attack-Pattern"]) {
+            edges {
+                node {
+                    ... on AttackPattern {
+                        id
+                        entity_type
+                        parent_types
+                        name
+                        description
+                        x_mitre_platforms
+                        x_mitre_permissions_required
+                        x_mitre_id
+                        x_mitre_detection
+                        isSubAttackPattern
+                        parentAttackPatterns {
+                            edges {
+                                node {
+                                    id
+                                    name
+                                    description
+                                    x_mitre_id
+                                }
+                            }
+                        }
+                        subAttackPatterns {
+                            edges {
+                                node {
+                                    id
+                                    name
+                                    description
+                                    x_mitre_id
+                                }
+                            }
+                        }
+                        killChainPhases {
+                            id
+                            kill_chain_name
+                            phase_name
+                            x_opencti_order
+                        }
+                    }
+                }
+            }
+        }
+    }
+`;
+
+const AttackPatternMatrixComponent = (props) => {
+  const {
+    data,
+    caseData,
+    currentKillChain,
+    currentModeOnlyActive,
+    currentColorsReversed,
+    handleChangeKillChain,
+    handleToggleColorsReversed,
+    handleToggleModeOnlyActive,
+  } = props;
+  const attackPatternObjects = useFragment(CaseRfiAttackPatternsFragment, data.caseRfi);
+  const attackPatterns = (attackPatternObjects.objects.edges)
+    .map((n) => n.node)
+    .filter((n) => n.entity_type === 'Attack-Pattern');
+
+  const handleAddEntity = (entity) => {
+    const input = {
+      toId: entity.id,
+      relationship_type: 'object',
+    };
+    commitMutation({
+      mutation: containerAddStixCoreObjectsLinesRelationAddMutation,
+      variables: {
+        id: caseData.id,
+        input,
+      },
+      onCompleted: () => {
+        props.relay.refetch({ id: caseData.id });
+      },
+    });
+  };
+
+  return (
+    <AttackPatternsMatrix
+      entity={caseData}
+      attackPatterns={attackPatterns}
+      currentKillChain={currentKillChain}
+      currentModeOnlyActive={currentModeOnlyActive}
+      currentColorsReversed={currentColorsReversed}
+      handleChangeKillChain={handleChangeKillChain}
+      handleToggleColorsReversed={handleToggleColorsReversed}
+      handleToggleModeOnlyActive={handleToggleModeOnlyActive}
+      handleAdd={handleAddEntity}
+    />
+  );
+};
+
+const AttackPatternMatrixContainer = createRefetchContainer(
+  AttackPatternMatrixComponent,
+  {
+    data: CaseRfiAttackPatternsFragment,
+  },
+  caseRfiKnowledgeAttackPatternsGraphQuery,
+);
 
 class CaseRfiKnowledgeComponent extends Component {
   constructor(props) {
     const LOCAL_STORAGE_KEY = `case-rfis-knowledge-${props.caseData.id}`;
     super(props);
     const params = buildViewParamsFromUrlAndStorage(
-      props.history,
+      props.navigate,
       props.location,
       LOCAL_STORAGE_KEY,
     );
@@ -124,7 +178,7 @@ class CaseRfiKnowledgeComponent extends Component {
   saveView() {
     const LOCAL_STORAGE_KEY = `case-rfis-knowledge-${this.props.caseData.id}`;
     saveViewParameters(
-      this.props.history,
+      this.props.navigate,
       this.props.location,
       LOCAL_STORAGE_KEY,
       this.state,
@@ -216,12 +270,10 @@ class CaseRfiKnowledgeComponent extends Component {
 
   render() {
     const {
-      classes,
       caseData,
       location,
-      match: {
-        params: { mode },
-      },
+      params: { '*': mode },
+      enableReferences,
     } = this.props;
     const {
       currentModeOnlyActive,
@@ -254,7 +306,12 @@ class CaseRfiKnowledgeComponent extends Component {
     };
     return (
       <div
-        className={classes.container}
+        style={{
+          width: '100%',
+          height: '100%',
+          margin: 0,
+          padding: 0,
+        }}
         id={location.pathname.includes('matrix') ? 'parent' : 'container'}
       >
         {mode !== 'graph' && (
@@ -262,96 +319,27 @@ class CaseRfiKnowledgeComponent extends Component {
           container={caseData}
           PopoverComponent={<CaseRfiPopover id={caseData.id}/>}
           link={`/dashboard/cases/rfis/${caseData.id}/knowledge`}
-          modes={['graph', 'content', 'timeline', 'correlation', 'matrix']}
+          modes={['graph', 'timeline', 'correlation', 'matrix']}
           currentMode={mode}
           knowledge={true}
           enableSuggestions={true}
           investigationAddFromContainer={investigationAddFromContainer}
         />
         )}
-        <Route
-          exact
-          path="/dashboard/cases/rfis/:caseId/knowledge/graph"
-          render={() => (
-            <QueryRenderer
-              query={caseRfiKnowledgeGraphQuery}
-              variables={{ id: caseData.id }}
-              render={({ props }) => {
-                if (props && props.caseRfi) {
-                  return (
-                    <CaseRfiKnowledgeGraph
-                      caseData={props.caseRfi}
-                      mode={mode}
-                    />
-                  );
-                }
-                return (
-                  <Loader
-                    variant={LoaderVariant.inElement}
-                    withTopMargin={true}
-                  />
-                );
-              }}
-            />
-          )}
-        />
-        <Route
-          exact
-          path="/dashboard/cases/rfis/:caseId/knowledge/content"
-          render={() => (
-            <QueryRenderer
-              query={containerContentQuery}
-              variables={{ id: caseData.id }}
-              render={({ props }) => {
-                if (props && props.container) {
-                  return <ContainerContent containerData={props.container}/>;
-                }
-                return (
-                  <Loader
-                    variant={LoaderVariant.inElement}
-                    withTopMargin={true}
-                  />
-                );
-              }}
-            />
-          )}
-        />
-        <Route
-          exact
-          path="/dashboard/cases/rfis/:caseId/knowledge/timeline"
-          render={() => (
-            <>
-              <ContentKnowledgeTimeLineBar
-                handleTimeLineSearch={this.handleTimeLineSearch.bind(this)}
-                timeLineSearchTerm={timeLineSearchTerm}
-                timeLineDisplayRelationships={timeLineDisplayRelationships}
-                handleToggleTimeLineDisplayRelationships={this.handleToggleTimeLineDisplayRelationships.bind(
-                  this,
-                )}
-                timeLineFunctionalDate={timeLineFunctionalDate}
-                handleToggleTimeLineFunctionalDate={this.handleToggleTimeLineFunctionalDate.bind(
-                  this,
-                )}
-                timeLineFilters={timeLineFilters}
-                handleAddTimeLineFilter={this.handleAddTimeLineFilter.bind(
-                  this,
-                )}
-                handleRemoveTimeLineFilter={this.handleRemoveTimeLineFilter.bind(
-                  this,
-                )}
-                handleSwitchFilterLocalMode={this.handleSwitchFilterLocalMode.bind(this)}
-                handleSwitchFilterGlobalMode={this.handleSwitchFilterGlobalMode.bind(this)}
-              />
+        <Routes>
+          <Route
+            path="/graph"
+            element={
               <QueryRenderer
-                query={caseRfiKnowledgeTimeLineQuery}
-                variables={{ id: caseData.id, ...timeLinePaginationOptions }}
+                query={caseRfiKnowledgeGraphQuery}
+                variables={{ id: caseData.id }}
                 render={({ props }) => {
                   if (props && props.caseRfi) {
                     return (
-                      <CaseRfiKnowledgeTimeLine
+                      <CaseRfiKnowledgeGraph
                         caseData={props.caseRfi}
-                        dateAttribute={orderBy}
-                        displayRelationships={timeLineDisplayRelationships}
+                        mode={mode}
+                        enableReferences={enableReferences}
                       />
                     );
                   }
@@ -363,75 +351,119 @@ class CaseRfiKnowledgeComponent extends Component {
                   );
                 }}
               />
-            </>
-          )}
-        />
-        <Route
-          exact
-          path="/dashboard/cases/rfis/:caseId/knowledge/correlation"
-          render={() => (
-            <QueryRenderer
-              query={caseRfiKnowledgeCorrelationQuery}
-              variables={{ id: caseData.id }}
-              render={({ props }) => {
-                if (props && props.caseRfi) {
+          }
+          />
+          <Route
+            path="/timeline"
+            element={
+              <>
+                <ContentKnowledgeTimeLineBar
+                  handleTimeLineSearch={this.handleTimeLineSearch.bind(this)}
+                  timeLineSearchTerm={timeLineSearchTerm}
+                  timeLineDisplayRelationships={timeLineDisplayRelationships}
+                  handleToggleTimeLineDisplayRelationships={this.handleToggleTimeLineDisplayRelationships.bind(
+                    this,
+                  )}
+                  timeLineFunctionalDate={timeLineFunctionalDate}
+                  handleToggleTimeLineFunctionalDate={this.handleToggleTimeLineFunctionalDate.bind(
+                    this,
+                  )}
+                  timeLineFilters={timeLineFilters}
+                  handleAddTimeLineFilter={this.handleAddTimeLineFilter.bind(
+                    this,
+                  )}
+                  handleRemoveTimeLineFilter={this.handleRemoveTimeLineFilter.bind(
+                    this,
+                  )}
+                  handleSwitchFilterLocalMode={this.handleSwitchFilterLocalMode.bind(this)}
+                  handleSwitchFilterGlobalMode={this.handleSwitchFilterGlobalMode.bind(this)}
+                />
+                <QueryRenderer
+                  query={caseRfiKnowledgeTimeLineQuery}
+                  variables={{ id: caseData.id, ...timeLinePaginationOptions }}
+                  render={({ props }) => {
+                    if (props && props.caseRfi) {
+                      return (
+                        <CaseRfiKnowledgeTimeLine
+                          caseData={props.caseRfi}
+                          dateAttribute={orderBy}
+                          displayRelationships={timeLineDisplayRelationships}
+                        />
+                      );
+                    }
+                    return (
+                      <Loader
+                        variant={LoaderVariant.inElement}
+                        withTopMargin={true}
+                      />
+                    );
+                  }}
+                />
+              </>
+          }
+          />
+          <Route
+            path="/correlation"
+            element={
+              <QueryRenderer
+                query={caseRfiKnowledgeCorrelationQuery}
+                variables={{ id: caseData.id }}
+                render={({ props }) => {
+                  if (props && props.caseRfi) {
+                    return (
+                      <CaseRfiKnowledgeCorrelation caseData={props.caseRfi} />
+                    );
+                  }
                   return (
-                    <CaseRfiKnowledgeCorrelation caseData={props.caseRfi}/>
-                  );
-                }
-                return (
-                  <Loader
-                    variant={LoaderVariant.inElement}
-                    withTopMargin={true}
-                  />
-                );
-              }}
-            />
-          )}
-        />
-        <Route
-          exact
-          path="/dashboard/cases/rfis/:caseId/knowledge/matrix"
-          render={() => (
-            <QueryRenderer
-              query={caseRfiKnowledgeAttackPatternsGraphQuery}
-              variables={{ id: caseData.id }}
-              render={({ props }) => {
-                if (props && props.caseRfi) {
-                  const attackPatterns = R.pipe(
-                    R.map((n) => n.node),
-                    R.filter((n) => n.entity_type === 'Attack-Pattern'),
-                  )(props.caseRfi.objects.edges);
-                  return (
-                    <AttackPatternsMatrix
-                      entity={caseData}
-                      attackPatterns={attackPatterns}
-                      searchTerm=""
-                      currentKillChain={currentKillChain}
-                      currentModeOnlyActive={currentModeOnlyActive}
-                      currentColorsReversed={currentColorsReversed}
-                      handleChangeKillChain={this.handleChangeKillChain.bind(
-                        this,
-                      )}
-                      handleToggleColorsReversed={this.handleToggleColorsReversed.bind(
-                        this,
-                      )}
-                      handleToggleModeOnlyActive={this.handleToggleModeOnlyActive.bind(
-                        this,
-                      )}
+                    <Loader
+                      variant={LoaderVariant.inElement}
+                      withTopMargin={true}
                     />
                   );
-                }
-                return (
-                  <Loader
-                    variant={LoaderVariant.inElement}
-                    withTopMargin={true}
-                  />
-                );
-              }}
-            />
-          )}
-        />
+                }}
+              />
+          }
+          />
+          <Route
+            path="/matrix"
+            element={
+              <QueryRenderer
+                query={caseRfiKnowledgeAttackPatternsGraphQuery}
+                variables={{ id: caseData.id }}
+                render={({ props }) => {
+                  if (props && props.caseRfi) {
+                    return (
+                      <AttackPatternMatrixContainer
+                        data={props}
+                        caseData={caseData}
+                        currentKillChain={currentKillChain}
+                        currentModeOnlyActive={currentModeOnlyActive}
+                        currentColorsReversed={currentColorsReversed}
+                        handleChangeKillChain={this.handleChangeKillChain.bind(this)}
+                        handleToggleColorsReversed={this.handleToggleColorsReversed.bind(this)}
+                        handleToggleModeOnlyActive={this.handleToggleModeOnlyActive.bind(this)}
+                      />
+                    );
+                  }
+                  return (
+                    <Loader
+                      variant={LoaderVariant.inElement}
+                      withTopMargin={true}
+                    />
+                  );
+                }}
+              />
+            }
+          />
+          <Route
+            path="/relations/:relationId"
+            element={
+              <StixCoreRelationship
+                entityId={caseData.id}
+              />
+            }
+          />
+        </Routes>
       </div>
     );
   }
@@ -442,7 +474,8 @@ CaseRfiKnowledgeComponent.propTypes = {
   mode: PropTypes.string,
   classes: PropTypes.object,
   t: PropTypes.func,
-  history: PropTypes.object,
+  enableReferences: PropTypes.bool,
+  navigate: PropTypes.func,
 };
 
 const CaseRfiKnowledge = createFragmentContainer(CaseRfiKnowledgeComponent, {
@@ -458,4 +491,4 @@ const CaseRfiKnowledge = createFragmentContainer(CaseRfiKnowledgeComponent, {
   `,
 });
 
-export default R.compose(withRouter, withStyles(styles))(CaseRfiKnowledge);
+export default R.compose(withRouter)(CaseRfiKnowledge);

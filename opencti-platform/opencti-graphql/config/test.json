@@ -2,7 +2,7 @@
   "app": {
     "port": 4010,
     "performance_logger": false,
-    "disabled_dev_features": [],
+    "enabled_dev_features": ["*"],
     "sync_raw_start_remote_uri": "http://localhost:4200/graphql",
     "sync_live_start_remote_uri": "http://localhost:4200/graphql",
     "sync_direct_start_remote_uri": "http://localhost:4200/graphql",
@@ -10,7 +10,8 @@
     "app_logs": {
       "logs_level": "info",
       "logs_files": false,
-      "logs_console": true
+      "logs_console": true,
+      "extended_error_message": true
     },
     "audit_logs": {
       "logs_files": false,
@@ -29,6 +30,10 @@
         "enabled": false,
         "exporter_otlp": "",
         "exporter_prometheus": 14269
+      },
+      "filigran": {
+        "enabled": false,
+        "exporter_otlp": ""
       }
     },
     "admin": {
@@ -39,7 +44,7 @@
   },
   "http_proxy": "http://proxy.opencti.io:2000",
   "https_proxy": "https://proxy.opencti.io:2100",
-  "no_proxy": "localhost,127.0.0.0/8,internal.opencti.io",
+  "no_proxy": "localhost,127.0.0.0/8,internal.opencti.io,rabbitmq",
   "https_proxy_ca": [],
   "https_proxy_reject_unauthorized": false,
   "redis": {
@@ -72,6 +77,12 @@
   "connector_manager": {
     "enabled": true
   },
+  "import_csv_built_in_connector": {
+    "enabled": true,
+    "interval": 10000,
+    "validate_before_import": false,
+    "bulk_creation_size": 5
+  },
   "task_scheduler": {
     "enabled": true
   },
@@ -87,6 +98,9 @@
   "indicator_decay_manager": {
     "enabled": true,
     "interval": 6000000
+  },
+  "ingestion_manager": {
+    "enabled": false
   },
   "providers": {
     "local": {

@@ -4,11 +4,12 @@ import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import { FormikConfig } from 'formik/dist/types';
 import ConfidenceField from '@components/common/form/ConfidenceField';
+import useHelper from 'src/utils/hooks/useHelper';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
 import StatusField from '../../common/form/StatusField';
 import { adaptFieldValue } from '../../../../utils/String';
@@ -21,6 +22,7 @@ import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEdito
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { GenericContext } from '../../common/model/GenericContextModel';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import RegionDeletion from './RegionDeletion';
 
 const regionMutationFieldPatch = graphql`
   mutation RegionEditionOverviewFieldPatchMutation(
@@ -87,6 +89,7 @@ const regionEditionOverviewFragment = graphql`
     name
     description
     confidence
+    entity_type
     createdBy {
       ... on Identity {
         id
@@ -137,7 +140,7 @@ RegionEdititionOverviewProps
   const { t_i18n } = useFormatter();
   const region = useFragment(regionEditionOverviewFragment, regionRef);
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
     references: Yup.array(),
@@ -212,6 +215,8 @@ RegionEdititionOverviewProps
     x_opencti_workflow_id: convertStatus(t_i18n, region) as Option,
     references: [],
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   return (
     <Formik
       enableReinitialize={true}
@@ -227,7 +232,7 @@ RegionEdititionOverviewProps
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={region} />
           <Field
             component={TextField}
@@ -297,16 +302,24 @@ RegionEdititionOverviewProps
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={region.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <RegionDeletion
+                  id={region.id}
+                />
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={region.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

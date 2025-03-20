@@ -18,6 +18,7 @@ enum IndicatorsOrdering {
   objectMarking
   creator
   createdBy
+  _score
 }
 type IndicatorConnection {
   pageInfo: PageInfo!
@@ -50,6 +51,11 @@ type DecayChartData {
   live_score_serie: [DecayHistory!]
 }
 
+type ObservablesValues {
+  type: String
+  value: String
+}
+
 type Indicator implements BasicObject & StixObject & StixCoreObject & StixDomainObject {
   id: ID! # internal_id
   standard_id: String!
@@ -62,6 +68,7 @@ type Indicator implements BasicObject & StixObject & StixCoreObject & StixDomain
   spec_version: String!
   created_at: DateTime!
   updated_at: DateTime!
+  draftVersion: DraftVersion
   # inferences
   x_opencti_inferences: [Inference]
   # StixCoreObject
@@ -136,6 +143,7 @@ type Indicator implements BasicObject & StixObject & StixCoreObject & StixDomain
     search: String
     filters: FilterGroup
   ): [Distribution] @auth(for: [KNOWLEDGE, EXPLORE])
+  opinions_metrics: OpinionsMetrics
   # StixDomainObject
   revoked: Boolean!
   confidence: Int
@@ -144,6 +152,7 @@ type Indicator implements BasicObject & StixObject & StixCoreObject & StixDomain
   modified: DateTime
   x_opencti_graph_data: String
   objectAssignee: [Assignee!]
+  objectParticipant: [Participant!]
   avatar: OpenCtiFile
   # Indicator
   pattern_type: String
@@ -157,6 +166,7 @@ type Indicator implements BasicObject & StixObject & StixCoreObject & StixDomain
   x_opencti_score: Int
   x_opencti_detection: Boolean
   x_opencti_main_observable_type: String
+  x_opencti_observable_values: [ObservablesValues!]
   x_mitre_platforms: [String]
   killChainPhases: [KillChainPhase!]
   observables(first: Int): StixCyberObservableConnection
@@ -170,8 +180,23 @@ type Indicator implements BasicObject & StixObject & StixCoreObject & StixDomain
   # Technical
   creators: [Creator!]
   toStix: String
-  importFiles(first: Int, prefixMimeType: String): FileConnection
-  pendingFiles(first: Int): FileConnection
+  importFiles(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+  pendingFiles(
+    first: Int
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
   exportFiles(first: Int): FileConnection
   editContext: [EditUserContext!]
   connectors(onlyAlive: Boolean): [Connector]
@@ -186,7 +211,7 @@ input IndicatorAddInput {
   pattern_type: String!
   pattern_version: String
   pattern: String!
-  name: String! @constraint(minLength: 2)
+  name: String! @constraint(minLength: 2, format: "not-blank")
   description: String
   indicator_types: [String!]
   valid_from: DateTime

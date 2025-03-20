@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -35,7 +35,11 @@ import { useFormatter } from '../../../../../components/i18n';
 import { emptyFilterGroup } from '../../../../../utils/filters/filtersUtils';
 import { fetchQuery } from '../../../../../relay/environment';
 import Breadcrumbs from '../../../../../components/Breadcrumbs';
+import useGranted, { KNOWLEDGE, SETTINGS_SECURITYACTIVITY } from '../../../../../utils/hooks/useGranted';
+import useConnectedDocumentModifier from '../../../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>(() => ({
   container: {
     margin: 0,
@@ -96,7 +100,15 @@ const Audit = () => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState([]);
   const { settings } = useAuth();
+  const hasBothCapabilities = useGranted(
+    [SETTINGS_SECURITYACTIVITY, KNOWLEDGE],
+    true,
+  );
+  const knowledgeCapability = useGranted([KNOWLEDGE], true);
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Activity: Events | Settings'));
+
   const {
     viewStorage,
     paginationOptions,
@@ -187,7 +199,8 @@ const Audit = () => {
         setLoading(false);
       });
   };
-  const extraFields = (
+
+  const extraFields = hasBothCapabilities ? (
     <div style={{ marginLeft: 10 }}>
       <FormControlLabel
         value="start"
@@ -200,16 +213,20 @@ const Audit = () => {
             }}
             checked={types?.length === 2}
           />
-        }
-        label="Include knowledge"
+          }
+        label={t_i18n('Include knowledge')}
         labelPlacement="end"
       />
     </div>
-  );
+  ) : <></>;
   return (
     <div className={classes.container}>
-      <ActivityMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Activity') }, { label: t_i18n('Events'), current: true }]} />
+      <ActivityMenu/>
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Activity') }, {
+        label: t_i18n('Events'),
+        current: true,
+      }]}
+      />
       {settings.platform_demo && (
         <Alert severity="info" variant="outlined" style={{ marginBottom: 30 }}>
           {t_i18n(
@@ -235,7 +252,7 @@ const Audit = () => {
         paginationOptions={paginationOptions}
         numberOfElements={numberOfElements}
         handleExportCsv={handleExportCsv}
-        entityTypes={['History']}
+        entityTypes={knowledgeCapability ? ['History'] : ['Activity']}
       >
         {queryRef && (
           <React.Suspense

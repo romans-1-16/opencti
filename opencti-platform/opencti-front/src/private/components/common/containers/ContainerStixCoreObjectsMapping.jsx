@@ -1,32 +1,19 @@
 import React from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import { ContainerStixCoreObjectsMappingLineDummy } from './ContainerStixCoreObjectsMappingLine';
 import ListLines from '../../../../components/list_lines/ListLines';
 import ContainerStixCoreObjectsMappingLines, { containerStixCoreObjectsMappingLinesQuery } from './ContainerStixCoreObjectsMappingLines';
 import useAuth from '../../../../utils/hooks/useAuth';
-import ContainerAddStixCoreObjects from './ContainerAddStixCoreObjects';
 import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStorage';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import { emptyFilterGroup } from '../../../../utils/filters/filtersUtils';
 
-const useStyles = makeStyles(() => ({
-  container: {
-    margin: 0,
-    padding: '15px 0 0 0',
-  },
-}));
-
 const ContainerStixCoreObjectsMapping = ({
   container,
   height,
-  addMapping,
   contentMappingData,
-  contentMapping,
-  openDrawer,
-  selectedText,
-  handleClose,
+  contentMappingCount,
+  enableReferences,
 }) => {
-  const classes = useStyles();
   const {
     platformModuleHelpers: { isRuntimeFieldEnable },
   } = useAuth();
@@ -47,7 +34,9 @@ const ContainerStixCoreObjectsMapping = ({
       sortBy: 'name',
       orderAsc: false,
       openExports: false,
+      view: 'mapping',
     },
+    true,
   );
   const {
     numberOfElements,
@@ -89,22 +78,23 @@ const ContainerStixCoreObjectsMapping = ({
     },
     objectMarking: {
       label: 'Marking',
-      width: '10%',
+      width: '12%',
       isSortable: isRuntimeSort,
     },
     mapping: {
       label: 'Mapping',
-      width: '10%',
+      width: '8%',
       isSortable: false,
     },
   };
+
   const queryRef = useQueryLoading(
     containerStixCoreObjectsMappingLinesQuery,
     paginationOptions,
   );
 
   return (
-    <div className={classes.container}>
+    <div>
       <ListLines
         helpers={helpers}
         sortBy={sortBy}
@@ -123,6 +113,7 @@ const ContainerStixCoreObjectsMapping = ({
         secondaryAction={true}
         numberOfElements={numberOfElements}
         noPadding={true}
+        disableCards
       >
         {queryRef && (
         <React.Suspense
@@ -137,7 +128,7 @@ const ContainerStixCoreObjectsMapping = ({
                   />
                 ))}
             </>
-              }
+                  }
         >
           <ContainerStixCoreObjectsMappingLines
             container={container}
@@ -148,27 +139,12 @@ const ContainerStixCoreObjectsMapping = ({
             setNumberOfElements={handleSetNumberOfElements}
             height={height}
             contentMappingData={contentMappingData}
-            contentMapping={contentMapping}
+            contentMappingCount={contentMappingCount}
+            enableReferences={enableReferences}
           />
         </React.Suspense>
         )}
       </ListLines>
-      <ContainerAddStixCoreObjects
-        containerId={container.id}
-        mapping={true}
-        selectedText={selectedText}
-        openDrawer={openDrawer}
-        handleClose={handleClose}
-        defaultCreatedBy={container.createdBy ?? null}
-        defaultMarkingDefinitions={container.objectMarking ?? []}
-        targetStixCoreObjectTypes={[
-          'Stix-Domain-Object',
-          'Stix-Cyber-Observable',
-        ]}
-        confidence={container.confidence}
-        paginationOptions={paginationOptions}
-        onAdd={addMapping}
-      />
     </div>
   );
 };

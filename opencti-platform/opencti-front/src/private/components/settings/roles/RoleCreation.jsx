@@ -11,7 +11,7 @@ import Drawer, { DrawerVariant } from '../../common/drawer/Drawer';
 import inject18n from '../../../../components/i18n';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 
 const styles = (theme) => ({
   drawerPaper: {
@@ -123,7 +123,7 @@ class RoleCreation extends Component {
             onReset={onClose}
           >
             {({ submitForm, handleReset, isSubmitting, isValid }) => (
-              <Form style={{ margin: '20px 0 20px 0' }}>
+              <Form>
                 <Field
                   component={TextField}
                   name="name"

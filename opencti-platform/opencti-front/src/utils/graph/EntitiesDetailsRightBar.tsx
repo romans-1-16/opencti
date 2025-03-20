@@ -18,6 +18,8 @@ import { isStixNestedRefRelationship } from '../Relation';
 import StixMetaObjectDetails from './StixMetaObjectDetails';
 import BasicRelationshipDetails from './BasicRelationshipDetails';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>(() => ({
   drawerPaper: {
     position: 'fixed',
@@ -30,6 +32,7 @@ const useStyles = makeStyles<Theme>(() => ({
     maxHeight: '60%',
     padding: '60px 0 20px 20px',
     zIndex: 900,
+    borderRadius: 4,
   },
   external: {
     marginTop: -2,

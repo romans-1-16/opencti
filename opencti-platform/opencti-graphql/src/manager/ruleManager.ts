@@ -3,7 +3,8 @@ import * as R from 'ramda';
 import type { Operation } from 'fast-json-patch';
 import * as jsonpatch from 'fast-json-patch';
 import { clearIntervalAsync, setIntervalAsync, type SetIntervalAsyncTimer } from 'set-interval-async/fixed';
-import { createStreamProcessor, EVENT_CURRENT_VERSION, lockResource, REDIS_STREAM_NAME, type StreamProcessor } from '../database/redis';
+import { createStreamProcessor, EVENT_CURRENT_VERSION, REDIS_STREAM_NAME, type StreamProcessor } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import conf, { booleanConf, logApp } from '../config/conf';
 import { createEntity, patchAttribute, storeLoadByIdWithRefs } from '../database/middleware';
 import { EVENT_TYPE_CREATE, EVENT_TYPE_DELETE, EVENT_TYPE_MERGE, EVENT_TYPE_UPDATE, isEmptyField, isNotEmptyField, READ_DATA_INDICES } from '../database/utils';
@@ -138,7 +139,7 @@ const isMatchRuleFilters = (rule: RuleDefinition, element: StixCoreObject): bool
 
 const handleRuleError = async (event: BaseEvent, error: unknown) => {
   const { type } = event;
-  logApp.error(error, { event, type });
+  logApp.error('[OPENCTI-MODULE] Rule manager error', { cause: error, event, type });
 };
 
 const applyCleanupOnDependencyIds = async (deletionIds: Array<string>, rules: Array<RuleRuntime>) => {
@@ -238,10 +239,8 @@ export const rulesCleanHandler = async (
           }
         }
       } catch (err: any) {
-        if (err.name === ALREADY_DELETED_ERROR) {
-          logApp.warn(err);
-        } else {
-          logApp.error(err, { manager: 'RULE_ENGINE' });
+        if (err.name !== ALREADY_DELETED_ERROR) {
+          logApp.error('[OPENCTI-MODULE] Rule manager clean error', { cause: err, manager: 'RULE_ENGINE' });
         }
       }
     }
@@ -289,7 +288,7 @@ const initRuleManager = () => {
     let lock;
     try {
       // Lock the manager
-      lock = await lockResource([RULE_ENGINE_KEY], { retryCount: 0 });
+      lock = await lockResources([RULE_ENGINE_KEY], { retryCount: 0 });
       running = true;
       const ruleManager = await getInitRuleManager();
       const { lastEventId } = ruleManager;
@@ -307,7 +306,7 @@ const initRuleManager = () => {
       if (e.name === TYPE_LOCK_ERROR) {
         logApp.debug('[OPENCTI-MODULE] Rule engine already started by another API');
       } else {
-        logApp.error(e, { manager: 'RULE_ENGINE' });
+        logApp.error('[OPENCTI-MODULE] Rule engine handler error', { cause: e, manager: 'RULE_ENGINE' });
       }
     } finally {
       running = false;

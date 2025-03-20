@@ -4,9 +4,10 @@ import React, { FunctionComponent } from 'react';
 import { graphql, useFragment } from 'react-relay';
 import * as Yup from 'yup';
 import { GenericContext } from '@components/common/model/GenericContextModel';
+import useHelper from 'src/utils/hooks/useHelper';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import TextField from '../../../../components/TextField';
 import { convertAssignees, convertCreatedBy, convertMarkings, convertParticipants, convertStatus } from '../../../../utils/edition';
@@ -26,6 +27,7 @@ import StatusField from '../../common/form/StatusField';
 import { CaseRfiEditionOverview_case$key } from './__generated__/CaseRfiEditionOverview_case.graphql';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import CaseRfiDeletion from './CaseRfiDeletion';
 
 export const caseRfiMutationFieldPatch = graphql`
   mutation CaseRfiEditionOverviewCaseFieldPatchMutation(
@@ -40,6 +42,7 @@ export const caseRfiMutationFieldPatch = graphql`
         commitMessage: $commitMessage
         references: $references
       ) {
+        x_opencti_graph_data
         ...CaseRfiEditionOverview_case
         ...CaseUtils_case
       }
@@ -67,6 +70,7 @@ const caseRfiEditionOverviewFragment = graphql`
     revoked
     description
     confidence
+    entity_type
     created
     information_types
     severity
@@ -171,7 +175,7 @@ const CaseRfiEditionOverview: FunctionComponent<CaseRfiEditionOverviewProps> = (
   const caseData = useFragment(caseRfiEditionOverviewFragment, caseRef);
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     information_types: Yup.array().nullable(),
     severity: Yup.string().nullable(),
@@ -250,6 +254,9 @@ const CaseRfiEditionOverview: FunctionComponent<CaseRfiEditionOverviewProps> = (
     x_opencti_workflow_id: convertStatus(t_i18n, caseData) as Option,
     references: [],
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   return (
     <Formik
       enableReinitialize={true}
@@ -265,8 +272,8 @@ const CaseRfiEditionOverview: FunctionComponent<CaseRfiEditionOverviewProps> = (
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
-          <AlertConfidenceForEntity entity={caseData} />
+        <Form>
+          <AlertConfidenceForEntity entity={caseData}/>
           <Field
             component={TextField}
             variant="standard"
@@ -395,16 +402,22 @@ const CaseRfiEditionOverview: FunctionComponent<CaseRfiEditionOverviewProps> = (
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={caseData.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <CaseRfiDeletion id={caseData.id}/>
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={caseData.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

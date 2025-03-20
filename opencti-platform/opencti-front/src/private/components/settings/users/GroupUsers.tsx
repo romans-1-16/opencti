@@ -14,11 +14,11 @@ import { GroupUsersLinesQuery, GroupUsersLinesQuery$variables } from './__genera
 import ColumnsLinesTitles from '../../../../components/ColumnsLinesTitles';
 import { UserLineDummy } from './UserLine';
 
-const useStyles = makeStyles<Theme>(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
     position: 'relative',
@@ -28,6 +28,17 @@ const useStyles = makeStyles<Theme>(() => ({
 interface GroupUsersProps {
   groupId: string;
 }
+
+export const initialStaticPaginationForGroupUsers = {
+  searchTerm: '',
+  sortBy: 'name',
+  orderAsc: true,
+  count: 25,
+  numberOfElements: {
+    number: 0,
+    symbol: '',
+  },
+};
 
 const GroupUsers: FunctionComponent<GroupUsersProps> = ({ groupId }) => {
   const classes = useStyles();
@@ -41,14 +52,7 @@ const GroupUsers: FunctionComponent<GroupUsersProps> = ({ groupId }) => {
     LOCAL_STORAGE_KEY,
     {
       id: groupId,
-      searchTerm: '',
-      sortBy: 'name',
-      orderAsc: true,
-      count: 25,
-      numberOfElements: {
-        number: 0,
-        symbol: '',
-      },
+      ...initialStaticPaginationForGroupUsers,
     },
     true,
   );
@@ -99,7 +103,7 @@ const GroupUsers: FunctionComponent<GroupUsersProps> = ({ groupId }) => {
     },
   };
   return (
-    <Grid item={true} xs={12} style={{ marginTop: 37 }}>
+    <Grid item xs={12} style={{ marginTop: 10 }}>
       <Typography
         variant="h4"
         gutterBottom={true}

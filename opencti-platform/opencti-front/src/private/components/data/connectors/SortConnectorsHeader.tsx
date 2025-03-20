@@ -13,30 +13,33 @@ const sortHeaderStyle: Record<string, CSSProperties> = {
   },
   name: {
     float: 'left',
-    width: '35%',
+    width: '25%',
     fontSize: 12,
     fontWeight: '700',
   },
   connector_type: {
     float: 'left',
-    width: '20%',
     fontSize: 12,
     fontWeight: '700',
   },
   auto: {
     float: 'left',
-    width: '20%',
     fontSize: 12,
     fontWeight: '700',
   },
   messages: {
     float: 'left',
-    width: '10%',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  active: {
+    float: 'left',
     fontSize: 12,
     fontWeight: '700',
   },
   updated_at: {
     float: 'left',
+    width: '15%',
     fontSize: 12,
     fontWeight: '700',
   },

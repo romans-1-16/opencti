@@ -1,33 +1,41 @@
-import React, { useRef } from 'react';
+import React, { useContext, useRef } from 'react';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
-import { SpeedDialIcon } from '@mui/material';
-import SpeedDial from '@mui/material/SpeedDial';
-import SpeedDialAction from '@mui/material/SpeedDialAction';
-import { CloudUploadOutlined, InsertChartOutlined } from '@mui/icons-material';
+import { graphql } from 'react-relay';
+import { CloudUploadOutlined, InsertChartOutlined, FileUploadOutlined } from '@mui/icons-material';
 import makeStyles from '@mui/styles/makeStyles';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { SpeedDial, SpeedDialAction, SpeedDialIcon } from '@mui/material';
+import { useTheme } from '@mui/styles';
+import ToggleButton from '@mui/material/ToggleButton';
+import useHelper from '../../../utils/hooks/useHelper';
 import VisuallyHiddenInput from '../common/VisuallyHiddenInput';
 import Drawer, { DrawerVariant } from '../common/drawer/Drawer';
 import { useFormatter } from '../../../components/i18n';
 import { handleError } from '../../../relay/environment';
 import TextField from '../../../components/TextField';
-import MarkdownField from '../../../components/MarkdownField';
+import MarkdownField from '../../../components/fields/MarkdownField';
 import { resolveLink } from '../../../utils/Entity';
 import { insertNode } from '../../../utils/store';
+import useApiMutation from '../../../utils/hooks/useApiMutation';
+import CreateEntityControlledDial from '../../../components/CreateEntityControlledDial';
+import { isNotEmptyField } from '../../../utils/utils';
+import GradientButton from '../../../components/GradientButton';
+import { UserContext } from '../../../utils/hooks/useAuth';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
-  buttons: {
-    marginTop: 20,
-    textAlign: 'right',
-  },
   createButton: {
     position: 'fixed',
     bottom: 30,
     right: 30,
     zIndex: 1100,
+  },
+  buttons: {
+    marginTop: 20,
+    textAlign: 'right',
   },
   button: {
     marginLeft: theme.spacing(2),
@@ -45,7 +53,7 @@ const workspaceMutation = graphql`
   mutation WorkspaceCreationMutation($input: WorkspaceAddInput!) {
     workspaceAdd(input: $input) {
       id
-      ...WorkspaceLine_node
+      ...WorkspacesLine_node
     }
   }
 `;
@@ -56,18 +64,26 @@ export const importMutation = graphql`
   }
 `;
 
-const workspaceValidation = (t) => Yup.object().shape({
-  name: Yup.string().required(t('This field is required')),
+const workspaceValidation = (t_i18n) => Yup.object().shape({
+  name: Yup.string().trim().min(2, t_i18n('Name must be at least 2 characters')).required(t_i18n('This field is required')),
   description: Yup.string().nullable(),
 });
 
 const WorkspaceCreation = ({ paginationOptions, type }) => {
   const classes = useStyles();
+  const theme = useTheme();
   const { t_i18n } = useFormatter();
   const inputRef = useRef();
-  const [commitImportMutation] = useMutation(importMutation);
-  const [commitCreationMutation] = useMutation(workspaceMutation);
-  const history = useHistory();
+  const { isFeatureEnable } = useHelper();
+  const FAB_REPLACED = isFeatureEnable('FAB_REPLACEMENT');
+  const { settings } = useContext(UserContext);
+  const importFromHubUrl = isNotEmptyField(settings?.platform_xtmhub_url)
+    ? `${settings.platform_xtmhub_url}/redirect/custom_dashboards?octi_instance_id=${settings.id}`
+    : '';
+
+  const [commitImportMutation] = useApiMutation(importMutation);
+  const [commitCreationMutation] = useApiMutation(workspaceMutation);
+  const navigate = useNavigate();
 
   const handleImport = (event) => {
     const importedFile = event.target.files[0];
@@ -75,7 +91,7 @@ const WorkspaceCreation = ({ paginationOptions, type }) => {
       variables: { file: importedFile },
       onCompleted: (data) => {
         inputRef.current.value = null; // Reset the input uploader ref
-        history.push(
+        navigate(
           `${resolveLink('Dashboard')}/${data.workspaceConfigurationImport}`,
         );
       },
@@ -110,35 +126,72 @@ const WorkspaceCreation = ({ paginationOptions, type }) => {
     });
   };
 
+  const createInvestigationButton = FAB_REPLACED ? (props) => (
+    <CreateEntityControlledDial entityType='Investigation' {...props} />
+  ) : undefined;
+
+  const createDashboardButton = FAB_REPLACED ? (props) => (
+    <>
+      <ToggleButton
+        value="import"
+        size="small"
+        onClick={() => inputRef.current?.click()}
+        sx={{ marginLeft: theme.spacing(1) }}
+        data-testid='ImportDashboard'
+        title={t_i18n('Import dashboard')}
+      >
+        <FileUploadOutlined fontSize="small" color={'primary'}/>
+      </ToggleButton>
+      {isNotEmptyField(importFromHubUrl) && (
+        <GradientButton
+          color='primary'
+          variant='outlined'
+          size="small"
+          disableElevation
+          sx={{ marginLeft: theme.spacing(1) }}
+          href={importFromHubUrl}
+          target="_blank"
+          title={t_i18n('Import from Hub')}
+        >
+          {t_i18n('Import from Hub')}
+        </GradientButton>
+      )}
+      <CreateEntityControlledDial entityType='Dashboard' {...props} />
+    </>
+  ) : ({ onOpen }) => (
+    <SpeedDial
+      className={classes.createButton}
+      ariaLabel="Create"
+      icon={<SpeedDialIcon />}
+      FabProps={{ color: 'primary' }}
+    >
+      <SpeedDialAction
+        title={t_i18n('Create dashboard')}
+        icon={<InsertChartOutlined />}
+        tooltipTitle={t_i18n('Create dashboard')}
+        onClick={onOpen}
+        FabProps={{ classes: { root: classes.speedDialButton } }}
+      />
+      <SpeedDialAction
+        title={t_i18n('Import dashboard')}
+        icon={<CloudUploadOutlined />}
+        tooltipTitle={t_i18n('Import dashboard')}
+        onClick={() => inputRef.current?.click()}
+        FabProps={{ classes: { root: classes.speedDialButton } }}
+      />
+    </SpeedDial>
+  );
+
   return (
     <>
       <VisuallyHiddenInput type="file" accept={'application/JSON'} ref={inputRef} onChange={handleImport} />
       <Drawer
         title={t_i18n(`Create ${type}`)}
-        variant={type === 'dashboard' ? undefined : DrawerVariant.create}
-        controlledDial={(type === 'dashboard') ? ({ onOpen }) => (
-          <SpeedDial
-            className={classes.createButton}
-            ariaLabel="Create"
-            icon={<SpeedDialIcon />}
-            FabProps={{ color: 'primary' }}
-          >
-            <SpeedDialAction
-              title={t_i18n('Create dashboard')}
-              icon={<InsertChartOutlined />}
-              tooltipTitle={t_i18n('Create dashboard')}
-              onClick={onOpen}
-              FabProps={{ classes: { root: classes.speedDialButton } }}
-            />
-            <SpeedDialAction
-              title={t_i18n('Import dashboard')}
-              icon={<CloudUploadOutlined />}
-              tooltipTitle={t_i18n('Import dashboard')}
-              onClick={() => inputRef.current?.click()}
-              FabProps={{ classes: { root: classes.speedDialButton } }}
-            />
-          </SpeedDial>
-        ) : undefined}
+        variant={FAB_REPLACED || type === 'dashboard' ? undefined : DrawerVariant.create}
+        controlledDial={(type === 'dashboard')
+          ? createDashboardButton
+          : createInvestigationButton
+        }
       >
         {({ onClose }) => (
           <Formik
@@ -151,7 +204,7 @@ const WorkspaceCreation = ({ paginationOptions, type }) => {
             onReset={onClose}
           >
             {({ submitForm, handleReset, isSubmitting }) => (
-              <Form style={{ margin: '20px 0 20px 0' }}>
+              <Form>
                 <Field
                   component={TextField}
                   name="name"

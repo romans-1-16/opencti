@@ -4,9 +4,10 @@ import React, { FunctionComponent } from 'react';
 import { graphql, useFragment } from 'react-relay';
 import * as Yup from 'yup';
 import { GenericContext } from '@components/common/model/GenericContextModel';
+import useHelper from 'src/utils/hooks/useHelper';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import TextField from '../../../../components/TextField';
 import { convertAssignees, convertCreatedBy, convertMarkings, convertParticipants, convertStatus } from '../../../../utils/edition';
@@ -26,6 +27,7 @@ import StatusField from '../../common/form/StatusField';
 import { CaseRftEditionOverview_case$key } from './__generated__/CaseRftEditionOverview_case.graphql';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import CaseRftDeletion from './CaseRftDeletion';
 
 export const caseRftMutationFieldPatch = graphql`
   mutation CaseRftEditionOverviewCaseFieldPatchMutation(
@@ -40,6 +42,7 @@ export const caseRftMutationFieldPatch = graphql`
         commitMessage: $commitMessage
         references: $references
       ) {
+        x_opencti_graph_data
         ...CaseRftEditionOverview_case
         ...CaseUtils_case
       }
@@ -67,6 +70,7 @@ const caseRftEditionOverviewFragment = graphql`
     revoked
     description
     confidence
+    entity_type
     created
     takedown_types
     severity
@@ -171,7 +175,7 @@ const CaseRftEditionOverview: FunctionComponent<CaseRftEditionOverviewProps> = (
   const caseData = useFragment(caseRftEditionOverviewFragment, caseRef);
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     takedown_types: Yup.array().nullable(),
     severity: Yup.string().nullable(),
@@ -250,6 +254,9 @@ const CaseRftEditionOverview: FunctionComponent<CaseRftEditionOverviewProps> = (
     x_opencti_workflow_id: convertStatus(t_i18n, caseData) as Option,
     references: [],
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   return (
     <Formik
       enableReinitialize={true}
@@ -265,7 +272,7 @@ const CaseRftEditionOverview: FunctionComponent<CaseRftEditionOverviewProps> = (
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={caseData} />
           <Field
             component={TextField}
@@ -396,16 +403,22 @@ const CaseRftEditionOverview: FunctionComponent<CaseRftEditionOverviewProps> = (
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={caseData.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <CaseRftDeletion id={caseData.id}/>
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={caseData.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

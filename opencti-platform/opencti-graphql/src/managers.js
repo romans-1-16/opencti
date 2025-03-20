@@ -9,10 +9,10 @@ import conf, {
   ENABLED_NOTIFICATION_MANAGER,
   ENABLED_PLAYBOOK_MANAGER,
   ENABLED_PUBLISHER_MANAGER,
-  ENABLED_RETENTION_MANAGER,
   ENABLED_RULE_ENGINE,
   ENABLED_SYNC_MANAGER,
   ENABLED_TASK_SCHEDULER,
+  isFeatureEnabled,
   logApp
 } from './config/conf';
 import httpServer from './http/httpServer';
@@ -20,7 +20,6 @@ import expiredManager from './manager/expiredManager';
 import connectorManager from './manager/connectorManager';
 import { ENABLED_IMPORT_CSV_BUILT_IN_CONNECTOR } from './connector/importCsv/importCsv-configuration';
 import importCsvConnector from './connector/importCsv/importCsv-connector';
-import retentionManager from './manager/retentionManager';
 import taskManager from './manager/taskManager';
 import ruleEngine from './manager/ruleManager';
 import syncManager from './manager/syncManager';
@@ -35,6 +34,8 @@ import { shutdownAllManagers, startAllManagers } from './manager/managerModule';
 import clusterManager from './manager/clusterManager';
 import activityListener from './manager/activityListener';
 import activityManager from './manager/activityManager';
+import supportPackageListener from './listener/supportPackageListener';
+import draftValidationConnector from './modules/draftWorkspace/draftWorkspace-connector';
 
 export const startModules = async () => {
   // region API initialization
@@ -66,12 +67,11 @@ export const startModules = async () => {
     logApp.info('[OPENCTI-MODULE] Connector built in manager not started (disabled by configuration)');
   }
   // endregion
-  // region Retention manager
-  if (ENABLED_RETENTION_MANAGER) {
-    await retentionManager.start();
-  } else {
-    logApp.info('[OPENCTI-MODULE] Retention manager not started (disabled by configuration)');
+  // region draft validation built in connector
+  if (isFeatureEnabled('DRAFT_WORKSPACE')) {
+    await draftValidationConnector.start();
   }
+
   // endregion
   // region Task manager
   if (ENABLED_TASK_SCHEDULER) {
@@ -144,6 +144,8 @@ export const startModules = async () => {
   await activityListener.start();
   await activityManager.start();
   // endregion
+
+  await supportPackageListener.start();
 };
 
 export const shutdownModules = async () => {
@@ -168,9 +170,9 @@ export const shutdownModules = async () => {
     stoppingPromises.push(importCsvConnector.shutdown());
   }
   // endregion
-  // region Retention manager
-  if (ENABLED_RETENTION_MANAGER) {
-    stoppingPromises.push(retentionManager.shutdown());
+  // region draft validation built in connector
+  if (isFeatureEnabled('DRAFT_WORKSPACE')) {
+    stoppingPromises.push(draftValidationConnector.shutdown());
   }
   // endregion
   // region Task manager
@@ -227,6 +229,7 @@ export const shutdownModules = async () => {
   stoppingPromises.push(activityListener.shutdown());
   stoppingPromises.push(activityManager.shutdown());
   // endregion
+  stoppingPromises.push(supportPackageListener.shutdown());
   await Promise.all(stoppingPromises);
 };
 // endregion

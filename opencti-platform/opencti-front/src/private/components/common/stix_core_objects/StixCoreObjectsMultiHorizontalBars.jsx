@@ -5,20 +5,23 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import makeStyles from '@mui/styles/makeStyles';
 import { useTheme } from '@mui/styles';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import Chart from '../charts/Chart';
 import { QueryRenderer } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
 import { horizontalBarsChartOptions } from '../../../../utils/Charts';
 import { simpleNumberFormat } from '../../../../utils/Number';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative, isFieldForIdentifier } from '../../../../utils/defaultRepresentatives';
 import { itemColor } from '../../../../utils/Colors';
 import { buildFiltersAndOptionsForWidgets } from '../../../../utils/filters/filtersUtils';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles((theme) => ({
   paper: {
     height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 4,
   },
@@ -443,8 +446,8 @@ const stixCoreObjectsMultiHorizontalBars = ({
             && props.stixCoreObjectsDistribution.length > 0
           ) {
             const data = props.stixCoreObjectsDistribution.map((n) => {
-              let color = selection.attribute.endsWith('_id')
-                ? itemColor(n.entity.entity_type)
+              let color = isFieldForIdentifier(selection.attribute)
+                ? itemColor(n.entity?.entity_type)
                 : itemColor(n.label);
               if (n.entity?.color) {
                 color = theme.palette.mode === 'light' && n.entity.color === '#ffffff'
@@ -467,7 +470,7 @@ const stixCoreObjectsMultiHorizontalBars = ({
                 x:
                   // eslint-disable-next-line no-nested-ternary
                   selection.attribute.endsWith('_id')
-                    ? defaultValue(n.entity)
+                    ? getMainRepresentative(n.entity, t_i18n('Restricted'))
                     : selection.attribute === 'entity_type'
                       ? t_i18n(`entity_${n.label}`)
                       : n.label,
@@ -477,14 +480,14 @@ const stixCoreObjectsMultiHorizontalBars = ({
             });
             const chartData = [
               {
-                name: selection.label || t_i18n('Number of relationships'),
+                name: selection.label || t_i18n('Number of entities'),
                 data,
               },
             ];
             const redirectionUtils = selection.attribute === 'name'
               ? props.stixCoreObjectsDistribution.map((n) => ({
-                id: n.entity.id,
-                entity_type: n.entity.entity_type,
+                id: n.entity?.id,
+                entity_type: n.entity?.entity_type,
               }))
               : null;
             return (
@@ -517,7 +520,7 @@ const stixCoreObjectsMultiHorizontalBars = ({
                     textAlign: 'center',
                   }}
                 >
-                  {t_i18n('No entities of this type has been found.')}
+                  {t_i18n(NO_DATA_WIDGET_MESSAGE)}
                 </span>
               </div>
             );

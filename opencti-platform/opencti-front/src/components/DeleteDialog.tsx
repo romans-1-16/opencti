@@ -8,14 +8,18 @@ import Transition from './Transition';
 import { useFormatter } from './i18n';
 import { Deletion } from '../utils/hooks/useDeletion';
 
-const DeleteDialog = ({
+type DeleteDialogProps = {
+  title: React.ReactNode
+  deletion: Deletion
+  submitDelete: () => void
+  onClose?: () => void
+};
+
+const DeleteDialog: React.FC<DeleteDialogProps> = ({
   title,
   deletion,
   submitDelete,
-}: {
-  title: string
-  deletion: Deletion
-  submitDelete: () => void
+  onClose,
 }) => {
   const { t_i18n } = useFormatter();
   return (
@@ -24,7 +28,7 @@ const DeleteDialog = ({
       PaperProps={{ elevation: 1 }}
       keepMounted={true}
       TransitionComponent={Transition}
-      onClose={deletion.handleCloseDelete}
+      onClose={onClose ?? deletion.handleCloseDelete}
     >
       <DialogContent>
         <DialogContentText>
@@ -32,7 +36,7 @@ const DeleteDialog = ({
         </DialogContentText>
       </DialogContent>
       <DialogActions>
-        <Button onClick={deletion.handleCloseDelete} disabled={deletion.deleting}>
+        <Button onClick={onClose ?? deletion.handleCloseDelete} disabled={deletion.deleting}>
           {t_i18n('Cancel')}
         </Button>
         <Button color="secondary" onClick={submitDelete} disabled={deletion.deleting}>

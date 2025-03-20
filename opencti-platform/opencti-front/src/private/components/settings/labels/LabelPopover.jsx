@@ -2,7 +2,6 @@ import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
 import { compose } from 'ramda';
 import { graphql } from 'react-relay';
-import { ConnectionHandler } from 'relay-runtime';
 import withStyles from '@mui/styles/withStyles';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -14,9 +13,10 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
 import inject18n from '../../../../components/i18n';
-import { commitMutation, QueryRenderer } from '../../../../relay/environment';
+import { commitMutation } from '../../../../relay/environment';
 import LabelEdition from './LabelEdition';
 import Transition from '../../../../components/Transition';
+import { deleteNode } from '../../../../utils/store';
 
 const styles = () => ({
   container: {
@@ -28,14 +28,6 @@ const labelPopoverDeletionMutation = graphql`
   mutation LabelPopoverDeletionMutation($id: ID!) {
     labelEdit(id: $id) {
       delete
-    }
-  }
-`;
-
-const labelEditionQuery = graphql`
-  query LabelPopoverEditionQuery($id: String!) {
-    label(id: $id) {
-      ...LabelEdition_label
     }
   }
 `;
@@ -82,19 +74,14 @@ class LabelPopover extends Component {
     commitMutation({
       mutation: labelPopoverDeletionMutation,
       variables: {
-        id: this.props.labelId,
+        id: this.props.label.id,
       },
-      updater: (store) => {
-        const container = store.getRoot();
-        const payload = store.getRootField('labelEdit');
-        const userProxy = store.get(container.getDataID());
-        const conn = ConnectionHandler.getConnection(
-          userProxy,
-          'Pagination_labels',
-          this.props.paginationOptions,
-        );
-        ConnectionHandler.deleteNode(conn, payload.getValue('delete'));
-      },
+      updater: (store) => deleteNode(
+        store,
+        'Pagination_labels',
+        this.props.paginationOptions,
+        this.props.label.id,
+      ),
       onCompleted: () => {
         this.setState({ deleting: false });
         this.handleCloseDelete();
@@ -103,7 +90,7 @@ class LabelPopover extends Component {
   }
 
   render() {
-    const { classes, t, labelId } = this.props;
+    const { classes, t } = this.props;
     return (
       <div className={classes.container}>
         <IconButton
@@ -126,21 +113,10 @@ class LabelPopover extends Component {
             {t('Delete')}
           </MenuItem>
         </Menu>
-        <QueryRenderer
-          query={labelEditionQuery}
-          variables={{ id: labelId }}
-          render={({ props }) => {
-            if (props) {
-              return (
-                <LabelEdition
-                  label={props.label}
-                  handleClose={this.handleCloseUpdate.bind(this)}
-                  open={this.state.displayUpdate}
-                />
-              );
-            }
-            return <div />;
-          }}
+        <LabelEdition
+          label={this.props.label}
+          handleClose={this.handleCloseUpdate.bind(this)}
+          open={this.state.displayUpdate}
         />
         <Dialog
           open={this.state.displayDelete}
@@ -176,7 +152,7 @@ class LabelPopover extends Component {
 }
 
 LabelPopover.propTypes = {
-  labelId: PropTypes.string,
+  label: PropTypes.object,
   paginationOptions: PropTypes.object,
   classes: PropTypes.object,
   t: PropTypes.func,

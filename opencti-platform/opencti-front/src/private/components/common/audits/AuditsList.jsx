@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -15,9 +15,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
 import React from 'react';
 import { graphql } from 'react-relay';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
 import ListItem from '@mui/material/ListItem';
 import { Link } from 'react-router-dom';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -29,25 +26,24 @@ import ItemIcon from '../../../../components/ItemIcon';
 import { useFormatter } from '../../../../components/i18n';
 import { QueryRenderer } from '../../../../relay/environment';
 import { resolveLink } from '../../../../utils/Entity';
-import useGranted, { SETTINGS } from '../../../../utils/hooks/useGranted';
+import useGranted, { SETTINGS_SECURITYACTIVITY, SETTINGS_SETACCESSES, VIRTUAL_ORGANIZATION_ADMIN } from '../../../../utils/hooks/useGranted';
 import MarkdownDisplay from '../../../../components/MarkdownDisplay';
 import { isNotEmptyField } from '../../../../utils/utils';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 import { buildFiltersAndOptionsForWidgets } from '../../../../utils/filters/filtersUtils';
+import WidgetContainer from '../../../../components/dashboard/WidgetContainer';
+import WidgetNoData from '../../../../components/dashboard/WidgetNoData';
+import Loader, { LoaderVariant } from '../../../../components/Loader';
 
-const useStyles = makeStyles({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles(() => ({
   container: {
     width: '100%',
     height: '100%',
     overflow: 'auto',
     paddingBottom: 10,
     marginBottom: 10,
-  },
-  paper: {
-    height: '100%',
-    margin: '10px 0 0 0',
-    padding: 0,
-    borderRadius: 4,
   },
   item: {
     height: 50,
@@ -64,7 +60,7 @@ const useStyles = makeStyles({
     textOverflow: 'ellipsis',
     paddingRight: 10,
   },
-});
+}));
 
 const auditsListQuery = graphql`
   query AuditsListQuery(
@@ -107,17 +103,17 @@ const auditsListQuery = graphql`
 `;
 
 const AuditsList = ({
-  variant = null,
+  variant,
   height,
-  startDate = null,
-  endDate = null,
+  startDate,
+  endDate,
   dataSelection,
   parameters = {},
 }) => {
   const classes = useStyles();
   const theme = useTheme();
   const { t_i18n, fldt } = useFormatter();
-  const isGrantedToSettings = useGranted([SETTINGS]);
+  const isGrantedToSettings = useGranted([SETTINGS_SETACCESSES, SETTINGS_SECURITYACTIVITY, VIRTUAL_ORGANIZATION_ADMIN]);
   const isEnterpriseEdition = useEnterpriseEdition();
   const renderContent = () => {
     if (!isGrantedToSettings || !isEnterpriseEdition) {
@@ -255,59 +251,21 @@ const AuditsList = ({
             );
           }
           if (props) {
-            return (
-              <div style={{ display: 'table', height: '100%', width: '100%' }}>
-                <span
-                  style={{
-                    display: 'table-cell',
-                    verticalAlign: 'middle',
-                    textAlign: 'center',
-                  }}
-                >
-                  {t_i18n('No entities of this type has been found.')}
-                </span>
-              </div>
-            );
+            return <WidgetNoData />;
           }
-          return (
-            <div style={{ display: 'table', height: '100%', width: '100%' }}>
-              <span
-                style={{
-                  display: 'table-cell',
-                  verticalAlign: 'middle',
-                  textAlign: 'center',
-                }}
-              >
-                <CircularProgress size={40} thickness={2} />
-              </span>
-            </div>
-          );
+          return <Loader variant={LoaderVariant.inElement} />;
         }}
       />
     );
   };
   return (
-    <div style={{ height: height || '100%' }}>
-      <Typography
-        variant="h4"
-        gutterBottom={true}
-        style={{
-          margin: variant !== 'inLine' ? '0 0 10px 0' : '-10px 0 10px -7px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {parameters.title ?? t_i18n('Audits list')}
-      </Typography>
-      {variant !== 'inLine' ? (
-        <Paper classes={{ root: classes.paper }} variant="outlined">
-          {renderContent()}
-        </Paper>
-      ) : (
-        renderContent()
-      )}
-    </div>
+    <WidgetContainer
+      height={height}
+      title={parameters.title ?? t_i18n('Audits list')}
+      variant={variant}
+    >
+      {renderContent()}
+    </WidgetContainer>
   );
 };
 

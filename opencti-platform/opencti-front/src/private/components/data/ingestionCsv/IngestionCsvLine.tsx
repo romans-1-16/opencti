@@ -1,6 +1,6 @@
 import makeStyles from '@mui/styles/makeStyles';
 import { graphql, useFragment } from 'react-relay';
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useState } from 'react';
 import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
@@ -15,7 +15,11 @@ import ItemBoolean from '../../../../components/ItemBoolean';
 import { useFormatter } from '../../../../components/i18n';
 import { DataColumns } from '../../../../components/list_lines';
 import type { Theme } from '../../../../components/Theme';
+import { INGESTION_SETINGESTIONS } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -56,8 +60,8 @@ const ingestionCsvLineFragment = graphql`
     name
     uri
     ingestion_running
-    current_state_date
     current_state_hash
+    last_execution_date
   }
 `;
 
@@ -67,8 +71,9 @@ export const IngestionCsvLineComponent: FunctionComponent<IngestionCsvLineProps>
   paginationOptions,
 }) => {
   const classes = useStyles();
-  const { t_i18n, nsdt } = useFormatter();
+  const { t_i18n, fldt } = useFormatter();
   const data = useFragment(ingestionCsvLineFragment, node);
+  const [stateHash, setStateHash] = useState(data.current_state_hash ? data.current_state_hash : '-');
   return (
     <ListItem classes={{ root: classes.item }} divider={true}>
       <ListItemIcon classes={{ root: classes.itemIcon }}>
@@ -95,25 +100,33 @@ export const IngestionCsvLineComponent: FunctionComponent<IngestionCsvLineProps>
             >
               <ItemBoolean
                 variant="inList"
-                label={data.ingestion_running ? t_i18n('Yes') : t_i18n('No')}
+                label={data.ingestion_running ? t_i18n('Active') : t_i18n('Inactive')}
                 status={!!data.ingestion_running}
               />
             </div>
             <div
               className={classes.bodyItem}
-              style={{ width: dataColumns.current_state_date.width }}
+              style={{ width: dataColumns.current_state_hash.width }}
             >
-              {data.current_state_date ? nsdt(data.current_state_date) : data.current_state_hash}
+              {fldt(data.last_execution_date) || '-'}
+            </div>
+            <div
+              className={classes.bodyItem}
+            >
+              {stateHash}
             </div>
           </div>
         }
       />
       <ListItemSecondaryAction>
-        <IngestionCsvPopover
-          ingestionCsvId={data.id}
-          paginationOptions={paginationOptions}
-          running={data.ingestion_running}
-        />
+        <Security needs={[INGESTION_SETINGESTIONS]}>
+          <IngestionCsvPopover
+            ingestionCsvId={data.id}
+            paginationOptions={paginationOptions}
+            running={data.ingestion_running}
+            setStateHash={setStateHash}
+          />
+        </Security>
       </ListItemSecondaryAction>
     </ListItem>
   );
@@ -169,7 +182,17 @@ export const IngestionCsvLineDummy = ({ dataColumns }: { dataColumns: DataColumn
             </div>
             <div
               className={classes.bodyItem}
-              style={{ width: dataColumns.current_state_date.width }}
+              style={{ width: dataColumns.current_state_hash.width }}
+            >
+              <Skeleton
+                animation="wave"
+                variant="rectangular"
+                width={100}
+                height="100%"
+              />
+            </div>
+            <div
+              className={classes.bodyItem}
             >
               <Skeleton
                 animation="wave"
@@ -182,7 +205,7 @@ export const IngestionCsvLineDummy = ({ dataColumns }: { dataColumns: DataColumn
         }
       />
       <ListItemSecondaryAction classes={{ root: classes.itemIconDisabled }}>
-        <MoreVert />
+        <MoreVert/>
       </ListItemSecondaryAction>
     </ListItem>
   );

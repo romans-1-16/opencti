@@ -14,6 +14,7 @@ import ContainerAddStixCoreObjects from './ContainerAddStixCoreObjects';
 import { DataColumns } from '../../../../components/list_lines';
 import { HandleAddFilter, UseLocalStorageHelpers } from '../../../../utils/hooks/useLocalStorage';
 import usePreloadedPaginationFragment from '../../../../utils/hooks/usePreloadedPaginationFragment';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const nbOfRowsToLoad = 50;
 
@@ -33,6 +34,7 @@ interface ContainerStixDomainObjectsLinesProps {
   redirectionMode?: string;
   onTypesChange: (type: string) => void;
   openExports?: boolean,
+  enableReferences?: boolean;
 }
 
 export const containerStixDomainObjectsLinesQuery = graphql`
@@ -105,6 +107,7 @@ export const containerStixDomainObjectsLinesFragment = graphql`
           node {
             ... on BasicObject {
               id
+              entity_type
             }
             ...ContainerStixDomainObjectLine_node
           }
@@ -130,7 +133,10 @@ const ContainerStixDomainObjectsLines: FunctionComponent<ContainerStixDomainObje
   queryRef,
   onTypesChange,
   openExports,
+  enableReferences,
 }) => {
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const { data, hasMore, loadMore, isLoadingMore } = usePreloadedPaginationFragment<
   ContainerStixDomainObjectsLinesQuery,
   ContainerStixDomainObjectsLines_container$key
@@ -168,8 +174,9 @@ const ContainerStixDomainObjectsLines: FunctionComponent<ContainerStixDomainObje
         deSelectedElements={deSelectedElements}
         selectAll={selectAll}
         onToggleEntity={onToggleEntity}
+        enableReferences={enableReferences}
       />
-      {container && (
+      {!isFABReplaced && container && (
         <Security needs={[KNOWLEDGE_KNUPDATE]}>
           <ContainerAddStixCoreObjects
             containerId={container.id}
@@ -182,6 +189,7 @@ const ContainerStixDomainObjectsLines: FunctionComponent<ContainerStixDomainObje
             defaultCreatedBy={container.createdBy ?? null}
             defaultMarkingDefinitions={container.objectMarking ?? []}
             confidence={container.confidence}
+            enableReferences={enableReferences}
           />
         </Security>
       )}

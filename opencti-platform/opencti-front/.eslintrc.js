@@ -66,6 +66,7 @@ module.exports = {
         ignoreTemplateLiterals: true,
       },
     ],
+    '@typescript-eslint/lines-between-class-members': 'off',
     '@typescript-eslint/naming-convention': ['error', {
       selector: 'variable',
       format: ['camelCase', 'UPPER_CASE'],
@@ -86,6 +87,17 @@ module.exports = {
       },
     ],
     'import-newlines/enforce': ['error', { items: 20, 'max-len': 180 }],
+    'import/no-extraneous-dependencies': [
+      'error',
+      {
+        devDependencies: [
+          'src/utils/tests/*.{ts,tsx}',
+          '**/*.test.{ts,tsx}',
+          'tests_e2e/**/*.{ts,tsx,js}',
+        ],
+        optionalDependencies: false,
+      },
+    ],
     'react/jsx-indent': [2, 2],
     'react/jsx-indent-props': [2, 2],
     'react/jsx-closing-bracket-location': 'error',

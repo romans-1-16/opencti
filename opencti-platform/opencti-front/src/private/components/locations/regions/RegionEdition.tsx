@@ -1,13 +1,14 @@
 import React from 'react';
-import { useMutation } from 'react-relay';
 import RegionEditionContainer, { regionEditionQuery } from './RegionEditionContainer';
 import { regionEditionOverviewFocus } from './RegionEditionOverview';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import { RegionEditionContainerQuery } from './__generated__/RegionEditionContainerQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 
 const RegionEdition = ({ regionId }: { regionId: string }) => {
-  const [commit] = useMutation(regionEditionOverviewFocus);
+  const [commit] = useApiMutation(regionEditionOverviewFocus);
   const handleClose = () => {
     commit({
       variables: {
@@ -24,11 +25,12 @@ const RegionEdition = ({ regionId }: { regionId: string }) => {
     <>
       {queryRef && (
         <React.Suspense
-          fallback={<Loader variant={LoaderVariant.inElement} />}
+          fallback={<Loader variant={LoaderVariant.inline} />}
         >
           <RegionEditionContainer
             queryRef={queryRef}
             handleClose={handleClose}
+            controlledDial={EditEntityControlledDial}
           />
         </React.Suspense>
       )}

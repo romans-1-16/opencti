@@ -8,6 +8,8 @@ import ItemIcon from '../../../../components/ItemIcon';
 import type { Theme } from '../../../../components/Theme';
 import useAuth from '../../../../utils/hooks/useAuth';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   icon: {
     paddingTop: 4,
@@ -24,6 +26,7 @@ interface ObservableTypesFieldProps {
   onChange?: (name: string, value: string | string[]) => void;
   style?: Record<string, string | number>;
   disabled?: boolean;
+  required?: boolean;
 }
 const ObservableTypesField: FunctionComponent<ObservableTypesFieldProps> = ({
   name,
@@ -32,6 +35,7 @@ const ObservableTypesField: FunctionComponent<ObservableTypesFieldProps> = ({
   onChange,
   style,
   disabled,
+  required = false,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
@@ -51,6 +55,7 @@ const ObservableTypesField: FunctionComponent<ObservableTypesFieldProps> = ({
         variant: 'standard',
         label,
       }}
+      required={required}
       options={allObservableTypes}
       onChange={typeof onChange === 'function' ? onChange : null}
       isOptionEqualToValue={(option: string, value: string) => option === value}

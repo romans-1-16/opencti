@@ -1,4 +1,4 @@
-import { createFragmentContainer, graphql, useMutation } from 'react-relay';
+import { createFragmentContainer, graphql } from 'react-relay';
 import React, { FunctionComponent } from 'react';
 import Typography from '@mui/material/Typography';
 import List from '@mui/material/List';
@@ -15,13 +15,15 @@ import { AttackPatternDataComponents_attackPattern$data } from './__generated__/
 import AddDataComponents from './AddDataComponents';
 import { addDataComponentsMutationRelationDelete } from './AddDataComponentsLines';
 import { deleteNodeFromEdge } from '../../../../utils/store';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 
 const AttackPatternDataComponentsComponent: FunctionComponent<{
   attackPattern: AttackPatternDataComponents_attackPattern$data;
 }> = ({ attackPattern }) => {
   const { t_i18n } = useFormatter();
 
-  const [commit] = useMutation(addDataComponentsMutationRelationDelete);
+  const [commit] = useApiMutation(addDataComponentsMutationRelationDelete);
 
   const removeDataComponent = (dataComponentId: string) => {
     commit({
@@ -45,14 +47,16 @@ const AttackPatternDataComponentsComponent: FunctionComponent<{
         marginTop: 20,
       }}
     >
-      <Typography variant="h3" gutterBottom={true} style={{ float: 'left' }}>
-        {t_i18n('Data components')}
-      </Typography>
-      <AddDataComponents attackPattern={attackPattern} />
-      <div className="clearfix" />
-      {attackPattern.dataComponents && (
-        <List style={{ marginTop: -10 }}>
-          {attackPattern.dataComponents.edges
+      <div style={{ display: 'flex', flexDirection: 'row' }}>
+        <Typography variant="h3" gutterBottom={true}>
+          {t_i18n('Data components')}
+        </Typography>
+        <AddDataComponents attackPattern={attackPattern}/>
+        <div className="clearfix"/>
+      </div>
+      <List style={{ marginTop: -10, paddingTop: 0 }}>
+        <FieldOrEmpty source={attackPattern.dataComponents?.edges}>
+          {attackPattern.dataComponents?.edges
             ?.map((dataComponentEdge) => dataComponentEdge?.node)
             .map((dataComponent, idx) => {
               if (!dataComponent) {
@@ -97,8 +101,8 @@ const AttackPatternDataComponentsComponent: FunctionComponent<{
                 </ListItem>
               );
             })}
-        </List>
-      )}
+        </FieldOrEmpty>
+      </List>
     </div>
   );
 };

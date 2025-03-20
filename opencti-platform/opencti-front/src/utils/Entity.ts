@@ -10,14 +10,20 @@ export const resolveLink = (type = 'unknown'): string | null => {
       return '/dashboard/techniques/attack_patterns';
     case 'Campaign':
       return '/dashboard/threats/campaigns';
+    case 'FintelTemplate':
+      return '/dashboard/settings/customization/entity_types';
     case 'Note':
       return '/dashboard/analyses/notes';
     case 'Observed-Data':
       return '/dashboard/events/observed_data';
     case 'Opinion':
       return '/dashboard/analyses/opinions';
+    case 'Playbook':
+      return '/dashboard/data/processing/automation';
     case 'Report':
       return '/dashboard/analyses/reports';
+    case 'External-Reference':
+      return '/dashboard/analyses/external_references';
     case 'Grouping':
       return '/dashboard/analyses/groupings';
     case 'Course-Of-Action':
@@ -66,6 +72,8 @@ export const resolveLink = (type = 'unknown'): string | null => {
       return '/dashboard/arsenal/vulnerabilities';
     case 'Incident':
       return '/dashboard/events/incidents';
+    case 'stix-sighting-relationship':
+      return '/dashboard/events/sightings';
     case 'Artifact':
       return '/dashboard/observations/artifacts';
     case 'Data-Component':
@@ -90,6 +98,8 @@ export const resolveLink = (type = 'unknown'): string | null => {
       return '/dashboard/settings/accesses/users';
     case 'Group':
       return '/dashboard/settings/accesses/groups';
+    case 'DraftWorkspace':
+      return '/dashboard/drafts';
     case 'Stix-Cyber-Observable':
     case 'Autonomous-System':
     case 'Directory':
@@ -114,11 +124,14 @@ export const resolveLink = (type = 'unknown'): string | null => {
     case 'Cryptocurrency-Wallet':
     case 'Hostname':
     case 'Text':
+    case 'Credential':
+    case 'Tracking-Number':
     case 'User-Agent':
     case 'Bank-Account':
     case 'Phone-Number':
     case 'Payment-Card':
     case 'Media-Content':
+    case 'Persona':
       return '/dashboard/observations/observables';
     default:
       return null;
@@ -130,8 +143,8 @@ export const computeLink = (node: {
   entity_type: string;
   relationship_type?: string;
   from?: { entity_type: string; id: string };
-}): string | null => {
-  if (!node) return null;
+  type?: string;
+}): string => {
   let redirectLink;
   if (node.relationship_type === 'stix-sighting-relationship' && node.from) {
     redirectLink = `${resolveLink(node.from.entity_type)}/${
@@ -141,6 +154,8 @@ export const computeLink = (node: {
     redirectLink = `${resolveLink(node.from.entity_type)}/${
       node.from.id
     }/knowledge/relations/${node.id}`;
+  } else if (node.entity_type === 'Workspace') {
+    redirectLink = `${resolveLink(node.type)}/${node.id}`;
   } else {
     redirectLink = `${resolveLink(node.entity_type)}/${node.id}`;
   }
@@ -185,6 +200,9 @@ export const resolveLocationType = (entity: Record<string, string>): string => {
   }
   if (entity.region) {
     return 'Region';
+  }
+  if (entity.area) {
+    return 'Administrative-Area';
   }
   return 'Position';
 };

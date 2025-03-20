@@ -1,6 +1,4 @@
-import { withFilter } from 'graphql-subscriptions';
 import { BUS_TOPICS } from '../../config/conf';
-import { pubSubAsyncIterator } from '../../database/redis';
 import type { Resolvers } from '../../generated/graphql';
 import { TriggerType } from '../../generated/graphql';
 import { getUserAccessRight, isDirectAdministrator } from '../../utils/access';
@@ -20,11 +18,13 @@ import {
   triggerEdit,
   triggerGet,
   triggersActivityFind,
+  triggersFind,
   triggersGet,
   triggersKnowledgeCount,
   triggersKnowledgeFind,
 } from './notification-domain';
 import { ENTITY_TYPE_NOTIFICATION, NOTIFICATION_NUMBER } from './notification-types';
+import { subscribeToUserEvents } from '../../graphql/subscriptionWrapper';
 
 const notificationResolvers: Resolvers = {
   Query: {
@@ -35,6 +35,8 @@ const notificationResolvers: Resolvers = {
     // Activity trigger
     triggerActivity: (_, { id }, context) => triggerGet(context, context.user, id),
     triggersActivity: (_, args, context) => triggersActivityFind(context, context.user, args),
+    // All triggers : knowledge & activity if user has the right capability
+    triggers: (_, args, context) => triggersFind(context, context.user, args),
     // Notifications
     notification: (_, { id }, context) => notificationGet(context, context.user, id),
     notifications: (_, args, context) => notificationsFind(context, context.user, args),
@@ -67,29 +69,15 @@ const notificationResolvers: Resolvers = {
     notificationsNumber: {
       resolve: /* v8 ignore next */ (payload: any) => payload.instance,
       subscribe: /* v8 ignore next */ (_, __, context) => {
-        const asyncIterator = pubSubAsyncIterator(BUS_TOPICS[NOTIFICATION_NUMBER].EDIT_TOPIC);
-        const filtering = withFilter(() => asyncIterator, (payload) => {
-          return payload && payload.instance.user_id === context.user.id;
-        })();
-        return {
-          [Symbol.asyncIterator]() {
-            return filtering;
-          }
-        };
+        const bus = BUS_TOPICS[NOTIFICATION_NUMBER];
+        return subscribeToUserEvents(context, [bus.EDIT_TOPIC]);
       },
     },
     notification: {
       resolve: /* v8 ignore next */ (payload: any) => payload.instance,
       subscribe: /* v8 ignore next */ (_, __, context) => {
-        const asyncIterator = pubSubAsyncIterator(BUS_TOPICS[ENTITY_TYPE_NOTIFICATION].ADDED_TOPIC);
-        const filtering = withFilter(() => asyncIterator, (payload) => {
-          return payload && payload.instance.user_id === context.user.id;
-        })();
-        return {
-          [Symbol.asyncIterator]() {
-            return filtering;
-          }
-        };
+        const bus = BUS_TOPICS[ENTITY_TYPE_NOTIFICATION];
+        return subscribeToUserEvents(context, [bus.EDIT_TOPIC]);
       },
     },
   },

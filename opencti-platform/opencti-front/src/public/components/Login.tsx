@@ -26,6 +26,8 @@ import { isNotEmptyField } from '../../utils/utils';
 import useDimensions from '../../utils/hooks/useDimensions';
 import SystemBanners from './SystemBanners';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     textAlign: 'center',
@@ -44,22 +46,22 @@ const useStyles = makeStyles<Theme>((theme) => ({
   },
   button: {
     margin: theme.spacing(1),
-    color: '#009688',
-    borderColor: '#009688',
+    color: theme.palette.ee.main,
+    borderColor: theme.palette.ee.main,
     '&:hover': {
       backgroundColor: 'rgba(0, 121, 107, .1)',
-      borderColor: '#00796b',
-      color: '#00796b',
+      borderColor: theme.palette.ee.main,
+      color: theme.palette.ee.main,
     },
   },
   buttonGoogle: {
     margin: theme.spacing(1),
-    color: '#f44336',
-    borderColor: '#f44336',
+    color: theme.palette.error.main,
+    borderColor: theme.palette.error.main,
     '&:hover': {
       backgroundColor: 'rgba(189, 51, 46, .1)',
-      borderColor: '#bd332e',
-      color: '#bd332e',
+      borderColor: theme.palette.error.main,
+      color: theme.palette.error.main,
     },
   },
   buttonFacebook: {
@@ -119,7 +121,7 @@ const Login: FunctionComponent<LoginProps> = ({ type, settings }) => {
   const theme = useTheme<Theme>();
   const { t_i18n } = useFormatter();
   const { dimension } = useDimensions();
-  const isEnterpriseEdition = isNotEmptyField(settings.enterprise_edition);
+  const isEnterpriseEdition = settings.platform_enterprise_edition.license_validated;
 
   const renderExternalAuthButton = (provider?: string | null) => {
     switch (provider) {
@@ -205,7 +207,7 @@ const Login: FunctionComponent<LoginProps> = ({ type, settings }) => {
   } else if (isAuthButtons) {
     loginHeight = 190;
   }
-  const marginTop = dimension.height / 2 - loginHeight / 2 - 100;
+  const paddingTop = dimension.height / 2 - loginHeight / 2 - 100;
   const [checked, setChecked] = useState(false);
   const handleChange = () => {
     setChecked(!checked);
@@ -342,7 +344,7 @@ const Login: FunctionComponent<LoginProps> = ({ type, settings }) => {
   return (
     <div>
       <SystemBanners settings={settings} />
-      <div className={classes.container} style={{ marginTop }}>
+      <div className={classes.container} style={{ paddingTop }}>
         {authScreen()}
       </div>
     </div>

@@ -7,8 +7,8 @@ import { FunctionalError, UnsupportedError } from '../config/errors';
 import { connectorsForExport } from './connector';
 import { findById as findMarkingDefinitionById } from './markingDefinition';
 import { now, observableValue } from '../utils/format';
-import { createWork } from './work';
-import { pushToConnector } from '../database/rabbitmq';
+import { createWork, updateExpectationsNumber } from './work';
+import { pushToConnector, pushToWorkerForConnector } from '../database/rabbitmq';
 import { ENTITY_TYPE_CONTAINER_NOTE, ENTITY_TYPE_CONTAINER_OPINION, isStixDomainObjectShareableContainer, STIX_ORGANIZATIONS_UNRESTRICTED } from '../schema/stixDomainObject';
 import {
   ABSTRACT_STIX_CORE_OBJECT,
@@ -17,9 +17,9 @@ import {
   ABSTRACT_STIX_OBJECT,
   ABSTRACT_STIX_RELATIONSHIP,
   CONNECTOR_INTERNAL_EXPORT_FILE,
-  INPUT_GRANTED_REFS
+  INPUT_GRANTED_REFS,
 } from '../schema/general';
-import { UPDATE_OPERATION_ADD, UPDATE_OPERATION_REMOVE } from '../database/utils';
+import { isEmptyField, UPDATE_OPERATION_ADD, UPDATE_OPERATION_REMOVE } from '../database/utils';
 import { extractEntityRepresentativeName } from '../database/entity-representative';
 import { notify } from '../database/redis';
 import { BUS_TOPICS } from '../config/conf';
@@ -30,12 +30,21 @@ import { schemaTypesDefinition } from '../schema/schema-types';
 import { completeContextDataForEntity, publishUserAction } from '../listener/UserActionListener';
 import { checkAndConvertFilters } from '../utils/filtering/filtering-utils';
 import { specialTypesExtensions } from '../database/file-storage';
+import { getExportFilter } from '../utils/getExportFilter';
+import { getEntitiesListFromCache } from '../database/cache';
+import { ENTITY_TYPE_MARKING_DEFINITION } from '../schema/stixMetaObject';
+import { checkUserCanShareMarkings } from './user';
+import { ENTITY_TYPE_CONNECTOR } from '../schema/internalObject';
+import { getDraftContext } from '../utils/draftContext';
 
 export const stixDelete = async (context, user, id) => {
   const element = await internalLoadById(context, user, id);
   if (element) {
     if (isStixObject(element.entity_type) || isStixRelationship(element.entity_type)) {
-      await deleteElementById(context, user, element.id, element.entity_type);
+      // To handle delete synchronization events, we force the forceDelete flag to true, because we don't want delete events to create trash entries on synchronized platforms
+      // THIS IS NOT IDEAL: we ideally would need to add the forceDelete flag to all delete related methods on the API,
+      // and let the worker call this method with the flag set to true in case of synchronization
+      await deleteElementById(context, user, element.id, element.entity_type, { forceDelete: true });
       return element.id;
     }
     throw UnsupportedError('This method can only delete Stix element');
@@ -47,15 +56,66 @@ export const stixObjectMerge = async (context, user, targetId, sourceIds) => {
   return mergeEntities(context, user, targetId, sourceIds);
 };
 
-export const askListExport = async (context, user, exportContext, format, selectedIds, listParams, type = 'simple', maxMarkingId = null) => {
+export const sendStixBundle = async (context, user, connectorId, bundle, work_id) => {
+  try {
+    // 01. Simple check bundle
+    const jsonBundle = JSON.parse(bundle);
+    if (jsonBundle.type !== 'bundle' || !jsonBundle.objects || jsonBundle.objects.length === 0) {
+      throw UnsupportedError('Invalid stix bundle');
+    }
+    // 02. Create work and send the bundle to ingestion
+    const connector = await storeLoadById(context, user, connectorId, ENTITY_TYPE_CONNECTOR);
+    if (!connector) {
+      throw UnsupportedError('Invalid connector');
+    }
+    let target_work_id = work_id;
+    if (isEmptyField(work_id)) {
+      const workName = `${connector.name} run @ ${now()}`;
+      const work = await createWork(context, user, connector, workName, connector.internal_id, { receivedTime: now() });
+      target_work_id = work.id;
+      if (jsonBundle.objects.length === 1) {
+        // Only add explicit expectation if the worker will not split anything
+        await updateExpectationsNumber(context, context.user, target_work_id, jsonBundle.objects.length);
+      }
+    }
+    const content = Buffer.from(bundle, 'utf-8').toString('base64');
+    await pushToWorkerForConnector(connectorId, {
+      type: 'bundle',
+      applicant_id: user.internal_id,
+      content,
+      work_id: target_work_id,
+      update: true
+    });
+    return true;
+  } catch (err) {
+    throw UnsupportedError('Invalid bundle', { cause: err });
+  }
+};
+
+export const askListExport = async (context, user, exportContext, format, selectedIds, listParams, type, contentMaxMarkings, fileMarkings) => {
+  if (!exportContext || !exportContext?.entity_type) {
+    throw FunctionalError('entity_type is missing from askListExport');
+  }
+
   const connectors = await connectorsForExport(context, user, format, true);
-  const { entity_id, entity_type } = exportContext;
-  const markingLevel = maxMarkingId ? await findMarkingDefinitionById(context, user, maxMarkingId) : null;
-  const entity = entity_id ? await storeLoadById(context, user, entity_id, ABSTRACT_STIX_CORE_OBJECT) : null;
+  const markingLevels = await Promise.all(contentMaxMarkings.map(async (id) => {
+    return await findMarkingDefinitionById(context, user, id);
+  }));
+  await checkUserCanShareMarkings(context, user, markingLevels);
+  const fileNameMarkingLevels = markingLevels.map((markingLevel) => markingLevel?.definition).join('_');
+
+  const entity = exportContext.entity_id ? await storeLoadById(context, user, exportContext.entity_id, ABSTRACT_STIX_CORE_OBJECT) : null;
+  const { entity_type } = exportContext;
+
   const toFileName = (connector) => {
     const fileNamePart = `${entity_type}_${type}.${mime.extension(format) ? mime.extension(format) : specialTypesExtensions[format] ?? 'unknown'}`;
-    return `${now()}_${markingLevel?.definition || 'TLP:ALL'}_(${connector.name})_${fileNamePart}`;
+    return `${now()}_${fileNameMarkingLevels || 'TLP:ALL'}_(${connector.name})_${fileNamePart}`;
   };
+
+  const markingList = await getEntitiesListFromCache(context, user, ENTITY_TYPE_MARKING_DEFINITION);
+
+  const { markingFilter, mainFilter } = await getExportFilter(user, { markingList, contentMaxMarkings, objectIdsList: selectedIds });
+
   const baseEvent = {
     format, // extension mime type
     export_type: type, // Simple or full
@@ -64,7 +124,9 @@ export const askListExport = async (context, user, exportContext, format, select
     entity_name: entity ? extractEntityRepresentativeName(entity) : 'global',
     entity_type, // Exported entity type
     // All the params needed to execute the export on python connector
-    max_marking: maxMarkingId, // Max marking id
+    file_markings: fileMarkings,
+    main_filter: mainFilter,
+    access_filter: markingFilter
   };
   const buildExportMessage = (work, fileName) => {
     const internal = {
@@ -98,7 +160,7 @@ export const askListExport = async (context, user, exportContext, format, select
     map(async (connector) => {
       const fileIdentifier = toFileName(connector);
       const path = `export/${entity_type}${entity ? `/${entity.id}` : ''}`;
-      const work = await createWork(context, user, connector, fileIdentifier, path);
+      const work = await createWork(context, user, connector, fileIdentifier, path, { fileMarkings });
       const message = buildExportMessage(work, fileIdentifier);
       await pushToConnector(connector.internal_id, message);
       return work;
@@ -114,13 +176,20 @@ export const askListExport = async (context, user, exportContext, format, select
   return worksForExport;
 };
 
-export const askEntityExport = async (context, user, format, entity, type = 'simple', maxMarkingId = null) => {
+export const askEntityExport = async (context, user, format, entity, type, contentMaxMarkings, fileMarkings) => {
   const connectors = await connectorsForExport(context, user, format, true);
-  const markingLevel = maxMarkingId ? await findMarkingDefinitionById(context, user, maxMarkingId) : null;
+  const markingLevels = await Promise.all(contentMaxMarkings.map(async (id) => {
+    return await findMarkingDefinitionById(context, user, id);
+  }));
+  await checkUserCanShareMarkings(context, user, markingLevels);
+  const fileNameMarkingLevels = markingLevels.map((markingLevel) => markingLevel?.definition).join('_');
   const toFileName = (connector) => {
     const fileNamePart = `${entity.entity_type}-${entity.name || observableValue(entity)}_${type}.${mime.extension(format) ? mime.extension(format) : specialTypesExtensions[format] ?? 'unknown'}`;
-    return `${now()}_${markingLevel?.definition || 'TLP:ALL'}_(${connector.name})_${fileNamePart}`;
+    return `${now()}_${fileNameMarkingLevels || 'TLP:ALL'}_(${connector.name})_${fileNamePart}`;
   };
+  const markingList = await getEntitiesListFromCache(context, user, ENTITY_TYPE_MARKING_DEFINITION);
+  const { markingFilter, mainFilter } = await getExportFilter(user, { markingList, contentMaxMarkings, objectIdsList: [entity.id] });
+
   const baseEvent = {
     format,
     export_scope: 'single', // query or selection or single
@@ -128,7 +197,9 @@ export const askEntityExport = async (context, user, format, entity, type = 'sim
     entity_name: extractEntityRepresentativeName(entity),
     entity_type: entity.entity_type, // Exported entity type
     export_type: type, // Simple or full
-    max_marking: maxMarkingId, // Max marking id
+    file_markings: fileMarkings,
+    main_filter: mainFilter,
+    access_filter: markingFilter
   };
   const buildExportMessage = (work, fileName) => {
     return {
@@ -143,12 +214,13 @@ export const askEntityExport = async (context, user, format, entity, type = 'sim
       },
     };
   };
+
   // noinspection UnnecessaryLocalVariableJS
   const worksForExport = await Promise.all(
-    map(async (connector) => {
+    map(async (connector) => { // can be refactored to native map
       const fileIdentifier = toFileName(connector);
       const path = `export/${entity.entity_type}/${entity.id}`;
-      const work = await createWork(context, user, connector, fileIdentifier, path);
+      const work = await createWork(context, user, connector, fileIdentifier, path, { fileMarkings });
       const message = buildExportMessage(work, fileIdentifier);
       await pushToConnector(connector.internal_id, message);
       return work;
@@ -177,7 +249,7 @@ export const exportTransformFilters = (filteringArgs, orderOptions) => {
   };
 };
 
-const createSharingTask = async (context, type, containerId, organizationId) => {
+export const generateFiltersForSharingTask = (containerId) => {
   const allowedDomainsShared = schemaTypesDefinition.get(ABSTRACT_STIX_DOMAIN_OBJECT)
     .filter((s) => {
       if (s === ENTITY_TYPE_CONTAINER_OPINION || s === ENTITY_TYPE_CONTAINER_NOTE) return false;
@@ -198,18 +270,32 @@ const createSharingTask = async (context, type, containerId, organizationId) => 
     ],
     filterGroups: [],
   };
+  return filters;
+};
+
+const createSharingTask = async (context, type, containerId, organizationId) => {
+  const filters = generateFiltersForSharingTask(containerId);
+
+  // orderMode is on created_at, see buildQueryFilters in backgroundTask
+  // need to be desc for share/unshare to have events in the right order in stream (entity send before relations)
+  // containerId required to send an event after all container content is shared.
   const input = {
     filters: JSON.stringify(filters),
-    actions: [{ type, context: { values: [organizationId] } }],
+    actions: [{ type, context: { values: [organizationId] }, containerId }],
     scope: 'KNOWLEDGE',
+    orderMode: 'asc'
   };
   await createQueryTask(context, context.user, input);
 };
 
 export const addOrganizationRestriction = async (context, user, fromId, organizationId) => {
+  if (getDraftContext(context, user)) {
+    throw UnsupportedError('Cannot restrict organization in draft');
+  }
   const from = await internalLoadById(context, user, fromId);
   const updates = [{ key: INPUT_GRANTED_REFS, value: [organizationId], operation: UPDATE_OPERATION_ADD }];
-  const data = await updateAttribute(context, user, fromId, from.entity_type, updates);
+  // We skip references validation when updating organization sharing
+  const data = await updateAttribute(context, user, fromId, from.entity_type, updates, { bypassValidation: true });
   if (isStixDomainObjectShareableContainer(from.entity_type)) {
     await createSharingTask(context, 'SHARE', fromId, organizationId);
   }
@@ -217,9 +303,13 @@ export const addOrganizationRestriction = async (context, user, fromId, organiza
 };
 
 export const removeOrganizationRestriction = async (context, user, fromId, organizationId) => {
+  if (getDraftContext(context, user)) {
+    throw UnsupportedError('Cannot remove organization restriction in draft');
+  }
   const from = await internalLoadById(context, user, fromId);
   const updates = [{ key: INPUT_GRANTED_REFS, value: [organizationId], operation: UPDATE_OPERATION_REMOVE }];
-  const data = await updateAttribute(context, user, fromId, from.entity_type, updates);
+  // We skip references validation when updating organization sharing
+  const data = await updateAttribute(context, user, fromId, from.entity_type, updates, { bypassValidation: true });
   if (isStixDomainObjectShareableContainer(from.entity_type)) {
     await createSharingTask(context, 'UNSHARE', fromId, organizationId);
   }

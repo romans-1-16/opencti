@@ -11,9 +11,12 @@ import ToolBar from './ToolBar';
 import CustomizationMenu from '../CustomizationMenu';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
 import { useFormatter } from '../../../../components/i18n';
+import useConnectedDocumentModifier from '../../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY_SUB_TYPES = 'sub-types';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -24,6 +27,8 @@ const useStyles = makeStyles(() => ({
 const SubTypes = () => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Entity Types | Customization | Settings'));
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<SubTypesLinesQuery$variables>(
     LOCAL_STORAGE_KEY_SUB_TYPES,
     { searchTerm: '' },
@@ -72,7 +77,7 @@ const SubTypes = () => {
   return (
     <div className={classes.container}>
       <CustomizationMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Entity types'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Customization') }, { label: t_i18n('Entity types'), current: true }]} />
       <ListLines
         handleSearch={helpers.handleSearch}
         keyword={searchTerm}

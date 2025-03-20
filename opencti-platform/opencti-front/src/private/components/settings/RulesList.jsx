@@ -7,7 +7,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Switch from '@mui/material/Switch';
-import { graphql, createRefetchContainer } from 'react-relay';
+import { createRefetchContainer, graphql } from 'react-relay';
 import Grid from '@mui/material/Grid';
 import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
@@ -15,11 +15,13 @@ import Paper from '@mui/material/Paper';
 import makeStyles from '@mui/styles/makeStyles';
 import { useTheme } from '@mui/styles';
 import { ArrowRightAlt, SettingsSuggestOutlined } from '@mui/icons-material';
-import { Database, GraphOutline, AutoFix } from 'mdi-material-ui';
+import { AutoFix, Database, GraphOutline } from 'mdi-material-ui';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import FormGroup from '@mui/material/FormGroup';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
+import Alert from '@mui/material/Alert';
+import DangerZoneBlock from '../common/danger_zone/DangerZoneBlock';
 import Chart from '../common/charts/Chart';
 import { FIVE_SECONDS, parse } from '../../../utils/Time';
 import { useFormatter } from '../../../components/i18n';
@@ -29,13 +31,17 @@ import Transition from '../../../components/Transition';
 import { areaChartOptions } from '../../../utils/Charts';
 import { simpleNumberFormat } from '../../../utils/Number';
 import ItemNumberDifference from '../../../components/ItemNumberDifference';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const interval$ = interval(FIVE_SECONDS);
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   card: {
     width: '100%',
     borderRadius: 4,
+    height: 114,
     position: 'relative',
   },
   number: {
@@ -62,8 +68,8 @@ const useStyles = makeStyles((theme) => ({
     height: 10,
   },
   paper: {
-    margin: '10px 0 0 0',
-    padding: 0,
+    marginTop: theme.spacing(1),
+    padding: theme.spacing(2),
     overflow: 'hidden',
     height: '100%',
   },
@@ -192,6 +198,8 @@ export const rulesListQuery = graphql`
 const RulesListComponent = ({ relay, data, keyword }) => {
   const classes = useStyles();
   const { t_i18n, nsdt, md, n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Rules Engine | Customization | Settings'));
   const theme = useTheme();
   const [displayDisable, setDisplayDisable] = useState(false);
   const [displayEnable, setDisplayEnable] = useState(false);
@@ -286,7 +294,7 @@ const RulesListComponent = ({ relay, data, keyword }) => {
       y: entry.value,
     };
   });
-  const chartDataRelations = data.stixCoreRelationshipsTimeSeries.map(
+  const chartDataRelations = data.stixRelationshipsTimeSeries.map(
     (entry) => {
       const date = new Date(entry.date);
       date.setDate(date.getDate() + 15);
@@ -296,19 +304,18 @@ const RulesListComponent = ({ relay, data, keyword }) => {
       };
     },
   );
-  const totalRelations = data.stixCoreRelationshipsNumber.total;
-  const differenceRelations = totalRelations - data.stixCoreRelationshipsNumber.count;
+  const totalRelations = data.stixRelationshipsNumber.total;
+  const differenceRelations = totalRelations - data.stixRelationshipsNumber.count;
   const totalEntities = data.stixDomainObjectsNumber.total;
   const differenceEntities = totalEntities - data.stixDomainObjectsNumber.count;
   return (
     <>
       <Grid container={true} spacing={3}>
-        <Grid item={true} xs={6}>
+        <Grid item xs={6}>
           <Grid container={true} spacing={3}>
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Card
                 classes={{ root: classes.card }}
-                style={{ height: 110 }}
                 variant="outlined"
               >
                 <CardContent>
@@ -326,10 +333,9 @@ const RulesListComponent = ({ relay, data, keyword }) => {
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Card
                 classes={{ root: classes.card }}
-                style={{ height: 110 }}
                 variant="outlined"
               >
                 <CardContent>
@@ -347,10 +353,9 @@ const RulesListComponent = ({ relay, data, keyword }) => {
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Card
                 classes={{ root: classes.card }}
-                style={{ height: 110 }}
                 variant="outlined"
               >
                 <CardContent>
@@ -369,10 +374,9 @@ const RulesListComponent = ({ relay, data, keyword }) => {
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item={true} xs={6}>
+            <Grid item xs={6}>
               <Card
                 classes={{ root: classes.card }}
-                style={{ height: 110 }}
                 variant="outlined"
               >
                 <CardContent>
@@ -397,7 +401,7 @@ const RulesListComponent = ({ relay, data, keyword }) => {
             </Grid>
           </Grid>
         </Grid>
-        <Grid item={true} xs={6}>
+        <Grid item xs={6}>
           <Paper
             variant="outlined"
             classes={{ root: classes.paper }}
@@ -455,72 +459,74 @@ const RulesListComponent = ({ relay, data, keyword }) => {
                   spacing={3}
                   style={{ marginBottom: 50 }}
                 >
-                  <Grid item={true} xs={3}>
-                    <Typography variant="h4" gutterBottom={true}>
-                      {t_i18n(rule.name)}
-                    </Typography>
-                    <Paper
-                      variant="outlined"
-                      classes={{ root: classes.paper }}
-                      style={{ padding: 15, minWidth: 280 }}
-                    >
-                      <Grid container={true} spacing={3}>
-                        <Grid item={true} xs={6}>
-                          <Typography variant="h3">
-                            {t_i18n('Description')}
-                          </Typography>
-                          {t_i18n(rule.description)}
-                        </Grid>
-                        <Grid item={true} xs={6}>
-                          <Typography variant="h3" gutterBottom={true}>
-                            {t_i18n('Status')}
-                          </Typography>
-                          <FormGroup>
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  disabled={!isEngineEnabled}
-                                  checked={isEngineEnabled && rule.activated}
-                                  color="secondary"
-                                  onChange={() => (rule.activated
-                                    ? handleOpenDisable(rule.id)
-                                    : handleOpenEnable(rule.id))
+                  <Grid item xs={3}>
+                    <DangerZoneBlock
+                      type={'rules'}
+                      title={t_i18n(rule.name)}
+                      sx={{ title: { textWrap: 'nowrap', display: 'flex', alignItems: 'center' } }}
+                      component={({ disabled, style }) => (
+                        <Paper
+                          variant="outlined"
+                          classes={{ root: classes.paper }}
+                          style={style}
+                        >
+                          <Grid container={true} spacing={3}>
+                            <Grid item xs={6}>
+                              <Typography variant="h3">
+                                {t_i18n('Description')}
+                              </Typography>
+                              {t_i18n(rule.description)}
+                            </Grid>
+                            <Grid item xs={6}>
+                              <Typography variant="h3" gutterBottom={true}>
+                                {t_i18n('Status')}
+                              </Typography>
+                              <FormGroup>
+                                <FormControlLabel
+                                  control={
+                                    <Switch
+                                      disabled={!isEngineEnabled || disabled}
+                                      checked={isEngineEnabled && rule.activated}
+                                      color="secondary"
+                                      onChange={() => (rule.activated
+                                        ? handleOpenDisable(rule.id)
+                                        : handleOpenEnable(rule.id))
                                   }
-                                />
+                                    />
                               }
-                              label={
+                                  label={
                                 isEngineEnabled && rule.activated
                                   ? t_i18n('Enabled')
                                   : t_i18n('Disabled')
                               }
-                            />
-                          </FormGroup>
-                        </Grid>
-                        <Grid item={true} xs={12}>
-                          {isEngineEnabled && task && (
-                            <div
-                              style={{
-                                width: '100%',
-                                textAlign: 'center',
-                                fontSize: 9,
-                                fontFamily: 'Consolas, monaco, monospace',
-                              }}
-                            >
-                              {task.enable
-                                ? t_i18n(
-                                  task.completed
-                                    ? 'This rule has been applied on the existing data'
-                                    : 'Applying this rule on the existing data',
-                                )
-                                : t_i18n(
-                                  task.completed
-                                    ? 'Rule has been cleaned up on the existing data'
-                                    : 'Cleaning up this rule on the existing data',
-                                )}
-                              <LinearProgress
-                                classes={{ root: classes.progress }}
-                                variant="determinate"
-                                value={
+                                />
+                              </FormGroup>
+                            </Grid>
+                            <Grid item xs={12}>
+                              {isEngineEnabled && task && (
+                              <div
+                                style={{
+                                  width: '100%',
+                                  textAlign: 'center',
+                                  fontSize: 9,
+                                  fontFamily: 'Consolas, monaco, monospace',
+                                }}
+                              >
+                                {task.enable
+                                  ? t_i18n(
+                                    task.completed
+                                      ? 'This rule has been applied on the existing data'
+                                      : 'Applying this rule on the existing data',
+                                  )
+                                  : t_i18n(
+                                    task.completed
+                                      ? 'Rule has been cleaned up on the existing data'
+                                      : 'Cleaning up this rule on the existing data',
+                                  )}
+                                <LinearProgress
+                                  classes={{ root: classes.progress }}
+                                  variant="determinate"
+                                  value={
                                   // eslint-disable-next-line no-nested-ternary
                                   task.task_expected_number === 0
                                     ? task.completed
@@ -534,18 +540,20 @@ const RulesListComponent = ({ relay, data, keyword }) => {
                                           * 100,
                                       )
                                 }
-                              />
-                            </div>
-                          )}
-                        </Grid>
-                      </Grid>
-                    </Paper>
+                                />
+                              </div>
+                              )}
+                            </Grid>
+                          </Grid>
+                        </Paper>
+                      )}
+                    />
                   </Grid>
-                  <Grid item={true} xs={9}>
+                  <Grid item xs={9}>
                     <Paper
                       variant="outlined"
                       classes={{ root: classes.paper }}
-                      style={{ marginTop: 25 }}
+                      style={{ marginTop: 23, overflowX: 'auto' }}
                     >
                       <div className={classes.definition}>
                         <div className={classes.left}>
@@ -651,7 +659,16 @@ const RulesListComponent = ({ relay, data, keyword }) => {
       >
         <DialogContent>
           <DialogContentText>
-            {t_i18n('Do you want to enable this rule?')}
+            <Alert
+              severity="warning"
+              variant="outlined"
+              color="dangerZone"
+              style={{
+                borderColor: theme.palette.dangerZone.main,
+              }}
+            >
+              {t_i18n('Activating this rule will automatically generate new relationships on your existing and future data. Please be aware that enabling this rule may impact your platform\'s data and performance.')}
+            </Alert>
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -676,7 +693,16 @@ const RulesListComponent = ({ relay, data, keyword }) => {
       >
         <DialogContent>
           <DialogContentText>
-            {t_i18n('Do you want to disable this rule?')}
+            <Alert
+              severity="warning"
+              variant="outlined"
+              color="dangerZone"
+              style={{
+                borderColor: theme.palette.dangerZone.main,
+              }}
+            >
+              {t_i18n('Deactivating this rule will automatically remove the relationships previously generated by the rule. Please be aware that disabling this rule may impact your platform\'s data and performance.')}
+            </Alert>
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -723,7 +749,7 @@ export default createRefetchContainer(
           date
           value
         }
-        stixCoreRelationshipsTimeSeries(
+        stixRelationshipsTimeSeries(
           field: "created_at"
           relationship_type: ["stix-relationship"]
           operation: count
@@ -742,7 +768,7 @@ export default createRefetchContainer(
           total
           count
         }
-        stixCoreRelationshipsNumber(
+        stixRelationshipsNumber(
           relationship_type: ["stix-relationship"]
           onlyInferred: true
           endDate: $endDate

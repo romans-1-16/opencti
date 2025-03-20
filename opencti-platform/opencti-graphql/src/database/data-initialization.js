@@ -1,6 +1,6 @@
 import { logApp } from '../config/conf';
 import { addSettings } from '../domain/settings';
-import { BYPASS, BYPASS_REFERENCE, KNOWLEDGE_ORGANIZATION_RESTRICT, ROLE_ADMINISTRATOR, ROLE_DEFAULT, SYSTEM_USER } from '../utils/access';
+import { BYPASS, ROLE_ADMINISTRATOR, ROLE_DEFAULT, SYSTEM_USER } from '../utils/access';
 import { initCreateEntitySettings } from '../modules/entitySetting/entitySetting-domain';
 import { initDecayRules } from '../modules/decayRule/decayRule-domain';
 import { initManagerConfigurations } from '../modules/managerConfiguration/managerConfiguration-domain';
@@ -9,11 +9,11 @@ import { ENTITY_TYPE_CONTAINER_REPORT } from '../schema/stixDomainObject';
 import { VocabularyCategory } from '../generated/graphql';
 import { builtInOv, openVocabularies } from '../modules/vocabulary/vocabulary-utils';
 import { addVocabulary } from '../modules/vocabulary/vocabulary-domain';
-import { addMarkingDefinition } from '../domain/markingDefinition';
+import { addAllowedMarkingDefinition } from '../domain/markingDefinition';
 import { addCapability, addGroup, addRole } from '../domain/grant';
 import { GROUP_DEFAULT, groupAddRelation } from '../domain/group';
 import { TAXIIAPI } from '../domain/user';
-import { KNOWLEDGE_COLLABORATION, KNOWLEDGE_DELETE, KNOWLEDGE_MANAGE_AUTH_MEMBERS, KNOWLEDGE_UPDATE } from '../schema/general';
+import { KNOWLEDGE_COLLABORATION, KNOWLEDGE_DELETE, KNOWLEDGE_FRONTEND_EXPORT, KNOWLEDGE_MANAGE_AUTH_MEMBERS, KNOWLEDGE_UPDATE } from '../schema/general';
 
 // region Platform capabilities definition
 const KNOWLEDGE_CAPABILITY = 'KNOWLEDGE';
@@ -21,10 +21,9 @@ const BYPASS_CAPABILITIES = { name: BYPASS, description: 'Bypass all capabilitie
 export const TAXII_CAPABILITIES = {
   name: TAXIIAPI,
   attribute_order: 2500,
-  description: 'Access data sharing & ingestion',
+  description: 'Access data sharing',
   dependencies: [
-    { name: 'SETCOLLECTIONS', description: 'Manage data sharing & ingestion', attribute_order: 2510 },
-    { name: 'SETCSVMAPPERS', description: 'Manage CSV mappers', attribute_order: 2520 }
+    { name: 'SETCOLLECTIONS', description: 'Manage data sharing', attribute_order: 2510 },
   ],
 };
 const KNOWLEDGE_CAPABILITIES = {
@@ -33,14 +32,17 @@ const KNOWLEDGE_CAPABILITIES = {
   attribute_order: 100,
   dependencies: [
     { name: KNOWLEDGE_COLLABORATION, description: 'Access to collaborative creation', attribute_order: 150 },
+    { name: KNOWLEDGE_FRONTEND_EXPORT, description: 'Can use web interface export functions (PDF, PNG, etc.)', attribute_order: 160 },
     {
       name: KNOWLEDGE_UPDATE,
       description: 'Create / Update knowledge',
       attribute_order: 200,
       dependencies: [
-        { name: KNOWLEDGE_ORGANIZATION_RESTRICT, attribute_order: 290, description: 'Restrict organization access' },
+        { name: 'KNORGARESTRICT', attribute_order: 290, description: 'Restrict organization access' },
         { name: KNOWLEDGE_DELETE, description: 'Delete knowledge', attribute_order: 300 },
         { name: KNOWLEDGE_MANAGE_AUTH_MEMBERS, description: 'Manage authorized members', attribute_order: 310 },
+        { name: 'KNBYPASSREFERENCE', description: 'Bypass enforced reference', attribute_order: 320 },
+        { name: 'KNBYPASSFIELDS', description: 'Bypass mandatory fields', attribute_order: 330 },
       ],
     },
     { name: 'KNUPLOAD', description: 'Upload knowledge files', attribute_order: 400 },
@@ -52,16 +54,23 @@ const KNOWLEDGE_CAPABILITIES = {
       dependencies: [{ name: 'KNASKEXPORT', description: 'Generate knowledge export', attribute_order: 710 }],
     },
     { name: 'KNENRICHMENT', description: 'Ask for knowledge enrichment', attribute_order: 800 },
+    { name: 'KNDISSEMINATION', description: 'Disseminate files by email', attribute_order: 900 },
   ],
 };
 export const SETTINGS_CAPABILITIES = {
   name: 'SETTINGS',
-  description: 'Access administration',
+  description: 'Access to admin functionalities',
   attribute_order: 3000,
   dependencies: [
+    { name: 'SETPARAMETERS', description: 'Manage parameters', attribute_order: 3100 },
     { name: 'SETACCESSES', description: 'Manage credentials', attribute_order: 3200 },
     { name: 'SETMARKINGS', description: 'Manage marking definitions', attribute_order: 3300 },
-    { name: 'SETLABELS', description: 'Manage labels & Attributes', attribute_order: 3400 },
+    { name: 'SETDISSEMINATION', description: 'Manage dissemination lists', attribute_order: 3320 },
+    { name: 'SETCUSTOMIZATION', description: 'Manage customization', attribute_order: 3350 },
+    { name: 'SETLABELS', description: 'Manage taxonomies', attribute_order: 3400 },
+    { name: 'SECURITYACTIVITY', description: 'Access security activity', attribute_order: 3500 },
+    { name: 'FILEINDEXING', description: 'Access to file indexing', attribute_order: 3600 },
+    { name: 'SUPPORT', description: 'Access to support data', attribute_order: 3700 },
   ],
 };
 export const CAPABILITIES = [
@@ -69,16 +78,31 @@ export const CAPABILITIES = [
   KNOWLEDGE_CAPABILITIES,
   {
     name: 'EXPLORE',
-    description: 'Access exploration',
+    description: 'Access dashboards',
     attribute_order: 1000,
     dependencies: [
       {
         name: 'EXUPDATE',
-        description: 'Create  / Update exploration',
+        description: 'Create / Update dashboards',
         attribute_order: 1100,
         dependencies: [
-          { name: 'EXDELETE', description: 'Delete exploration', attribute_order: 1200 },
-          { name: 'PUBLISH', description: 'Publish exploration', attribute_order: 1300 },
+          { name: 'EXDELETE', description: 'Delete dashboards', attribute_order: 1200 },
+          { name: 'PUBLISH', description: 'Manage public dashboards', attribute_order: 1300 },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'INVESTIGATION',
+    description: 'Access investigations',
+    attribute_order: 1400,
+    dependencies: [
+      {
+        name: 'INUPDATE',
+        description: 'Create / Update investigations',
+        attribute_order: 1410,
+        dependencies: [
+          { name: 'INDELETE', description: 'Delete investigations', attribute_order: 1420 },
         ],
       },
     ],
@@ -93,70 +117,78 @@ export const CAPABILITIES = [
   SETTINGS_CAPABILITIES,
   {
     name: 'CONNECTORAPI',
-    attribute_order: 4000,
+    attribute_order: 2300,
     description: 'Connectors API usage: register, ping, export push ...',
   },
   {
-    name: BYPASS_REFERENCE,
-    attribute_order: 6000,
-    description: 'Bypass mandatory references if any',
+    name: 'INGESTION',
+    attribute_order: 2600,
+    description: 'Access ingestion',
+    dependencies: [
+      { name: 'SETINGESTIONS', description: 'Manage ingestion', attribute_order: 2610 },
+    ]
   },
+  {
+    name: 'CSVMAPPERS',
+    description: 'Manage CSV mappers',
+    attribute_order: 2700
+  }
 ];
 // endregion
 
 const createMarkingDefinitions = async (context) => {
   // Create marking defs for TLP
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'TLP',
     definition: 'TLP:CLEAR',
     x_opencti_color: '#ffffff',
     x_opencti_order: 1,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'TLP',
     definition: 'TLP:GREEN',
     x_opencti_color: '#2e7d32',
     x_opencti_order: 2,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'TLP',
     definition: 'TLP:AMBER',
     x_opencti_color: '#d84315',
     x_opencti_order: 3,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'TLP',
     definition: 'TLP:AMBER+STRICT',
     x_opencti_color: '#d84315',
-    x_opencti_order: 3,
+    x_opencti_order: 4,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'TLP',
     definition: 'TLP:RED',
     x_opencti_color: '#c62828',
-    x_opencti_order: 4,
+    x_opencti_order: 5,
   });
 
   // Creation markings for PAP
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'PAP',
     definition: 'PAP:CLEAR',
     x_opencti_color: '#ffffff',
     x_opencti_order: 1,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'PAP',
     definition: 'PAP:GREEN',
     x_opencti_color: '#2e7d32',
     x_opencti_order: 2,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'PAP',
     definition: 'PAP:AMBER',
     x_opencti_color: '#d84315',
     x_opencti_order: 3,
   });
-  await addMarkingDefinition(context, SYSTEM_USER, {
+  await addAllowedMarkingDefinition(context, SYSTEM_USER, {
     definition_type: 'PAP',
     definition: 'PAP:RED',
     x_opencti_color: '#c62828',
@@ -171,12 +203,14 @@ const createVocabularies = async (context) => {
     const vocabularies = openVocabularies[category] ?? [];
     for (let i = 0; i < vocabularies.length; i += 1) {
       const { key, description, aliases, order } = vocabularies[i];
-      const data = { name: key,
+      const data = {
+        name: key,
         description: description ?? '',
         aliases: aliases ?? [],
         category,
         order,
-        builtIn: builtInOv.includes(category) };
+        builtIn: builtInOv.includes(category)
+      };
       await addVocabulary(context, SYSTEM_USER, data);
     }
   }
@@ -210,45 +244,72 @@ export const createCapabilities = async (context, capabilities, parentName = '')
 const createBasicRolesAndCapabilities = async (context) => {
   // Create capabilities
   await createCapabilities(context, CAPABILITIES);
-  // Create roles
-  const defaultRole = await addRole(context, SYSTEM_USER, {
+
+  // Create Default(s) Role and Group
+  const defaultRoleInput = await addRole(context, SYSTEM_USER, {
     name: ROLE_DEFAULT,
     description: 'Default role associated to the default group',
     capabilities: [KNOWLEDGE_CAPABILITY],
+    can_manage_sensitive_config: false,
   });
-  await addRole(context, SYSTEM_USER, {
-    name: ROLE_ADMINISTRATOR,
-    description: 'Administrator role that bypass every capabilities',
-    capabilities: [BYPASS],
-  });
-  const connectorRole = await addRole(context, SYSTEM_USER, {
-    name: 'Connector',
-    description: 'Connector role that has the recommended capabilities',
-    capabilities: [
-      'KNOWLEDGE_KNUPDATE_KNDELETE',
-      'KNOWLEDGE_KNUPLOAD',
-      'KNOWLEDGE_KNASKIMPORT',
-      'KNOWLEDGE_KNGETEXPORT_KNASKEXPORT',
-      'KNOWLEDGE_KNENRICHMENT',
-      'CONNECTORAPI',
-      'BYPASSREFERENCE',
-      'MODULES_MODMANAGE',
-      'TAXIIAPI',
-      'SETTINGS_SETMARKINGS',
-      'SETTINGS_SETLABELS',
-    ],
-  });
-  // Create default group with default role
+
   const defaultGroup = await addGroup(context, SYSTEM_USER, {
     name: GROUP_DEFAULT,
     description: 'Default group associated to all users',
     default_assignation: true,
   });
   const defaultRoleRelationInput = {
-    toId: defaultRole.id,
+    toId: defaultRoleInput.id,
     relationship_type: 'has-role',
   };
   await groupAddRelation(context, SYSTEM_USER, defaultGroup.id, defaultRoleRelationInput);
+
+  // Create Administrator(s) Role and Group
+  const administratorRoleInput = {
+    name: ROLE_ADMINISTRATOR,
+    description: 'Administrator role that bypass every capabilities',
+    capabilities: [BYPASS],
+    can_manage_sensitive_config: false,
+  };
+
+  const administratorRole = await addRole(context, SYSTEM_USER, administratorRoleInput);
+
+  const administratorGroup = await addGroup(context, SYSTEM_USER, {
+    name: 'Administrators',
+    description: 'Administrator group',
+    auto_new_marking: true,
+  });
+  const administratorRoleRelationInput = {
+    toId: administratorRole.id,
+    relationship_type: 'has-role',
+  };
+  await groupAddRelation(context, SYSTEM_USER, administratorGroup.id, administratorRoleRelationInput);
+
+  // Create Connector(s) Role and Group
+  const connectorRoleInput = {
+    name: 'Connector',
+    description: 'Connector role that has the recommended capabilities',
+    capabilities: [
+      'KNOWLEDGE_KNUPDATE_KNDELETE',
+      'KNOWLEDGE_KNUPDATE_KNBYPASSFIELDS',
+      'KNOWLEDGE_KNUPLOAD',
+      'KNOWLEDGE_KNASKIMPORT',
+      'KNOWLEDGE_KNGETEXPORT_KNASKEXPORT',
+      'KNOWLEDGE_KNENRICHMENT',
+      'CONNECTORAPI',
+      'KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE',
+      'MODULES_MODMANAGE',
+      'TAXIIAPI',
+      'INGESTION',
+      'SETTINGS_SETMARKINGS',
+      'SETTINGS_SETLABELS',
+    ],
+    can_manage_sensitive_config: false
+  };
+
+  const connectorRole = await addRole(context, SYSTEM_USER, connectorRoleInput);
+  // Create default group with default role
+
   // Create connector group with connector role
   const connectorGroup = await addGroup(context, SYSTEM_USER, {
     name: 'Connectors',

@@ -5,8 +5,10 @@ type PublicDashboard implements InternalObject & BasicObject {
   parent_types: [String!]! @auth(for: [KNOWLEDGE, EXPLORE])
   # PublicDashboard
   name: String!
+  owner: Creator @auth(for: [KNOWLEDGE, EXPLORE])
   description: String
-  dashboard_id: String  @auth(for: [KNOWLEDGE, EXPLORE])
+  dashboard_id: String!  @auth(for: [KNOWLEDGE, EXPLORE])
+  dashboard: Workspace! @auth(for: [KNOWLEDGE, EXPLORE])
   user_id: String!  @auth(for: [KNOWLEDGE, EXPLORE])
   public_manifest: String
   private_manifest: String @auth(for: [KNOWLEDGE, EXPLORE])
@@ -16,7 +18,14 @@ type PublicDashboard implements InternalObject & BasicObject {
   created_at: DateTime @auth(for: [KNOWLEDGE, EXPLORE])
   updated_at: DateTime @auth(for: [KNOWLEDGE, EXPLORE])
   editContext: [EditUserContext!]  @auth(for: [KNOWLEDGE, EXPLORE])
-  authorized_members: [MemberAccess!]  @auth(for: [KNOWLEDGE, EXPLORE])
+  enabled: Boolean!
+}
+
+type PublicDistribution {
+  label: String!
+  entity: StixObjectOrStixRelationshipOrCreator
+  value: Int
+  breakdownDistribution: [Distribution]
 }
 
 # Ordering
@@ -24,7 +33,11 @@ enum PublicDashboardsOrdering {
   name
   created_at
   updated_at
-  creator
+  user_id
+  enabled
+  dashboard
+  uri_key
+  _score
 }
 
 # Relay connections
@@ -44,19 +57,59 @@ type Query {
     filters: FilterGroup
     search: String
   ): PublicDashboardConnection @auth(for: [EXPLORE])
-  publicDashboardByUriKey(uri_key: String!): PublicDashboard
+  publicDashboardByUriKey(uri_key: String!): PublicDashboard @public
   publicStixCoreObjectsNumber(
+    uriKey: String!
+    widgetId : String!
     startDate: DateTime
     endDate: DateTime
+  ): Number @public
+  publicStixRelationshipsNumber(
     uriKey: String!
     widgetId : String!
-  ): Number
-  publicStixCoreObjectsMultiTimeSeries(
-    startDate: DateTime!
+    startDate: DateTime
     endDate: DateTime
+  ): Number @public
+  publicStixCoreObjectsMultiTimeSeries(
     uriKey: String!
     widgetId : String!
-  ): [MultiTimeSeries]
+    startDate: DateTime
+    endDate: DateTime
+  ): [MultiTimeSeries] @public
+  publicStixRelationshipsMultiTimeSeries(
+    uriKey: String!
+    widgetId : String!
+    startDate: DateTime
+    endDate: DateTime
+  ): [MultiTimeSeries] @public
+  publicStixCoreObjectsDistribution(
+    uriKey: String!
+    widgetId : String!
+    startDate: DateTime
+    endDate: DateTime
+  ): [PublicDistribution] @public
+  publicStixRelationshipsDistribution(
+    uriKey: String!
+    widgetId : String!
+    startDate: DateTime
+    endDate: DateTime
+  ): [PublicDistribution] @public
+  publicBookmarks(
+    uriKey: String!
+    widgetId : String!
+  ): StixDomainObjectConnection @public
+  publicStixCoreObjects(
+    uriKey: String!
+    widgetId : String!
+    startDate: DateTime
+    endDate: DateTime
+  ): StixCoreObjectConnection @public
+  publicStixRelationships(
+    uriKey: String!
+    widgetId : String!
+    startDate: DateTime
+    endDate: DateTime
+  ): StixRelationshipConnection @public
 }
 
 type PublicDashboardEdge {
@@ -66,10 +119,12 @@ type PublicDashboardEdge {
 
 # Mutation
 input PublicDashboardAddInput {
-  name: String!
+  name: String! @constraint(minLength: 2, format: "not-blank")
+  uri_key: String!
   description: String
   dashboard_id: String!
   allowed_markings_ids: [String!]
+  enabled: Boolean!
 }
 
 type Mutation {

@@ -1,6 +1,6 @@
 import React, { FunctionComponent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
@@ -23,19 +23,23 @@ import Alert from '@mui/material/Alert';
 import makeStyles from '@mui/styles/makeStyles';
 import { truncate } from '../../../../utils/String';
 import { MESSAGING$ } from '../../../../relay/environment';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
 import { NotificationLine_node$data } from './__generated__/NotificationLine_node.graphql';
 import Transition from '../../../../components/Transition';
 import { UserContext } from '../../../../utils/hooks/useAuth';
-import { FilterGroup, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import { serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
 import TasksFilterValueContainer from '../../../../components/TasksFilterValueContainer';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import { FilterGroup } from '../../../../utils/filters/filtersHelpers-types';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   bottomNav: {
     padding: 0,
-    zIndex: 1100,
+    zIndex: 1,
     display: 'flex',
     height: 50,
     overflow: 'hidden',
@@ -100,10 +104,10 @@ const NotificationsToolBar: FunctionComponent<NotificationsToolBarProps> = ({
 
   const isOpen = numberOfSelectedElements > 0;
 
-  const [commitQueryTask] = useMutation(
+  const [commitQueryTask] = useApiMutation(
     notificationsToolBarQueryTaskAddMutation,
   );
-  const [commitListTask] = useMutation(notificationsToolBarListTaskAddMutation);
+  const [commitListTask] = useApiMutation(notificationsToolBarListTaskAddMutation);
 
   const [displayTask, setDisplayTask] = useState(false);
   const [actions, setActions] = useState<
@@ -340,12 +344,13 @@ const NotificationsToolBar: FunctionComponent<NotificationsToolBarProps> = ({
                         {selectAll ? (
                           <TasksFilterValueContainer
                             filters={filters}
+                            entityTypes={['Notification']}
                           />
                         ) : (
                           <span>
                             {truncate(
                               Object.values(selectedElements || {})
-                                .map((o) => defaultValue(o))
+                                .map((o) => getMainRepresentative(o))
                                 .join(', '),
                               80,
                             )}
@@ -370,7 +375,7 @@ const NotificationsToolBar: FunctionComponent<NotificationsToolBarProps> = ({
                           <TableCell>
                             {truncate(
                               (o.context?.values ?? [])
-                                .map((p) => (typeof p === 'string' ? p : defaultValue(p)))
+                                .map((p) => (typeof p === 'string' ? p : getMainRepresentative(p)))
                                 .join(', '),
                               80,
                             )}

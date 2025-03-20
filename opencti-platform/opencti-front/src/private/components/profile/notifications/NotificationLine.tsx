@@ -5,10 +5,10 @@ import Tooltip from '@mui/material/Tooltip';
 import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
-import { BellPlusOutline, BellRemoveOutline, BellCogOutline, BellOutline, FileTableBoxMultipleOutline } from 'mdi-material-ui';
-import { CheckCircleOutlined, UnpublishedOutlined, DeleteOutlined } from '@mui/icons-material';
+import { BellCogOutline, BellOutline, BellPlusOutline, BellRemoveOutline, FileTableBoxMultipleOutline } from 'mdi-material-ui';
+import { CheckCircleOutlined, DeleteOutlined, UnpublishedOutlined } from '@mui/icons-material';
 import Skeleton from '@mui/material/Skeleton';
-import { graphql, useFragment, useMutation } from 'react-relay';
+import { graphql, useFragment } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import { Theme } from '@mui/material/styles/createTheme';
 import Checkbox from '@mui/material/Checkbox';
@@ -23,6 +23,7 @@ import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import IconButton from '@mui/material/IconButton';
+import DialogContentText from '@mui/material/DialogContentText';
 import { DataColumns } from '../../../../components/list_lines';
 import { NotificationLine_node$data, NotificationLine_node$key } from './__generated__/NotificationLine_node.graphql';
 import { useFormatter } from '../../../../components/i18n';
@@ -32,7 +33,10 @@ import { deleteNode } from '../../../../utils/store';
 import { NotificationsLinesPaginationQuery$variables } from './__generated__/NotificationsLinesPaginationQuery.graphql';
 import MarkdownDisplay from '../../../../components/MarkdownDisplay';
 import { isNotEmptyField } from '../../../../utils/utils';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -94,8 +98,8 @@ interface NotificationLineProps {
   onLabelClick: (
     k: string,
     id: string,
-    value: Record<string, unknown>,
-    event: React.KeyboardEvent
+    value: Record<string, unknown> | string,
+    event: React.KeyboardEvent | React.MouseEvent
   ) => void;
   selectedElements: Record<string, NotificationLine_node$data>;
   deSelectedElements: Record<string, NotificationLine_node$data>;
@@ -139,6 +143,7 @@ NotificationLineProps
   selectedElements,
   deSelectedElements,
   onToggleEntity,
+  onLabelClick, // used for trigger name click
   selectAll,
   onToggleShiftEntity,
   index,
@@ -152,12 +157,13 @@ NotificationLineProps
   const events = data.notification_content.map((n) => n.events).flat();
   const isDigest = data.notification_type === 'digest';
   const firstEvent = events.at(0);
-  const [commitMarkRead] = useMutation(
+  const [commitMarkRead] = useApiMutation(
     notificationLineNotificationMarkReadMutation,
   );
-  const [commitDelete] = useMutation(
+  const [commitDelete] = useApiMutation(
     notificationLineNotificationDeleteMutation,
   );
+  const [displayDelete, setDisplayDelete] = useState(false);
   const handleRead = (read: boolean) => {
     setUpdating(true);
     return commitMarkRead({
@@ -183,6 +189,14 @@ NotificationLineProps
         setUpdating(false);
       },
     });
+  };
+
+  const handleOpenDelete = () => {
+    setDisplayDelete(true);
+  };
+
+  const handleCloseDelete = () => {
+    setDisplayDelete(false);
   };
   const eventTypes: Record<string, string> = {
     create: t_i18n('Creation'),
@@ -214,7 +228,7 @@ NotificationLineProps
     }
   };
   const firstOperation = isDigest ? 'multiple' : (firstEvent?.operation ?? 'none');
-  const isLinkAvailable = events.length === 1 && isNotEmptyField(firstEvent?.instance_id);
+  const isLinkAvailable = events.length === 1 && isNotEmptyField(firstEvent?.instance_id) && firstOperation !== 'delete';
   const isClickableLine = isDigest || isLinkAvailable;
   return (
     <div>
@@ -260,7 +274,7 @@ NotificationLineProps
                 {events.length > 1 ? (
                   <i>{t_i18n('Digest with multiple notifiers')}</i>
                 ) : (
-                  <MarkdownDisplay content={firstEvent?.message ?? '-'} remarkGfmPlugin={true} commonmark={true}/>
+                  <MarkdownDisplay content={firstEvent?.message ?? '-'} remarkGfmPlugin commonmark removeLinks/>
                 )}
               </div>
               <div className={classes.bodyItem} style={{ width: dataColumns.created.width }}>
@@ -277,6 +291,11 @@ NotificationLineProps
                     }
                     variant="outlined"
                     label={data.name}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onLabelClick('name', data.name, 'eq', e);
+                    }}
                   />
                 </Tooltip>
               </div>
@@ -292,16 +311,43 @@ NotificationLineProps
           >
             {data.is_read ? <CheckCircleOutlined /> : <UnpublishedOutlined />}
           </IconButton>
-          <IconButton
-            disabled={updating}
-            onClick={() => handleDelete()}
-            size="large"
-            color="primary"
-          >
-            <DeleteOutlined />
-          </IconButton>
+          <Tooltip title={t_i18n('Delete this notification')}>
+            <span>
+              <IconButton
+                disabled={updating}
+                onClick={() => handleOpenDelete()}
+                size="large"
+                color="primary"
+              >
+                <DeleteOutlined/>
+              </IconButton>
+            </span>
+          </Tooltip>
         </ListItemSecondaryAction>
       </ListItem>
+      <Dialog
+        PaperProps={{ elevation: 1 }}
+        open={displayDelete}
+        TransitionComponent={Transition}
+        onClose={handleCloseDelete}
+      >
+        <DialogContent>
+          <DialogContentText>
+            {t_i18n('Do you want to delete this notification?')}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDelete}>
+            {t_i18n('Cancel')}
+          </Button>
+          <Button
+            onClick={handleDelete}
+            color="secondary"
+          >
+            {t_i18n('Delete')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={open}
         TransitionComponent={Transition}

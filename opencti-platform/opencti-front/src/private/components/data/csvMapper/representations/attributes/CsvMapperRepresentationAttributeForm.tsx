@@ -13,6 +13,8 @@ import { SchemaAttribute } from '@components/data/csvMapper/representations/attr
 import { useFormatter } from '../../../../../../components/i18n';
 import { isEmptyField } from '../../../../../../utils/utils';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     width: '100%',
@@ -51,7 +53,7 @@ CsvMapperRepresentationAttributeFormProps
   const { name, value } = field;
   const { setFieldValue } = form;
 
-  const options = alphabet(1);
+  const options = alphabet(26);
 
   // -- ERRORS --
 
@@ -127,13 +129,13 @@ CsvMapperRepresentationAttributeFormProps
       <div>
         {
           (schemaAttribute.type === 'date' || schemaAttribute.multiple || schemaAttribute.editDefault)
-          && <CsvMapperRepresentationDialogOption>
-            <CsvMapperRepresentationAttributeOptions
-              schemaAttribute={schemaAttribute}
-              attributeName={name}
-              form={form}
-            />
-          </CsvMapperRepresentationDialogOption>
+            && <CsvMapperRepresentationDialogOption configuration={value}>
+              <CsvMapperRepresentationAttributeOptions
+                schemaAttribute={schemaAttribute}
+                attributeName={name}
+                form={form}
+              />
+            </CsvMapperRepresentationDialogOption>
         }
       </div>
       <CsvMapperRepresentionAttributeSelectedConfigurations

@@ -28,6 +28,7 @@ import type * as SMO from '../types/stix-smo';
 import {
   ENTITY_AUTONOMOUS_SYSTEM,
   ENTITY_BANK_ACCOUNT,
+  ENTITY_CREDENTIAL,
   ENTITY_CRYPTOGRAPHIC_KEY,
   ENTITY_CRYPTOGRAPHIC_WALLET,
   ENTITY_DIRECTORY,
@@ -46,10 +47,12 @@ import {
   ENTITY_MUTEX,
   ENTITY_NETWORK_TRAFFIC,
   ENTITY_PAYMENT_CARD,
+  ENTITY_PERSONA,
   ENTITY_PHONE_NUMBER,
   ENTITY_PROCESS,
   ENTITY_SOFTWARE,
   ENTITY_TEXT,
+  ENTITY_TRACKING_NUMBER,
   ENTITY_URL,
   ENTITY_USER_ACCOUNT,
   ENTITY_USER_AGENT,
@@ -186,6 +189,12 @@ export const extractStixRepresentative = (
     const bankAccount = stix as SCO.StixBankAccount;
     return bankAccount.iban ?? bankAccount.account_number ?? 'Unknown';
   }
+  if (entityType === ENTITY_CREDENTIAL) {
+    return (stix as SCO.StixCredential).value ?? 'Unknown';
+  }
+  if (entityType === ENTITY_TRACKING_NUMBER) {
+    return (stix as SCO.StixTrackingNumber).value ?? 'Unknown';
+  }
   if (entityType === ENTITY_CRYPTOGRAPHIC_KEY) {
     return (stix as SCO.StixCryptographicKey).value ?? 'Unknown';
   }
@@ -224,6 +233,10 @@ export const extractStixRepresentative = (
   if (entityType === ENTITY_MEDIA_CONTENT) {
     const media = stix as SCO.StixMediaContent;
     return media.content ?? media.title ?? media.url ?? 'Unknown';
+  }
+  if (entityType === ENTITY_PERSONA) {
+    const persona = stix as SCO.StixPersona;
+    return persona.persona_name ?? 'Unknown';
   }
   if (entityType === ENTITY_MUTEX) {
     return (stix as SCO.StixMutex).name ?? 'Unknown';
@@ -266,5 +279,5 @@ export const extractStixRepresentative = (
     return hashValue(x509) ?? x509.subject ?? x509.issuer ?? 'Unknown';
   }
   // endregion
-  throw UnsupportedError('No representative extractor available', { entityType });
+  throw UnsupportedError('No representative extractor available', { type: entityType });
 };

@@ -1,8 +1,14 @@
 import gql from 'graphql-tag';
 import { describe, expect, it } from 'vitest';
 import { queryAsAdmin } from '../../utils/testQuery';
-import type { EditInput, ThreatActorIndividualAddInput } from '../../../src/generated/graphql';
+import type { EditInput, EntitySettingEdge, ThreatActorIndividualAddInput } from '../../../src/generated/graphql';
 import { EditOperation } from '../../../src/generated/graphql';
+import { executionContext, SYSTEM_USER } from '../../../src/utils/access';
+import { initCreateEntitySettings } from '../../../src/modules/entitySetting/entitySetting-domain';
+import { ENTITY_TYPE_THREAT_ACTOR_INDIVIDUAL } from '../../../src/modules/threatActorIndividual/threatActorIndividual-types';
+import type { OverviewLayoutCustomization } from '../../../src/modules/entitySetting/entitySetting-types';
+import { resetCacheForEntity } from '../../../src/database/cache';
+import { ENTITY_TYPE_SETTINGS } from '../../../src/schema/internalObject';
 
 const READ_QUERY = gql`
   query threatActorIndividual($id: String!) {
@@ -43,6 +49,9 @@ const THREAT_ACTOR: ThreatActorIndividualAddInput = {
 const isDate = (value: string) => !Number.isNaN(new Date(value).getTime());
 
 describe('Threat actor individual resolver standard behavior', () => {
+  let threatActorIndividualEntitySettingId: string;
+  let defaultTAIOverviewLayoutCustomization: OverviewLayoutCustomization[];
+
   it('should create threat actor individual', async () => {
     const CREATE_QUERY = gql`
       mutation threatActorIndividualAdd($input: ThreatActorIndividualAddInput!) {
@@ -93,6 +102,144 @@ describe('Threat actor individual resolver standard behavior', () => {
     expect(actual.weight.length).toEqual(2);
     expect(actual.bornIn).toBeNull();
     expect(actual.ethnicity).toBeNull();
+  });
+  it('should init entity settings', async () => {
+    const LIST_QUERY = gql`
+      query entitySettings {
+        entitySettings {
+          edges {
+            node {
+              id
+              target_type
+              overview_layout_customization {
+                key
+                width
+                label
+              }
+            }
+          }
+        }
+      }
+    `;
+    const context = executionContext('test');
+    await initCreateEntitySettings(context, SYSTEM_USER);
+    const queryResult = await queryAsAdmin({ query: LIST_QUERY });
+
+    const threatActorIndividualEntitySettingResponse = queryResult.data?.entitySettings.edges
+      .find((entitySetting: EntitySettingEdge) => entitySetting.node.target_type === ENTITY_TYPE_THREAT_ACTOR_INDIVIDUAL);
+    expect(threatActorIndividualEntitySettingResponse).toBeTruthy();
+    // save id info for next tests
+    threatActorIndividualEntitySettingId = threatActorIndividualEntitySettingResponse?.node.id;
+
+    expect(threatActorIndividualEntitySettingResponse?.node.overview_layout_customization).toHaveLength(9);
+    // save default config for next tests
+    defaultTAIOverviewLayoutCustomization = threatActorIndividualEntitySettingResponse?.node.overview_layout_customization as OverviewLayoutCustomization[];
+    expect(defaultTAIOverviewLayoutCustomization.every(({ key, width, label }) => !!key && !!width && !!label)).toBe(true);
+    const defaultOverviewLayoutCustomizationKeys = [
+      'details',
+      'basicInformation',
+      'demographics',
+      'biographics',
+      'latestCreatedRelationships',
+      'latestContainers',
+      'externalReferences',
+      'mostRecentHistory',
+      'notes',
+    ];
+    expect(defaultOverviewLayoutCustomizationKeys.every((key) => defaultTAIOverviewLayoutCustomization.map(({ key: widgetKey }) => widgetKey).includes(key))).toEqual(true);
+  });
+  describe('Overview layout customization', async () => {
+    const ENTITY_SETTINGS_UPDATE_QUERY = gql`
+      mutation entitySettingsEdit($ids: [ID!]!, $input: [EditInput!]!) {
+        entitySettingsFieldPatch(ids: $ids, input: $input) {
+          id
+          target_type
+          overview_layout_customization {
+            key
+            width
+            label
+          }
+        }
+      }
+  `;
+    it('should update width', async () => {
+      // Customize the overview layout width
+      const overviewLayoutCustomizationConfiguration: OverviewLayoutCustomization[] = [
+        { key: 'details', width: 12, label: 'Entity details' }, // 6 -> 12
+        { key: 'basicInformation', width: 12, label: 'Basic information' }, // 6 -> 12
+        { key: 'demographics', width: 6, label: 'Demographics' },
+        { key: 'biographics', width: 6, label: 'Biographics' },
+        { key: 'latestCreatedRelationships', width: 6, label: 'Latest created relationships' },
+        { key: 'latestContainers', width: 6, label: 'Latest containers' },
+        { key: 'externalReferences', width: 6, label: 'External references' },
+        { key: 'mostRecentHistory', width: 6, label: 'Most recent history' },
+        { key: 'notes', width: 12, label: 'Notes about this entity' },
+      ];
+      const entitySettingsUpdateResult = await queryAsAdmin({
+        query: ENTITY_SETTINGS_UPDATE_QUERY,
+        variables: {
+          ids: [threatActorIndividualEntitySettingId],
+          input: {
+            key: 'overview_layout_customization',
+            value: overviewLayoutCustomizationConfiguration,
+          }
+        }
+      });
+
+      expect(
+        entitySettingsUpdateResult.data?.entitySettingsFieldPatch?.[0]?.overview_layout_customization
+      ).toEqual(
+        overviewLayoutCustomizationConfiguration
+      );
+    });
+    it('should update order', async () => {
+      // Customize the overview layout order
+      const overviewLayoutCustomizationConfiguration: OverviewLayoutCustomization[] = [
+        { key: 'basicInformation', width: 6, label: 'Basic information' }, // order + 1
+        { key: 'details', width: 6, label: 'Entity details' }, // order - 1
+        { key: 'demographics', width: 6, label: 'Demographics' },
+        { key: 'biographics', width: 6, label: 'Biographics' },
+        { key: 'latestCreatedRelationships', width: 6, label: 'Latest created relationships' },
+        { key: 'latestContainers', width: 6, label: 'Latest containers' },
+        { key: 'externalReferences', width: 6, label: 'External references' },
+        { key: 'mostRecentHistory', width: 6, label: 'Most recent history' },
+        { key: 'notes', width: 12, label: 'Notes about this entity' },
+      ];
+      const entitySettingsUpdateResult = await queryAsAdmin({
+        query: ENTITY_SETTINGS_UPDATE_QUERY,
+        variables: {
+          ids: [threatActorIndividualEntitySettingId],
+          input: {
+            key: 'overview_layout_customization',
+            value: overviewLayoutCustomizationConfiguration,
+          }
+        }
+      });
+      expect(
+        entitySettingsUpdateResult.data?.entitySettingsFieldPatch?.[0]?.overview_layout_customization
+      ).toEqual(
+        overviewLayoutCustomizationConfiguration
+      );
+    });
+    // reset entity settings overview_layout_customization
+    it('should reset overview_layout_customization', async () => {
+      const entitySettingsUpdateResult = await queryAsAdmin({
+        query: ENTITY_SETTINGS_UPDATE_QUERY,
+        variables: {
+          ids: [threatActorIndividualEntitySettingId],
+          input: {
+            key: 'overview_layout_customization',
+            value: [],
+          }
+        }
+      });
+      expect(
+        entitySettingsUpdateResult.data?.entitySettingsFieldPatch?.[0]?.overview_layout_customization
+      ).toEqual(
+        defaultTAIOverviewLayoutCustomization
+      );
+      resetCacheForEntity(ENTITY_TYPE_SETTINGS);
+    });
   });
   it('should update threat actor individual details', async () => {
     const UPDATE_QUERY = gql`
@@ -504,7 +651,7 @@ describe('Threat actor individual resolver standard behavior', () => {
     expect(threatActorIndividual).toBeDefined();
     expect(threatActorIndividual.weight).toHaveLength(0);
   });
-  it.skip('should fail update for invalid input', async () => {
+  it('should fail update for invalid input', async () => {
     const WEIGHT_EDIT = gql`
       mutation threatActorIndividualWeightEdit($id: ID!, $input: [EditInput]!) {
         threatActorIndividualFieldPatch(id:$id, input:$input) {

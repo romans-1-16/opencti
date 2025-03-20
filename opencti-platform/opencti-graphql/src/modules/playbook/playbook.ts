@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -34,9 +34,9 @@ const ENTITY_PLAYBOOK_DEFINITION: ModuleDefinition<StoreEntityPlaybook, StixPlay
   attributes: [
     { name: 'name', label: 'Name', type: 'string', format: 'short', mandatoryType: 'internal', editDefault: false, multiple: false, upsert: false, isFilterable: true },
     { name: 'description', label: 'Description', type: 'string', format: 'text', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: false, isFilterable: true },
-    { name: 'playbook_running', label: 'Running', type: 'boolean', mandatoryType: 'no', editDefault: false, multiple: false, upsert: false, isFilterable: true },
-    { name: 'playbook_start', label: 'Start', type: 'string', format: 'short', mandatoryType: 'internal', editDefault: false, multiple: false, upsert: false, isFilterable: true },
-    { name: 'playbook_definition', label: 'Definition', type: 'string', format: 'json', mandatoryType: 'internal', editDefault: false, multiple: false, upsert: false, schemaDef: PlayComponentDefinition, isFilterable: false }
+    { name: 'playbook_running', label: 'Playbook running', type: 'boolean', mandatoryType: 'no', editDefault: false, multiple: false, upsert: false, isFilterable: true },
+    { name: 'playbook_start', label: 'Start', type: 'string', format: 'short', mandatoryType: 'internal', editDefault: false, multiple: false, upsert: false, isFilterable: false },
+    { name: 'playbook_definition', label: 'Playbook definition', type: 'string', format: 'json', mandatoryType: 'internal', editDefault: false, multiple: false, upsert: false, schemaDef: PlayComponentDefinition, isFilterable: false }
   ],
   relations: [],
   representative: (stix: StixPlaybook) => {

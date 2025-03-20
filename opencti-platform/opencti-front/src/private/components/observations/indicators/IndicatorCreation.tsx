@@ -4,14 +4,16 @@ import Button from '@mui/material/Button';
 import Fab from '@mui/material/Fab';
 import { Add } from '@mui/icons-material';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import { FormikConfig } from 'formik/dist/types';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
+import { IndicatorsLinesPaginationQuery$variables } from '@components/observations/__generated__/IndicatorsLinesPaginationQuery.graphql';
+import useHelper from 'src/utils/hooks/useHelper';
 import { useFormatter } from '../../../../components/i18n';
 import { handleErrorInForm } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
@@ -19,8 +21,8 @@ import CreatedByField from '../../common/form/CreatedByField';
 import ObjectLabelField from '../../common/form/ObjectLabelField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import TypesField from '../TypesField';
-import SwitchField from '../../../../components/SwitchField';
-import MarkdownField from '../../../../components/MarkdownField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import KillChainPhasesField from '../../common/form/KillChainPhasesField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
@@ -32,11 +34,14 @@ import type { Theme } from '../../../../components/Theme';
 import { Option } from '../../common/form/ReferenceField';
 import { IndicatorCreationMutation, IndicatorCreationMutation$variables } from './__generated__/IndicatorCreationMutation.graphql';
 import { parse } from '../../../../utils/Time';
-import { IndicatorsLinesPaginationQuery$variables } from './__generated__/IndicatorsLinesPaginationQuery.graphql';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   createButtonContextual: {
     position: 'fixed',
@@ -62,10 +67,13 @@ const indicatorMutation = graphql`
       id
       standard_id
       name
+      representative {
+        main
+      }
       description
       entity_type
       parent_types
-      ...IndicatorLine_node
+      ...IndicatorsLine_node
     }
   }
 `;
@@ -111,16 +119,17 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
   defaultConfidence,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  inputValue,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     indicator_types: Yup.array().nullable(),
     confidence: Yup.number().nullable(),
-    pattern: Yup.string().required(t_i18n('This field is required')),
-    pattern_type: Yup.string().required(t_i18n('This field is required')),
-    x_opencti_main_observable_type: Yup.string().required(
+    pattern: Yup.string().trim().required(t_i18n('This field is required')),
+    pattern_type: Yup.string().trim().required(t_i18n('This field is required')),
+    x_opencti_main_observable_type: Yup.string().trim().required(
       t_i18n('This field is required'),
     ),
     valid_from: Yup.date()
@@ -128,11 +137,11 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
       .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
     valid_until: Yup.date()
       .nullable()
-      .min(
-        Yup.ref('valid_from'),
-        'The valid until date can\'t be before valid from date',
-      )
-      .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
+      .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)'))
+      .test('is-greater', t_i18n('The valid until date must be greater than the valid from date'), function isGreater(value) {
+        const { valid_from } = this.parent;
+        return !valid_from || !value || value > valid_from;
+      }),
     x_mitre_platforms: Yup.array().nullable(),
     x_opencti_score: Yup.number().nullable(),
     description: Yup.string().nullable(),
@@ -144,7 +153,11 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
     basicShape,
   );
 
-  const [commit] = useMutation<IndicatorCreationMutation>(indicatorMutation);
+  const [commit] = useApiMutation<IndicatorCreationMutation>(
+    indicatorMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Indicator')} ${t_i18n('successfully created')}` },
+  );
 
   const onSubmit: FormikConfig<IndicatorAddInput>['onSubmit'] = (values, { setSubmitting, setErrors, resetForm }) => {
     const input: IndicatorCreationMutation$variables['input'] = {
@@ -194,7 +207,7 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
   const initialValues = useDefaultValues(
     INDICATOR_TYPE,
     {
-      name: '',
+      name: inputValue ?? '',
       confidence: defaultConfidence,
       indicator_types: [],
       pattern: '',
@@ -217,14 +230,14 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
   );
 
   return (
-    <Formik
+    <Formik<IndicatorAddInput>
       initialValues={initialValues}
       validationSchema={indicatorValidator}
       onSubmit={onSubmit}
       onReset={onReset}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"
@@ -260,7 +273,7 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
             fullWidth={true}
             multiline={true}
             rows="4"
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
             detectDuplicate={['Indicator']}
           />
           <TypesField
@@ -275,7 +288,7 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
               label: t_i18n('Valid from'),
               variant: 'standard',
               fullWidth: true,
-              style: { marginTop: 20 },
+              style: { ...fieldSpacingContainerStyle },
             }}
           />
           <Field
@@ -285,7 +298,7 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
               label: t_i18n('Valid until'),
               variant: 'standard',
               fullWidth: true,
-              style: { marginTop: 20 },
+              style: { ...fieldSpacingContainerStyle },
             }}
           />
           <OpenVocabField
@@ -303,7 +316,7 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
             label={t_i18n('Score')}
             type="number"
             fullWidth={true}
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
           />
           <Field
             component={MarkdownField}
@@ -312,7 +325,7 @@ export const IndicatorCreationForm: FunctionComponent<IndicatorFormProps> = ({
             fullWidth={true}
             multiline={true}
             rows="4"
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
           />
           <KillChainPhasesField
             name="killChainPhases"
@@ -389,12 +402,16 @@ interface IndicatorCreationProps {
 
 const IndicatorCreation: FunctionComponent<IndicatorCreationProps> = ({ paginationOptions, contextual, display }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
   const classes = useStyles();
   const [open, setOpen] = useState(false);
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
   const onReset = () => handleClose();
-
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const CreateIndicatorControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Indicator' {...props} />
+  );
   const updater = (store: RecordSourceSelectorProxy) => insertNode(
     store,
     'Pagination_indicators',
@@ -435,7 +452,8 @@ const IndicatorCreation: FunctionComponent<IndicatorCreationProps> = ({ paginati
   return (
     <Drawer
       title={t_i18n('Create an indicator')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateIndicatorControlledDial : undefined}
     >
       {({ onClose }) => (
         <IndicatorCreationForm

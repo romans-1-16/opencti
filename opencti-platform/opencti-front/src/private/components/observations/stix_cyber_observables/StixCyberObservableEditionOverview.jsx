@@ -2,7 +2,7 @@ import React from 'react';
 import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import { assoc, difference, filter, fromPairs, head, includes, map, pick, pipe } from 'ramda';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import * as R from 'ramda';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
@@ -11,17 +11,19 @@ import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import { stixCyberObservablesLinesAttributesQuery } from './StixCyberObservablesLines';
 import { buildDate } from '../../../../utils/Time';
-import SwitchField from '../../../../components/SwitchField';
-import MarkdownField from '../../../../components/MarkdownField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import ArtifactField from '../../common/form/ArtifactField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { useFormatter } from '../../../../components/i18n';
+import useHelper from '../../../../utils/hooks/useHelper';
 import useVocabularyCategory from '../../../../utils/hooks/useVocabularyCategory';
 import { adaptFieldValue } from '../../../../utils/String';
 import { convertMarkings } from '../../../../utils/edition';
 import useAttributes from '../../../../utils/hooks/useAttributes';
+import StixCyberObservableDeletion from './StixCyberObservableDeletion';
 
 const stixCyberObservableMutationFieldPatch = graphql`
   mutation StixCyberObservableEditionOverviewFieldPatchMutation(
@@ -95,6 +97,8 @@ const StixCyberObservableEditionOverviewComponent = ({
 }) => {
   const navigate = useNavigate();
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const { isVocabularyField, fieldToCategory } = useVocabularyCategory();
   const { booleanAttributes, dateAttributes, ignoredAttributes, multipleAttributes, numberAttributes } = useAttributes();
   const onSubmit = (values, { setSubmitting }) => {
@@ -297,7 +301,7 @@ const StixCyberObservableEditionOverviewComponent = ({
               onSubmit={onSubmit}
             >
               {({ setFieldValue }) => (
-                <Form style={{ margin: '20px 0 20px 0' }}>
+                <Form>
                   <Field
                     component={TextField}
                     variant="standard"
@@ -494,7 +498,7 @@ const StixCyberObservableEditionOverviewComponent = ({
                             artifact
                               ? {
                                 label:
-                                    artifact.observable_value ?? artifact.id,
+                                  artifact.observable_value ?? artifact.id,
                                 value: artifact.id,
                               }
                               : undefined
@@ -547,6 +551,11 @@ const StixCyberObservableEditionOverviewComponent = ({
                     setFieldValue={setFieldValue}
                     onChange={handleChangeObjectMarking}
                   />
+                  {isFABReplaced && (
+                    <StixCyberObservableDeletion
+                      id={stixCyberObservable.id}
+                    />
+                  )}
                 </Form>
               )}
             </Formik>
@@ -768,6 +777,12 @@ const StixCyberObservableEditionOverview = createFragmentContainer(
           bic
           account_number
         }
+        ... on Credential {
+          value
+        }
+        ... on TrackingNumber {
+          value
+        }
         ... on PhoneNumber {
           value
         }
@@ -783,6 +798,10 @@ const StixCyberObservableEditionOverview = createFragmentContainer(
           media_category
           url
           publication_date
+        }
+        ... on Persona {
+          persona_name
+          persona_type
         }
         x_opencti_score
         x_opencti_description

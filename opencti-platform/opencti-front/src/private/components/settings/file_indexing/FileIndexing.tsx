@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -27,6 +27,7 @@ import { FileIndexingConfigurationQuery } from './__generated__/FileIndexingConf
 import { TEN_SECONDS } from '../../../../utils/Time';
 import { useFormatter } from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../../utils/hooks/useConnectedDocumentModifier';
 
 const interval$ = interval(TEN_SECONDS);
 
@@ -74,6 +75,8 @@ const FileIndexingComponent: FunctionComponent<FileIndexingComponentProps> = ({
 }) => {
   const isEnterpriseEdition = useEnterpriseEdition();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('File Indexing | Settings'));
   const { platformModuleHelpers } = useAuth();
   const isModuleWarning = platformModuleHelpers.isModuleWarning(FILE_INDEX_MANAGER);
   const { managerConfigurationByManagerId } = usePreloadedQuery<FileIndexingConfigurationQuery>(
@@ -90,7 +93,7 @@ const FileIndexingComponent: FunctionComponent<FileIndexingComponentProps> = ({
   }, []);
   return (
     <>
-      <Breadcrumbs variant="object" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('File indexing'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('File indexing'), current: true }]} />
       {!isEnterpriseEdition ? (
         <EnterpriseEdition feature="File indexing" />
       ) : (

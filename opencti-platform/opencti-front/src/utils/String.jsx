@@ -64,7 +64,7 @@ export const convertToStixType = (type) => {
   if (['Threat-Actor-Group', 'Threat-Actor-Individual'].includes(type)) {
     return 'threat-actor';
   }
-  if (['Region', 'Country', 'City', 'Position'].includes(type)) {
+  if (['Region', 'Country', 'City', 'Position', 'Administrative-Area'].includes(type)) {
     return 'location';
   }
   return type.toLowerCase();
@@ -81,13 +81,25 @@ export const isValidStixBundle = (bundle) => {
 
 export const toB64 = (str) => Base64.encodeURI(str);
 
+export const toBase64 = (str) => Base64.encode(str);
+
 export const fromB64 = (str) => Base64.decode(str);
+
+export const fromBase64 = (str) => Base64.encode(str);
 
 export const uniqWithByFields = R.curry((fields, data) => R.uniqWith(R.allPass(R.map(R.eqProps)(fields)))(data));
 
 export const computeDuplicates = (fields, data) => R.groupWith(R.allPass(R.map(R.eqProps)(fields)), data);
 
 export const capitalizeFirstLetter = (str) => str.charAt(0).toUpperCase() + str.slice(1);
+
+export const capitalizeWords = (str) => str.split(' ').map(capitalizeFirstLetter).join(' ');
+
+export const toCamelCase = (str) => {
+  return str.replace(/[^a-zA-Z0-9 ]/g, '').replace(/(?:^\w|[A-Z]|\b\w)/g, (word, i) => {
+    return i === 0 ? word.toLowerCase() : word.toUpperCase();
+  }).replace(/\s+/g, '');
+};
 
 export const renderObservableValue = (observable) => {
   switch (observable.entity_type) {
@@ -124,3 +136,26 @@ export const renderObservableValue = (observable) => {
 };
 
 export const emptyFilled = (str) => (isNotEmptyField(str) ? str : '-');
+
+/**
+ * @param str {string}
+ * @returns {string[]}
+ */
+export const splitMultilines = (str) => (str ?? '')
+  .split(/\r?\n/)
+  .filter((v) => !!v)
+  .map((s) => s.trim());
+
+export const maskString = (value) => (value ? '•'.repeat(value.length) : '');
+
+/**
+ * Add zero-width spaces every 10 characters in a string.
+ * It allows PDF generation to automatically go to new line instead
+ * of going outside of the file when facing every long names, ids, etc.
+ *
+ * @param value String to make wrappable.
+ * @returns {string} Same string but wrappable.
+ */
+export const stringWithZeroWidthSpace = (value) => {
+  return (value.match(/.{1,10}/g) ?? []).join('​');
+};

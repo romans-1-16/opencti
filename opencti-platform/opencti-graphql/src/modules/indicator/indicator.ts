@@ -4,6 +4,8 @@ import { ENTITY_TYPE_INDICATOR, type StixIndicator, type StoreEntityIndicator } 
 import convertIndicatorToStix from './indicator-converter';
 import { killChainPhases, objectOrganization } from '../../schema/stixRefRelationship';
 import { revoked } from '../../schema/attribute-definition';
+import { RELATION_DERIVED_FROM } from '../../schema/stixCoreRelationship';
+import { REL_BUILT_IN } from '../../database/stix';
 
 const INDICATOR_DEFINITION: ModuleDefinition<StoreEntityIndicator, StixIndicator> = {
   type: {
@@ -21,9 +23,9 @@ const INDICATOR_DEFINITION: ModuleDefinition<StoreEntityIndicator, StixIndicator
   attributes: [
     { name: 'name', label: 'Name', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'description', label: 'Description', type: 'string', format: 'text', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
-    { name: 'pattern_type', label: 'Pattern type', type: 'string', format: 'vocabulary', vocabularyCategory: 'pattern_type_ov', mandatoryType: 'external', editDefault: true, multiple: false, upsert: false, isFilterable: true },
-    { name: 'pattern_version', label: 'Pattern version', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: false, isFilterable: false },
-    { name: 'pattern', label: 'Pattern', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: false, isFilterable: true },
+    { name: 'pattern_type', label: 'Pattern type', type: 'string', format: 'vocabulary', vocabularyCategory: 'pattern_type_ov', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
+    { name: 'pattern_version', label: 'Pattern version', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: false },
+    { name: 'pattern', label: 'Pattern', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'indicator_types', label: 'Indicator types', type: 'string', format: 'vocabulary', vocabularyCategory: 'indicator_type_ov', mandatoryType: 'customizable', editDefault: true, multiple: true, upsert: true, isFilterable: true },
     { name: 'valid_from', label: 'Valid from', type: 'date', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'valid_until', label: 'Valid until', type: 'date', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
@@ -86,7 +88,14 @@ const INDICATOR_DEFINITION: ModuleDefinition<StoreEntityIndicator, StixIndicator
     },
     { ...revoked, isFilterable: true },
   ],
-  relations: [],
+  relations: [
+    {
+      name: RELATION_DERIVED_FROM,
+      targets: [
+        { name: ENTITY_TYPE_INDICATOR, type: REL_BUILT_IN },
+      ]
+    }
+  ],
   relationsRefs: [objectOrganization, killChainPhases],
   representative: (stix: StixIndicator) => {
     return stix.name;

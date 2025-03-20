@@ -13,13 +13,15 @@ import StixCoreObjectLatestHistory from '../../common/stix_core_objects/StixCore
 import OpinionPopover from './OpinionPopover';
 import ContainerStixObjectsOrStixRelationships from '../../common/containers/ContainerStixObjectsOrStixRelationships';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   gridContainer: {
     marginBottom: 20,
   },
 }));
 
-const OpinionComponent = ({ opinion }) => {
+const OpinionComponent = ({ opinion, enableReferences }) => {
   const classes = useStyles();
   return (
     <>
@@ -30,6 +32,7 @@ const OpinionComponent = ({ opinion }) => {
           <ContainerHeader
             container={opinion}
             PopoverComponent={<OpinionPopover opinion={opinion} />}
+            disableAuthorizedMembers={true}
           />
         }
       >
@@ -37,6 +40,7 @@ const OpinionComponent = ({ opinion }) => {
           container={opinion}
           PopoverComponent={<OpinionPopover opinion={opinion} />}
           popoverSecurity={[KNOWLEDGE_KNPARTICIPATE]}
+          disableAuthorizedMembers={true}
         />
       </CollaborativeSecurity>
       <Grid
@@ -44,22 +48,23 @@ const OpinionComponent = ({ opinion }) => {
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <OpinionDetails opinion={opinion} />
         </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <StixDomainObjectOverview stixDomainObject={opinion} />
+        <Grid item xs={6}>
+          <StixDomainObjectOverview stixDomainObject={opinion} displayOpinions={false} />
         </Grid>
-        <Grid item={true} xs={12} style={{ marginTop: 30 }}>
+        <Grid item xs={12}>
           <ContainerStixObjectsOrStixRelationships
             container={opinion}
             isSupportParticipation={true}
+            enableReferences={enableReferences}
           />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+        <Grid item xs={6}>
           <StixCoreObjectExternalReferences stixCoreObjectId={opinion.id} />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+        <Grid item xs={6}>
           <StixCoreObjectLatestHistory
             stixCoreObjectId={opinion.id}
             isSupportParticipation={true}

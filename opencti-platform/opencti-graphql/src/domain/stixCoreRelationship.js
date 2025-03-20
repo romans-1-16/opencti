@@ -1,10 +1,12 @@
 import * as R from 'ramda';
+import { GraphQLError } from 'graphql/index';
+import { ApolloServerErrorCode } from '@apollo/server/errors';
 import { delEditContext, notify, setEditContext } from '../database/redis';
-import { createRelation, deleteElementById, deleteRelationsByFromAndTo, distributionRelations, timeSeriesRelations, updateAttribute } from '../database/middleware';
+import { createRelation, deleteElementById, deleteRelationsByFromAndTo, timeSeriesRelations, updateAttribute } from '../database/middleware';
 import { BUS_TOPICS } from '../config/conf';
 import { FunctionalError } from '../config/errors';
 import { elCount } from '../database/engine';
-import { fillTimeSeries, isNotEmptyField, READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_STIX_CORE_RELATIONSHIPS } from '../database/utils';
+import { fillTimeSeries, isEmptyField, isNotEmptyField, READ_INDEX_INFERRED_RELATIONSHIPS, READ_INDEX_STIX_CORE_RELATIONSHIPS } from '../database/utils';
 import { isStixCoreRelationship, stixCoreRelationshipOptions } from '../schema/stixCoreRelationship';
 import { ABSTRACT_STIX_CORE_RELATIONSHIP, buildRefRelationKey } from '../schema/general';
 import { RELATION_CREATED_BY, } from '../schema/stixRefRelationship';
@@ -13,7 +15,7 @@ import { askListExport, exportTransformFilters } from './stix';
 import { workToExportFile } from './work';
 import { stixObjectOrRelationshipAddRefRelation, stixObjectOrRelationshipAddRefRelations, stixObjectOrRelationshipDeleteRefRelation } from './stixObjectOrStixRelationship';
 import { addFilter } from '../utils/filtering/filtering-utils';
-import { buildArgsFromDynamicFilters } from './stixRelationship';
+import { buildArgsFromDynamicFilters, stixRelationshipsDistribution } from './stixRelationship';
 
 export const findAll = async (context, user, args) => {
   return listRelations(context, user, R.propOr(ABSTRACT_STIX_CORE_RELATIONSHIP, 'relationship_type', args), args);
@@ -23,20 +25,27 @@ export const findById = (context, user, stixCoreRelationshipId) => {
   return storeLoadById(context, user, stixCoreRelationshipId, ABSTRACT_STIX_CORE_RELATIONSHIP);
 };
 
+const buildStixCoreRelationshipTypes = (relationshipTypes) => {
+  if (isEmptyField(relationshipTypes)) {
+    return [ABSTRACT_STIX_CORE_RELATIONSHIP];
+  }
+  const isValidRelationshipTypes = relationshipTypes.every((type) => isStixCoreRelationship(type));
+  if (!isValidRelationshipTypes) {
+    throw new GraphQLError('Invalid argument: relationship_type is not a stix-core-relationship', { extensions: { code: ApolloServerErrorCode.BAD_USER_INPUT } });
+  }
+  return relationshipTypes;
+};
+
 // region stats
 // TODO future refacto : use the more generic functions of domain/stixRelationship.js
 export const stixCoreRelationshipsDistribution = async (context, user, args) => {
-  // it's not possible to have a dynamicFrom and dynamicTo in args here for the moment
-  // consider adding these fields in opencti.graphql if you want to use them
-  const { dynamicArgs, isEmptyDynamic } = await buildArgsFromDynamicFilters(context, user, args);
-  if (isEmptyDynamic) {
-    return [];
-  }
-  return distributionRelations(context, context.user, dynamicArgs);
+  const relationship_type = buildStixCoreRelationshipTypes(args.relationship_type);
+  return stixRelationshipsDistribution(context, user, { ...args, relationship_type });
 };
 export const stixCoreRelationshipsNumber = async (context, user, args) => {
-  const { relationship_type = [ABSTRACT_STIX_CORE_RELATIONSHIP], authorId } = args;
-  const { dynamicArgs, isEmptyDynamic } = await buildArgsFromDynamicFilters(context, user, args);
+  const { authorId } = args;
+  const relationship_type = buildStixCoreRelationshipTypes(args.relationship_type);
+  const { dynamicArgs, isEmptyDynamic } = await buildArgsFromDynamicFilters(context, user, { ...args, relationship_type });
   if (isEmptyDynamic) {
     return { count: 0, total: 0 };
   }
@@ -71,14 +80,14 @@ export const stixRelations = (context, user, stixCoreObjectId, args) => {
 
 // region export
 export const stixCoreRelationshipsExportAsk = async (context, user, args) => {
-  const { exportContext, format, exportType, maxMarkingDefinition, selectedIds } = args;
+  const { exportContext, format, exportType, contentMaxMarkings, selectedIds, fileMarkings } = args;
   const { fromOrToId, elementWithTargetTypes, fromId, fromRole, fromTypes, toId, toRole, toTypes, relationship_type } = args;
   const { search, orderBy, orderMode, filters } = args;
   const argsFilters = { search, orderBy, orderMode, filters };
   const ordersOpts = stixCoreRelationshipOptions.StixCoreRelationshipsOrdering;
   const initialParams = { fromOrToId, elementWithTargetTypes, fromId, fromRole, fromTypes, toId, toRole, toTypes, relationship_type };
   const listParams = { ...initialParams, ...exportTransformFilters(argsFilters, ordersOpts) };
-  const works = await askListExport(context, user, exportContext, format, selectedIds, listParams, exportType, maxMarkingDefinition);
+  const works = await askListExport(context, user, exportContext, format, selectedIds, listParams, exportType, contentMaxMarkings, fileMarkings);
   return works.map((w) => workToExportFile(w));
 };
 // endregion
@@ -127,17 +136,15 @@ export const stixCoreRelationshipDeleteRelation = async (context, user, stixCore
 // endregion
 
 // region context
-export const stixCoreRelationshipCleanContext = (context, user, stixCoreRelationshipId) => {
-  delEditContext(user, stixCoreRelationshipId);
-  return storeLoadById(context, user, stixCoreRelationshipId, ABSTRACT_STIX_CORE_RELATIONSHIP).then((stixCoreRelationship) => {
-    return notify(BUS_TOPICS[ABSTRACT_STIX_CORE_RELATIONSHIP].EDIT_TOPIC, stixCoreRelationship, user);
-  });
+export const stixCoreRelationshipCleanContext = async (context, user, stixCoreRelationshipId) => {
+  await delEditContext(user, stixCoreRelationshipId);
+  const stixCoreRelationship = await storeLoadById(context, user, stixCoreRelationshipId, ABSTRACT_STIX_CORE_RELATIONSHIP);
+  return await notify(BUS_TOPICS[ABSTRACT_STIX_CORE_RELATIONSHIP].EDIT_TOPIC, stixCoreRelationship, user);
 };
 
-export const stixCoreRelationshipEditContext = (context, user, stixCoreRelationshipId, input) => {
-  setEditContext(user, stixCoreRelationshipId, input);
-  return storeLoadById(context, user, stixCoreRelationshipId, ABSTRACT_STIX_CORE_RELATIONSHIP).then((stixCoreRelationship) => {
-    return notify(BUS_TOPICS[ABSTRACT_STIX_CORE_RELATIONSHIP].EDIT_TOPIC, stixCoreRelationship, user);
-  });
+export const stixCoreRelationshipEditContext = async (context, user, stixCoreRelationshipId, input) => {
+  await setEditContext(user, stixCoreRelationshipId, input);
+  const stixCoreRelationship = await storeLoadById(context, user, stixCoreRelationshipId, ABSTRACT_STIX_CORE_RELATIONSHIP);
+  return await notify(BUS_TOPICS[ABSTRACT_STIX_CORE_RELATIONSHIP].EDIT_TOPIC, stixCoreRelationship, user);
 };
 // endregion

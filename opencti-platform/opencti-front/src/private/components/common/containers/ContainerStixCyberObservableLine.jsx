@@ -19,9 +19,14 @@ import ContainerStixCoreObjectPopover from './ContainerStixCoreObjectPopover';
 import StixCoreObjectLabels from '../stix_core_objects/StixCoreObjectLabels';
 import { renderObservableValue } from '../../../../utils/String';
 import ItemMarkings from '../../../../components/ItemMarkings';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
 import ItemIcon from '../../../../components/ItemIcon';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import ItemEntityType from '../../../../components/ItemEntityType';
+import { DraftChip } from '../draft/DraftChip';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   item: {
     paddingLeft: 10,
@@ -60,14 +65,6 @@ const useStyles = makeStyles((theme) => ({
     textTransform: 'uppercase',
     borderRadius: 4,
   },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
 }));
 
 const ContainerStixCyberObservableLineComponent = (props) => {
@@ -84,6 +81,7 @@ const ContainerStixCyberObservableLineComponent = (props) => {
     deSelectedElements,
     selectAll,
     setSelectedElements,
+    enableReferences,
   } = props;
   const classes = useStyles();
   const { t_i18n, fd, n } = useFormatter();
@@ -133,21 +131,14 @@ const ContainerStixCyberObservableLineComponent = (props) => {
               className={classes.bodyItem}
               style={{ width: dataColumns.entity_type.width }}
             >
-              <Chip
-                classes={{ root: classes.chipInList }}
-                style={{
-                  backgroundColor: hexToRGB(itemColor(node.entity_type), 0.08),
-                  color: itemColor(node.entity_type),
-                  border: `1px solid ${itemColor(node.entity_type)}`,
-                }}
-                label={t_i18n(`entity_${node.entity_type}`)}
-              />
+              <ItemEntityType entityType={node.entity_type} />
             </div>
             <div
               className={classes.bodyItem}
               style={{ width: dataColumns.observable_value.width }}
             >
               {renderObservableValue(node)}
+              {node.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}
@@ -213,17 +204,20 @@ const ContainerStixCyberObservableLineComponent = (props) => {
             <AutoFix fontSize="small" style={{ marginLeft: -30 }} />
           </Tooltip>
         ) : (
-          <ContainerStixCoreObjectPopover
-            containerId={containerId}
-            toId={node.id}
-            toStandardId={node.standard_id}
-            menuDisable={isOnlyThroughInference}
-            relationshipType="object"
-            paginationKey="Pagination_objects"
-            paginationOptions={paginationOptions}
-            selectedElements={selectedElements}
-            setSelectedElements={setSelectedElements}
-          />
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <ContainerStixCoreObjectPopover
+              containerId={containerId}
+              toId={node.id}
+              toStandardId={node.standard_id}
+              menuDisable={isOnlyThroughInference}
+              relationshipType="object"
+              paginationKey="Pagination_objects"
+              paginationOptions={paginationOptions}
+              selectedElements={selectedElements}
+              setSelectedElements={setSelectedElements}
+              enableReferences={enableReferences}
+            />
+          </Security>
         )}
       </ListItemSecondaryAction>
     </ListItem>
@@ -236,6 +230,10 @@ export const ContainerStixCyberObservableLine = createFragmentContainer(
     node: graphql`
       fragment ContainerStixCyberObservableLine_node on StixCyberObservable {
         id
+        draftVersion {
+          draft_id
+          draft_operation
+        }
         standard_id
         observable_value
         entity_type

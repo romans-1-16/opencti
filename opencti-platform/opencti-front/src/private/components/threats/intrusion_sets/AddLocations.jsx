@@ -15,7 +15,7 @@ import { insertNode } from '../../../../utils/store';
 const styles = () => ({
   createButton: {
     float: 'left',
-    marginTop: -15,
+    marginTop: '-10px',
   },
   search: {
     marginLeft: 'auto',
@@ -55,12 +55,10 @@ class AddLocations extends Component {
     return (
       <>
         <IconButton
-          color="secondary"
+          color="primary"
           aria-label="Add"
           onClick={this.handleOpen.bind(this)}
           classes={{ root: classes.createButton }}
-          size="large"
-          style={{ marginTop: -15 }}
         >
           <Add fontSize="small" />
         </IconButton>

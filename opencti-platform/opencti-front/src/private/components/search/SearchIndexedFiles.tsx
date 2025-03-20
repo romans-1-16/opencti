@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -20,7 +20,7 @@ import {
   SearchIndexedFilesLinesPaginationQuery$variables,
 } from '@components/search/__generated__/SearchIndexedFilesLinesPaginationQuery.graphql';
 import { SearchIndexedFileLine_node$data } from '@components/search/__generated__/SearchIndexedFileLine_node.graphql';
-import { Link, useHistory, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import EnterpriseEdition from '@components/common/entreprise_edition/EnterpriseEdition';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
@@ -34,16 +34,18 @@ import { useFormatter } from '../../../components/i18n';
 import ItemEntityType from '../../../components/ItemEntityType';
 import ItemMarkings from '../../../components/ItemMarkings';
 import useAuth from '../../../utils/hooks/useAuth';
-import { decodeSearchKeyword, handleSearchByKeyword } from '../../../utils/SearchUtils';
+import { decodeSearchKeyword } from '../../../utils/SearchUtils';
 import useEnterpriseEdition from '../../../utils/hooks/useEnterpriseEdition';
 import useManagerConfiguration from '../../../utils/hooks/useManagerConfiguration';
 import Security from '../../../utils/Security';
-import { SETTINGS } from '../../../utils/hooks/useGranted';
+import { SETTINGS_FILEINDEXING } from '../../../utils/hooks/useGranted';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'view-files';
 const SearchIndexedFilesComponent = () => {
   const { fd, t_i18n } = useFormatter();
-  const history = useHistory();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Files Search | Advanced Search'));
   const {
     platformModuleHelpers: { isFileIndexManagerEnable },
   } = useAuth();
@@ -74,10 +76,6 @@ const SearchIndexedFilesComponent = () => {
     searchIndexedFilesLinesQuery,
     { ...paginationOptions, search: searchTerm },
   );
-
-  const handleSearch = (searchKeyword: string) => {
-    handleSearchByKeyword(searchKeyword, 'files', history);
-  };
 
   const fileSearchEnabled = isFileIndexManagerEnable();
 
@@ -153,10 +151,8 @@ const SearchIndexedFilesComponent = () => {
           orderAsc={orderAsc}
           dataColumns={dataColumns}
           handleSort={storageHelpers.handleSort}
-          handleSearch={handleSearch}
           handleAddFilter={storageHelpers.handleAddFilter}
           handleRemoveFilter={storageHelpers.handleRemoveFilter}
-          keyword={searchTerm}
           disableCards={true}
           secondaryAction={true}
           paginationOptions={paginationOptions}
@@ -188,7 +184,7 @@ const SearchIndexedFilesComponent = () => {
           >
             <AlertTitle style={{ marginBottom: 0 }}>
               {t_i18n('File indexing is not started.')}
-              <Security needs={[SETTINGS]} placeholder={<span>&nbsp;{t_i18n('Please contact your administrator.')}</span>}>
+              <Security needs={[SETTINGS_FILEINDEXING]} placeholder={<span>&nbsp;{t_i18n('Please contact your administrator.')}</span>}>
                 <Button
                   component={Link}
                   size="small"

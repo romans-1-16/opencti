@@ -10,13 +10,13 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import CircularProgress from '@mui/material/CircularProgress';
 import { ArrowRightAlt, Close } from '@mui/icons-material';
-import { commitMutation, fetchQuery } from '../../../../relay/environment';
+import { MESSAGING$, commitMutation, fetchQuery } from '../../../../relay/environment';
 import inject18n, { isNone } from '../../../../components/i18n';
 import { itemColor } from '../../../../utils/Colors';
 import { formatDate } from '../../../../utils/Time';
 import ItemIcon from '../../../../components/ItemIcon';
 import { truncate } from '../../../../utils/String';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import StixSightingRelationshipCreationForm from './StixSightingRelationshipCreationForm';
 
 const styles = (theme) => ({
@@ -254,6 +254,7 @@ class StixSightingRelationshipCreation extends Component {
   }
 
   onSubmit(values, { setSubmitting, resetForm }) {
+    const { t } = this.props;
     R.forEach((fromObject) => {
       R.forEach((toObject) => {
         const finalValues = R.pipe(
@@ -273,8 +274,14 @@ class StixSightingRelationshipCreation extends Component {
             input: finalValues,
           },
           setSubmitting,
+          // TODO: Remove onError when functional component; error toast handled by useApiMutation
+          onError: (error) => {
+            MESSAGING$.notifyError(`${error}`);
+          },
           onCompleted: (response) => {
             this.props.handleResult(response.stixSightingRelationshipAdd);
+            // TODO: Remove success toast when functional component
+            MESSAGING$.notifySuccess(`${t('entity_Sighting')} ${t('successfully created')}`);
           },
         });
       }, this.props.toObjects);
@@ -498,7 +505,7 @@ class StixSightingRelationshipCreation extends Component {
                 </div>
                 <div className={classes.content}>
                   <span className={classes.name}>
-                    {truncate(defaultValue(toObjects[0]), 20)}
+                    {truncate(getMainRepresentative(toObjects[0]), 20)}
                   </span>
                 </div>
               </div>
@@ -539,7 +546,7 @@ class StixSightingRelationshipCreation extends Component {
                   {fromObjects.length > 1 ? (
                     <em>{t('Multiple entities selected')}</em>
                   ) : (
-                    truncate(defaultValue(fromObjects[0]))
+                    truncate(getMainRepresentative(fromObjects[0]))
                   )}
                 </span>
               </div>

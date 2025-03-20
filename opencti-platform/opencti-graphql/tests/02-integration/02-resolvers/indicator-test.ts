@@ -1,6 +1,6 @@
 import { expect, it, describe } from 'vitest';
 import gql from 'graphql-tag';
-import { queryAsAdmin } from '../../utils/testQuery';
+import { adminQuery, queryAsAdmin } from '../../utils/testQuery';
 import { ENTITY_DOMAIN_NAME } from '../../../src/schema/stixCyberObservable';
 import { MARKING_TLP_GREEN } from '../../../src/schema/identifier';
 import type { BasicStoreEntityEdge } from '../../../src/types/store';
@@ -46,6 +46,10 @@ const READ_QUERY = gql`
             name
             description
             toStix
+            x_opencti_observable_values {
+              type
+              value
+            }
             decay_base_score
             decay_base_score_date
             decay_applied_rule {
@@ -82,6 +86,10 @@ const CREATE_QUERY = gql`
             id
             name
             description
+            x_opencti_observable_values {
+              type
+              value
+            }
             observables {
                 edges {
                     node {
@@ -94,10 +102,21 @@ const CREATE_QUERY = gql`
     }
 `;
 
+const UPDATE_QUERY = gql`
+  mutation IndicatorFieldPatch($id: ID!, $input: [EditInput!]!) {
+    indicatorFieldPatch(id: $id, input: $input) {
+      id
+      name
+      standard_id
+      pattern
+    }
+  }
+`;
+
 describe('Indicator resolver standard behavior', () => {
   let firstIndicatorInternalId: string;
   let secondIndicatorInternalId: string;
-  const indicatorStixId = 'indicator--f6ad652c-166a-43e6-98b8-8ff078e2349f';
+  let indicatorStixId = 'indicator--f6ad652c-166a-43e6-98b8-8ff078e2349f';
   const indicatorForTestName = 'Indicator in indicator-test';
 
   it('should indicator created', async () => {
@@ -119,6 +138,10 @@ describe('Indicator resolver standard behavior', () => {
     expect(indicator.data?.indicatorAdd).toBeDefined();
     expect(indicator.data?.indicatorAdd.name).toEqual(indicatorForTestName);
     expect(indicator.data?.indicatorAdd.observables.edges.length).toEqual(0);
+    expect(indicator.data?.indicatorAdd.x_opencti_observable_values).toBeDefined();
+    const observablesValues = indicator.data?.indicatorAdd.x_opencti_observable_values;
+    expect(observablesValues?.[0].type).toEqual('Domain-Name');
+    expect(observablesValues?.[0].value).toEqual('www.payah.rest');
     firstIndicatorInternalId = indicator.data?.indicatorAdd.id;
   });
   it('should indicator with same name be created also (no upsert) (see issues/5819)', async () => {
@@ -138,6 +161,10 @@ describe('Indicator resolver standard behavior', () => {
     expect(indicator.data?.indicatorAdd).toBeDefined();
     expect(indicator.data?.indicatorAdd.name).toEqual(indicatorForTestName);
     expect(indicator.data?.indicatorAdd.observables.edges.length).toEqual(0);
+    expect(indicator.data?.indicatorAdd.x_opencti_observable_values).toBeDefined();
+    const observablesValues = indicator.data?.indicatorAdd.x_opencti_observable_values;
+    expect(observablesValues?.[0].type).toEqual('Domain-Name');
+    expect(observablesValues?.[0].value).toEqual('www.test2.rest');
     expect(indicator.data?.indicatorAdd.id, 'A new indicator should be created, if not it is an upsert and it is a bug').not.toEqual(firstIndicatorInternalId);
     secondIndicatorInternalId = indicator.data?.indicatorAdd.id;
   });
@@ -203,20 +230,30 @@ describe('Indicator resolver standard behavior', () => {
       expect(indicatorCreatedEarlier).toBeDefined();
     }
   });
+  it('should not update indicator with incorrectly formatted pattern', async () => {
+    const queryResult = await adminQuery({
+      query: UPDATE_QUERY,
+      variables: { id: firstIndicatorInternalId, input: { key: 'pattern', value: ["[domain-name:value &&& 'www.wrong.pattern']"] } },
+    });
+    expect(queryResult.errors).toBeDefined();
+    expect(queryResult.errors[0].message).toBe('Indicator of type stix is not correctly formatted.');
+  });
   it('should update indicator', async () => {
-    const UPDATE_QUERY = gql`
-        mutation IndicatorFieldPatch($id: ID!, $input: [EditInput!]!) {
-            indicatorFieldPatch(id: $id, input: $input) {
-                id
-                name
-            }
-        }
-    `;
     const queryResult = await queryAsAdminWithSuccess({
       query: UPDATE_QUERY,
       variables: { id: firstIndicatorInternalId, input: { key: 'name', value: ['Indicator - test'] } },
     });
     expect(queryResult.data?.indicatorFieldPatch.name).toEqual('Indicator - test');
+  });
+  it('should update indicator pattern, causing change in stix id', async () => {
+    const queryResult = await queryAsAdminWithSuccess({
+      query: UPDATE_QUERY,
+      variables: { id: firstIndicatorInternalId, input: { key: 'pattern', value: ["[domain-name:value = 'www.newvalue.com']"] } },
+    });
+    const newIndicator = queryResult.data?.indicatorFieldPatch;
+    expect(newIndicator?.pattern).toEqual("[domain-name:value = 'www.newvalue.com']");
+    expect(newIndicator?.standard_id).not.toEqual(indicatorStixId);
+    indicatorStixId = newIndicator?.standard_id; // update id for next tests
   });
   it('should context patch indicator', async () => {
     const CONTEXT_PATCH_QUERY = gql`

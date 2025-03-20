@@ -3,12 +3,12 @@ import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import React, { FunctionComponent } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import * as Yup from 'yup';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
 import { handleErrorInForm } from '../../../../relay/environment';
@@ -21,7 +21,10 @@ import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import { Option } from '../../common/form/ReferenceField';
 import { CaseTasksLinesQuery$variables } from './__generated__/CaseTasksLinesQuery.graphql';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -35,7 +38,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
 const caseTaskAddMutation = graphql`
   mutation CaseTaskCreationMutation($input: TaskAddInput!) {
     taskAdd(input: $input) {
-      ...CaseTasksLine_data
+      ...CaseUtilsTasksLine_data
     }
   }
 `;
@@ -67,7 +70,7 @@ const CaseTaskCreation: FunctionComponent<CaseTaskCreationProps> = ({
   const classes = useStyles();
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable().max(5000, t_i18n('The value is too long')),
     due_date: Yup.date().nullable(),
     objectLabel: Yup.array(),
@@ -78,7 +81,11 @@ const CaseTaskCreation: FunctionComponent<CaseTaskCreationProps> = ({
   };
   const taskValidator = useSchemaEditionValidation('Task', basicShape);
 
-  const [addTask] = useMutation(caseTaskAddMutation);
+  const [addTask] = useApiMutation(
+    caseTaskAddMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Task')} ${t_i18n('successfully created')}` },
+  );
 
   const onSubmit: FormikConfig<FormikCaseTaskAddInput>['onSubmit'] = (
     values,
@@ -125,8 +132,8 @@ const CaseTaskCreation: FunctionComponent<CaseTaskCreationProps> = ({
       onReset={onClose}
       validationSchema={taskValidator}
     >
-      {({ isSubmitting, handleReset, submitForm }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+      {({ isSubmitting, handleReset, submitForm, setFieldValue }) => (
+        <Form>
           <Field
             style={{ marginBottom: 20 }}
             component={TextField}
@@ -159,6 +166,7 @@ const CaseTaskCreation: FunctionComponent<CaseTaskCreationProps> = ({
           <ObjectMarkingField
             name="objectMarking"
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <Field
             component={MarkdownField}

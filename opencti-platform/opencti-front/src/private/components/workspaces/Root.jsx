@@ -1,31 +1,55 @@
 import React from 'react';
-import { Switch } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import Workspaces from './Workspaces';
 import RootDashboard from './dashboards/Root';
 import RootInvestigation from './investigations/Root';
-import { BoundaryRoute } from '../Error';
+import { EXPLORE, INVESTIGATION } from '../../../utils/hooks/useGranted';
+import Security from '../../../utils/Security';
+import PublicDashboard from './dashboards/public_dashboards/PublicDashboards';
 
 const Root = () => (
-  <Switch>
-    <BoundaryRoute
-      exact
-      path="/dashboard/workspaces/dashboards"
-      render={() => <Workspaces type={'dashboard'} />}
+  <Routes>
+    <Route
+      path="/dashboards/*"
+      element={
+        <Security needs={[EXPLORE]} placeholder={<Navigate to="/dashboard" />}>
+          <Workspaces type={'dashboard'} />
+        </Security>
+      }
     />
-    <BoundaryRoute
-      path="/dashboard/workspaces/dashboards/:workspaceId"
-      render={(routeProps) => <RootDashboard {...routeProps} />}
+    <Route
+      path="/dashboards/:workspaceId/*"
+      element={
+        <Security needs={[EXPLORE]} placeholder={<Navigate to="/dashboard" />}>
+          <RootDashboard />
+        </Security>
+      }
     />
-    <BoundaryRoute
-      exact
-      path="/dashboard/workspaces/investigations"
-      render={() => <Workspaces type={'investigation'} />}
+    <Route
+      path="/dashboards_public/*"
+      element={
+        <Security needs={[EXPLORE]} placeholder={<Navigate to="/dashboard"/>}>
+          <PublicDashboard/>
+        </Security>
+      }
     />
-    <BoundaryRoute
-      path="/dashboard/workspaces/investigations/:workspaceId"
-      render={(routeProps) => <RootInvestigation {...routeProps} />}
+    <Route
+      path="/investigations/*"
+      element={
+        <Security needs={[INVESTIGATION]} placeholder={<Navigate to="/dashboard" />}>
+          <Workspaces type={'investigation'} />
+        </Security>
+      }
     />
-  </Switch>
+    <Route
+      path="/investigations/:workspaceId/*"
+      element={
+        <Security needs={[INVESTIGATION]} placeholder={<Navigate to="/dashboard" />}>
+          <RootInvestigation />
+        </Security>
+      }
+    />
+  </Routes>
 );
 
 export default Root;

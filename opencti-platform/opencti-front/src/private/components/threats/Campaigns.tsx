@@ -1,41 +1,60 @@
 import React from 'react';
 import Grid from '@mui/material/Grid';
 import { GenericAttackCardDummy } from '@components/common/cards/GenericAttackCard';
-import { CampaignsCardsPaginationQuery$variables, CampaignsCardsPaginationQuery } from './campaigns/__generated__/CampaignsCardsPaginationQuery.graphql';
+import ToggleButton from '@mui/material/ToggleButton';
+import Tooltip from '@mui/material/Tooltip';
+import { ViewListOutlined, ViewModuleOutlined } from '@mui/icons-material';
+import { CampaignsCards_data$data } from '@components/threats/campaigns/__generated__/CampaignsCards_data.graphql';
+import { CampaignCardFragment } from '@components/threats/campaigns/CampaignCard';
+import { CampaignsCardsPaginationQuery, CampaignsCardsPaginationQuery$variables } from './campaigns/__generated__/CampaignsCardsPaginationQuery.graphql';
 import ListCards from '../../../components/list_cards/ListCards';
-import CampaignsCards, { campaignsCardsQuery } from './campaigns/CampaignsCards';
+import CampaignsCards, { campaignsCardsFragment, campaignsCardsQuery } from './campaigns/CampaignsCards';
 import CampaignCreation from './campaigns/CampaignCreation';
 import Security from '../../../utils/Security';
 import { KNOWLEDGE_KNUPDATE } from '../../../utils/hooks/useGranted';
 import { usePaginationLocalStorage } from '../../../utils/hooks/useLocalStorage';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
-import { emptyFilterGroup } from '../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, useBuildEntityTypeBasedFilterContext } from '../../../utils/filters/filtersUtils';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { useFormatter } from '../../../components/i18n';
+import { UsePreloadedPaginationFragment } from '../../../utils/hooks/usePreloadedPaginationFragment';
+import DataTable from '../../../components/dataGrid/DataTable';
+import useHelper from '../../../utils/hooks/useHelper';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'campaigns';
 
 const Campaigns = () => {
   const { t_i18n } = useFormatter();
+  const initialValues = {
+    filters: emptyFilterGroup,
+    searchTerm: '',
+    sortBy: 'name',
+    orderAsc: true,
+    openExports: false,
+    view: 'cards',
+  };
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Campaigns | Threats'));
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<CampaignsCardsPaginationQuery$variables>(
     LOCAL_STORAGE_KEY,
-    {
-      numberOfElements: {
-        number: 0,
-        symbol: '',
-      },
-      filters: emptyFilterGroup,
-      searchTerm: '',
-      sortBy: 'name',
-      orderAsc: true,
-      openExports: false,
-      view: 'cards',
-    },
+    initialValues,
   );
+
+  const contextFilters = useBuildEntityTypeBasedFilterContext('Campaign', viewStorage.filters);
+  const queryPaginationOptions = {
+    ...paginationOptions,
+    filters: contextFilters,
+  } as unknown as CampaignsCardsPaginationQuery$variables;
+
   const queryRef = useQueryLoading<CampaignsCardsPaginationQuery>(
     campaignsCardsQuery,
-    paginationOptions,
+    queryPaginationOptions,
   );
+
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   const renderCards = () => {
     const {
       numberOfElements,
@@ -73,8 +92,14 @@ const Campaigns = () => {
         exportContext={{ entity_type: 'Campaign' }}
         keyword={searchTerm}
         filters={filters}
-        paginationOptions={paginationOptions}
+        paginationOptions={queryPaginationOptions}
         numberOfElements={numberOfElements}
+        handleChangeView={helpers.handleChangeView}
+        createButton={isFABReplaced && (
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <CampaignCreation paginationOptions={queryPaginationOptions} />
+          </Security>
+        )}
       >
         {queryRef && (
           <React.Suspense
@@ -88,7 +113,7 @@ const Campaigns = () => {
                   .fill(0)
                   .map((_, idx) => (
                     <Grid
-                      item={true}
+                      item
                       xs={3}
                       key={idx}
                     >
@@ -109,13 +134,73 @@ const Campaigns = () => {
     );
   };
 
+  const renderList = () => {
+    const dataColumns = {
+      name: { percentWidth: 15 },
+      creator: { percentWidth: 13 },
+      created: { percentWidth: 10 },
+      modified: {}, // 15
+      createdBy: {}, // 12
+      objectLabel: {}, // 15
+      x_opencti_workflow_id: {
+        label: 'Processing status',
+        percentWidth: 10,
+      },
+      objectMarking: { percentWidth: 10 },
+    };
+
+    const preloadedPaginationProps = {
+      linesQuery: campaignsCardsQuery,
+      linesFragment: campaignsCardsFragment,
+      queryRef,
+      nodePath: ['campaigns', 'pageInfo', 'globalCount'],
+      setNumberOfElements: helpers.handleSetNumberOfElements,
+    } as UsePreloadedPaginationFragment<CampaignsCardsPaginationQuery>;
+
+    return (
+      <>
+        {queryRef && (
+          <DataTable
+            dataColumns={dataColumns}
+            resolvePath={(data: CampaignsCards_data$data) => data.campaigns?.edges?.map((n) => n?.node)}
+            storageKey={LOCAL_STORAGE_KEY}
+            initialValues={initialValues}
+            toolbarFilters={contextFilters}
+            preloadedPaginationProps={preloadedPaginationProps}
+            lineFragment={CampaignCardFragment}
+            exportContext={{ entity_type: 'Campaign' }}
+            additionalHeaderButtons={[
+              (<ToggleButton key="cards" value="cards" aria-label="cards">
+                <Tooltip title={t_i18n('Cards view')}>
+                  <ViewModuleOutlined fontSize="small" color="primary" />
+                </Tooltip>
+              </ToggleButton>),
+              (<ToggleButton key="lines" value="lines" aria-label="lines">
+                <Tooltip title={t_i18n('Lines view')}>
+                  <ViewListOutlined color="secondary" fontSize="small" />
+                </Tooltip>
+              </ToggleButton>),
+            ]}
+            createButton={isFABReplaced && (
+              <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                <CampaignCreation paginationOptions={queryPaginationOptions} />
+              </Security>
+            )}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Threats') }, { label: t_i18n('Campaigns'), current: true }]} />
-      {renderCards()}
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <CampaignCreation paginationOptions={paginationOptions} />
-      </Security>
+      <Breadcrumbs elements={[{ label: t_i18n('Threats') }, { label: t_i18n('Campaigns'), current: true }]} />
+      {viewStorage.view !== 'lines' ? renderCards() : renderList()}
+      {!isFABReplaced && (
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <CampaignCreation paginationOptions={queryPaginationOptions} />
+        </Security>
+      )}
     </>
   );
 };

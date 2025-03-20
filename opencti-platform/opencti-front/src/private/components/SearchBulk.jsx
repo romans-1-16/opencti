@@ -17,11 +17,12 @@ import { debounce } from 'rxjs/operators';
 import ToggleButton from '@mui/material/ToggleButton';
 import Tooltip from '@mui/material/Tooltip';
 import { ToggleButtonGroup } from '@mui/material';
+import { allEntitiesKeyList } from './common/bulk/utils/querySearchEntityByText';
+import { searchStixCoreObjectsLinesSearchQuery } from './Search';
 import ItemIcon from '../../components/ItemIcon';
-import { searchStixCoreObjectsLinesSearchQuery } from './search/SearchStixCoreObjectsLines';
 import { fetchQuery } from '../../relay/environment';
 import { useFormatter } from '../../components/i18n';
-import { defaultValue } from '../../utils/Graph';
+import { getMainRepresentative } from '../../utils/defaultRepresentatives';
 import { resolveLink } from '../../utils/Entity';
 import StixCoreObjectLabels from './common/stix_core_objects/StixCoreObjectLabels';
 import StixCoreObjectsExports from './common/stix_core_objects/StixCoreObjectsExports';
@@ -30,9 +31,12 @@ import { hexToRGB, itemColor } from '../../utils/Colors';
 import ItemMarkings from '../../components/ItemMarkings';
 import { export_max_size } from '../../utils/utils';
 import Breadcrumbs from '../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../utils/hooks/useConnectedDocumentModifier';
 
 const SEARCH$ = new Subject().pipe(debounce(() => timer(500)));
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   container: {
     transition: theme.transitions.create('padding', {
@@ -151,6 +155,7 @@ const inlineStylesHeaders = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     paddingRight: 10,
+    cursor: 'default',
   },
   created_at: {
     float: 'left',
@@ -259,6 +264,8 @@ const inlineStyles = {
 
 const SearchBulk = () => {
   const { t_i18n, nsd, n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Bulk Search'));
   const isGrantedToExports = useGranted([KNOWLEDGE_KNGETEXPORT]);
   const classes = useStyles();
   const [textFieldValue, setTextFieldValue] = useState('');
@@ -284,20 +291,7 @@ const SearchBulk = () => {
                 mode: 'and',
                 filters: [
                   {
-                    key: [
-                      'name',
-                      'aliases',
-                      'x_opencti_aliases',
-                      'x_mitre_id',
-                      'value',
-                      'subject',
-                      'attribute_abstract',
-                      'hashes.MD5',
-                      'hashes.SHA-1',
-                      'hashes.SHA-256',
-                      'hashes.SHA-512',
-                      'x_opencti_additional_names',
-                    ],
+                    key: allEntitiesKeyList,
                     values,
                   },
                 ],
@@ -317,39 +311,18 @@ const SearchBulk = () => {
                     (o) => o.node,
                   );
                   return values.map((value) => {
-                    const resolvedStixCoreObjects = stixCoreObjects.filter(
-                      (o) => o.name?.toLowerCase() === value.toLowerCase()
-                        || o.aliases
-                          ?.map((p) => p.toLowerCase())
-                          .includes(value.toLowerCase())
-                        || o.x_opencti_aliases
-                          ?.map((p) => p.toLowerCase())
-                          .includes(value.toLowerCase())
-                        || o.x_opencti_additional_names
-                          ?.map((p) => p.toLowerCase())
-                          .includes(value.toLowerCase())
-                        || o.x_mitre_id?.toLowerCase() === value.toLowerCase()
-                        || o.value?.toLowerCase() === value.toLowerCase()
-                        || o.observable_value?.toLowerCase()
-                          === value.toLowerCase()
-                        || o.subject?.toLowerCase() === value.toLowerCase()
-                        || o.abstract?.toLowerCase() === value.toLowerCase(),
-                    );
+                    const resolvedStixCoreObjects = stixCoreObjects.filter((o) => value.toLowerCase() === getMainRepresentative(o).toLowerCase());
                     if (resolvedStixCoreObjects.length > 0) {
                       return resolvedStixCoreObjects.map(
                         (resolvedStixCoreObject) => ({
                           id: resolvedStixCoreObject.id,
                           type: resolvedStixCoreObject.entity_type,
-                          value: defaultValue(resolvedStixCoreObject),
+                          value: getMainRepresentative(resolvedStixCoreObject),
                           labels: resolvedStixCoreObject.objectLabel,
                           markings: resolvedStixCoreObject.objectMarking,
-                          containersNumber: resolvedStixCoreObject.containersNumber,
-                          updated_at: resolvedStixCoreObject.updated_at,
-                          author: R.pathOr(
-                            '',
-                            ['createdBy', 'name'],
-                            resolvedStixCoreObject,
-                          ),
+                          analyses: resolvedStixCoreObject.containersNumber.total,
+                          created_at: resolvedStixCoreObject.created_at,
+                          author: resolvedStixCoreObject.createdBy?.name ?? '-',
                           creators: (resolvedStixCoreObject.creators ?? [])
                             .map((c) => c?.name)
                             .join(', '),
@@ -368,8 +341,9 @@ const SearchBulk = () => {
                   });
                 })
             ).flat();
+            const finalResult = R.uniqBy((o) => o.id, result);
             setLoading(false);
-            setResolvedEntities(result);
+            setResolvedEntities(finalResult);
             setPaginationOptions(searchPaginationOptions);
           } else {
             setResolvedEntities([]);
@@ -382,12 +356,29 @@ const SearchBulk = () => {
       subscription.unsubscribe();
     };
   });
+
   useEffect(() => {
     SEARCH$.next({ action: 'Search' });
   }, [textFieldValue, setResolvedEntities]);
   const reverseBy = (field) => {
     setSortBy(field);
-    setOrderAsc(!orderAsc);
+    setOrderAsc((prevOrderAsc) => !prevOrderAsc);
+    const newOrder = !orderAsc;
+    const getFieldValue = (obj) => {
+      if (field === 'markings') {
+        return obj.markings[0]?.definition || '';
+      }
+      if (field === 'creator') {
+        return obj.creators;
+      }
+      return obj[field];
+    };
+    const sort = (a, b) => {
+      if (getFieldValue(a) < getFieldValue(b)) return newOrder ? -1 : 1;
+      if (getFieldValue(a) > getFieldValue(b)) return newOrder ? 1 : -1;
+      return 0;
+    };
+    setResolvedEntities(resolvedEntities.sort(sort));
   };
   const SortHeader = (field, label, isSortable) => {
     const sortComponent = orderAsc ? (
@@ -425,12 +416,6 @@ const SearchBulk = () => {
         .join('\n'),
     );
   };
-  const sort = R.sortWith(
-    orderAsc ? [R.ascend(R.prop(sortBy))] : [R.descend(R.prop(sortBy))],
-  );
-  const sortedResolvedEntities = sortBy
-    ? sort(resolvedEntities)
-    : resolvedEntities;
   return (
     <>
       <Breadcrumbs variant="standard" elements={[{ label: t_i18n('Search') }, { label: t_i18n('Bulk search'), current: true }]} />
@@ -491,7 +476,7 @@ const SearchBulk = () => {
           spacing={3}
           classes={{ container: classes.gridContainer }}
         >
-          <Grid item={true} xs={2} style={{ marginTop: -20 }}>
+          <Grid item xs={2} style={{ marginTop: -20 }}>
             <TextField
               onChange={handleChangeTextField}
               value={textFieldValue}
@@ -502,7 +487,7 @@ const SearchBulk = () => {
               variant="outlined"
             />
           </Grid>
-          <Grid item={true} xs={10} style={{ marginTop: -20 }}>
+          <Grid item xs={10} style={{ marginTop: -20 }}>
             <Box style={{ width: '100%', marginTop: 2 }}>
               <LinearProgress
                 variant={loading ? 'indeterminate' : 'determinate'}
@@ -533,7 +518,7 @@ const SearchBulk = () => {
                       {SortHeader('value', 'Value', true)}
                       {SortHeader('author', 'Author', true)}
                       {SortHeader('creator', 'Creators', true)}
-                      {SortHeader('labels', 'Labels', true)}
+                      {SortHeader('labels', 'Labels', false)}
                       {SortHeader('created_at', 'Creation date', true)}
                       {SortHeader('analyses', 'Analyses', true)}
                       {SortHeader('markings', 'Markings', true)}
@@ -544,7 +529,7 @@ const SearchBulk = () => {
                 &nbsp;
                 </ListItemIcon>
               </ListItem>
-              {sortedResolvedEntities.map((entity) => {
+              {resolvedEntities.map((entity) => {
                 const inPlatform = entity.in_platform;
                 const link = inPlatform && `${resolveLink(entity.type)}/${entity.id}`;
                 const linkAnalyses = `${link}/analyses`;
@@ -639,12 +624,12 @@ const SearchBulk = () => {
                                 ].includes(entity.type) ? (
                                   <Chip
                                     classes={{ root: classes.chipNoLink }}
-                                    label={n(entity.containersNumber.total)}
+                                    label={n(entity.analyses)}
                                   />
                                   ) : (
                                     <Chip
                                       classes={{ root: classes.chip }}
-                                      label={n(entity.containersNumber.total)}
+                                      label={n(entity.analyses)}
                                       component={Link}
                                       to={linkAnalyses}
                                     />

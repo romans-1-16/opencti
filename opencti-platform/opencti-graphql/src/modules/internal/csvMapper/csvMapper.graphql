@@ -25,13 +25,13 @@ type CsvMapperRepresentationAttribute {
   default_values: [DefaultValue!]
 }
 
-enum Operator {
+enum CsvMapperOperator {
   eq
-  neq
+  not_eq
 }
 type CsvMapperRepresentationTargetColumn {
   column_reference: String
-  operator: Operator
+  operator: CsvMapperOperator
   value: String
 }
 type CsvMapperRepresentationTarget {
@@ -69,6 +69,7 @@ type CsvMapper implements InternalObject & BasicObject {
 # Ordering
 enum CsvMapperOrdering {
   name
+  _score
 }
 
 # Relay connections
@@ -105,7 +106,7 @@ type CsvMapperSchemaAttributes {
 
 # Queries
 type Query {
-  csvMapper(id: String!): CsvMapper @auth(for: [TAXIIAPI_SETCSVMAPPERS])
+  csvMapper(id: String!): CsvMapper @auth(for: [CSVMAPPERS])
   csvMappers(
     first: Int
     after: ID
@@ -113,12 +114,8 @@ type Query {
     orderMode: OrderingMode
     filters: FilterGroup
     search: String
-  ): CsvMapperConnection @auth(for: [TAXIIAPI_SETCSVMAPPERS])
-  csvMapperTest(
-    configuration: String!
-    content: String!
-  ): CsvMapperTestResult @auth(for: [TAXIIAPI_SETCSVMAPPERS])
-  csvMapperSchemaAttributes: [CsvMapperSchemaAttributes!]! @auth(for: [KNOWLEDGE])
+  ): CsvMapperConnection @auth(for: [CSVMAPPERS, INGESTION_SETINGESTIONS])
+  csvMapperSchemaAttributes: [CsvMapperSchemaAttributes!]! @auth(for: [KNOWLEDGE, CSVMAPPERS])
 }
 
 # Mutations
@@ -149,7 +146,7 @@ input CsvMapperRepresentationAttributeInput {
 
 input CsvMapperRepresentationTargetColumnInput {
   column_reference: String
-  operator: Operator
+  operator: CsvMapperOperator
   value: String
 }
 input CsvMapperRepresentationTargetInput {
@@ -166,7 +163,7 @@ input CsvMapperRepresentationInput {
   to: String
 }
 input CsvMapperAddInput {
-  name: String! @constraint(minLength: 2)
+  name: String! @constraint(minLength: 2, format: "not-blank")
   has_header: Boolean!
   separator: String!
   representations: String!
@@ -174,7 +171,8 @@ input CsvMapperAddInput {
 }
 
 type Mutation {
-  csvMapperAdd(input: CsvMapperAddInput!): CsvMapper @auth(for: [TAXIIAPI_SETCSVMAPPERS])
-  csvMapperDelete(id: ID!): ID @auth(for: [TAXIIAPI_SETCSVMAPPERS])
-  csvMapperFieldPatch(id: ID!, input: [EditInput!]!): CsvMapper @auth(for: [TAXIIAPI_SETCSVMAPPERS])
+  csvMapperAdd(input: CsvMapperAddInput!): CsvMapper @auth(for: [CSVMAPPERS])
+  csvMapperTest(configuration: String!, file: Upload!): CsvMapperTestResult @auth(for: [CSVMAPPERS])
+  csvMapperDelete(id: ID!): ID @auth(for: [CSVMAPPERS])
+  csvMapperFieldPatch(id: ID!, input: [EditInput!]!): CsvMapper @auth(for: [CSVMAPPERS])
 }

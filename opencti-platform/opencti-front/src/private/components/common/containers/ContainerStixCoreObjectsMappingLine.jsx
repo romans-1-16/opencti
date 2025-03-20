@@ -16,11 +16,15 @@ import IconButton from '@mui/material/IconButton';
 import { useFormatter } from '../../../../components/i18n';
 import ItemIcon from '../../../../components/ItemIcon';
 import { resolveLink } from '../../../../utils/Entity';
-import { defaultValue } from '../../../../utils/Graph';
 import ItemMarkings from '../../../../components/ItemMarkings';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
 import ContainerStixCoreObjectPopover from './ContainerStixCoreObjectPopover';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import ItemEntityType from '../../../../components/ItemEntityType';
+import { DraftChip } from '../draft/DraftChip';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   item: {
     paddingLeft: 10,
@@ -56,16 +60,18 @@ const ContainerStixCoreObjectLineComponent = (props) => {
     node,
     types,
     dataColumns,
-    contentMapping,
+    contentMappingCount,
     containerId,
     paginationOptions,
     contentMappingData,
+    enableReferences,
   } = props;
   const classes = useStyles();
   const { t_i18n, fd } = useFormatter();
   const refTypes = types ?? ['manual'];
   const isThroughInference = refTypes.includes('inferred');
   const isOnlyThroughInference = isThroughInference && !refTypes.includes('manual');
+  const mappedString = Object.keys(contentMappingData).find((key) => contentMappingData[key] === node.standard_id);
   return (
     <ListItem
       classes={{ root: classes.item }}
@@ -84,23 +90,14 @@ const ContainerStixCoreObjectLineComponent = (props) => {
               className={classes.bodyItem}
               style={{ width: dataColumns.entity_type.width }}
             >
-              <Chip
-                classes={{ root: classes.chipInList }}
-                style={{
-                  backgroundColor: hexToRGB(itemColor(node.entity_type), 0.08),
-                  color: itemColor(node.entity_type),
-                  border: `1px solid ${itemColor(node.entity_type)}`,
-                }}
-                label={t_i18n(`entity_${node.entity_type}`)}
-              />
+              <ItemEntityType entityType={node.entity_type} />
             </div>
             <div
               className={classes.bodyItem}
               style={{ width: dataColumns.value.width }}
             >
-              {node.x_mitre_id
-                ? `[${node.x_mitre_id}] ${node.name}`
-                : defaultValue(node)}
+              {node.representative?.main}
+              {node.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}
@@ -131,9 +128,9 @@ const ContainerStixCoreObjectLineComponent = (props) => {
               <Chip
                 classes={{ root: classes.chipInList }}
                 label={
-                  contentMapping[node.standard_id]
-                    ? contentMapping[node.standard_id]
-                    : t_i18n('No mapping')
+                  (mappedString && contentMappingCount[mappedString])
+                    ? contentMappingCount[mappedString]
+                    : '0'
                 }
               />
             </div>
@@ -146,16 +143,19 @@ const ContainerStixCoreObjectLineComponent = (props) => {
             <AutoFix fontSize="small" style={{ marginLeft: -30 }} />
           </Tooltip>
         ) : (
-          <ContainerStixCoreObjectPopover
-            containerId={containerId}
-            toId={node.id}
-            toStandardId={node.standard_id}
-            relationshipType="object"
-            paginationKey="Pagination_objects"
-            paginationOptions={paginationOptions}
-            contentMappingData={contentMappingData}
-            mapping={contentMapping[node.standard_id]}
-          />
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <ContainerStixCoreObjectPopover
+              containerId={containerId}
+              toId={node.id}
+              toStandardId={node.standard_id}
+              relationshipType="object"
+              paginationKey="Pagination_objects"
+              paginationOptions={paginationOptions}
+              contentMappingData={contentMappingData}
+              mapping={contentMappingCount[mappedString]}
+              enableReferences={enableReferences}
+            />
+          </Security>
         )}
       </ListItemSecondaryAction>
     </ListItem>
@@ -168,109 +168,18 @@ export const ContainerStixCoreObjectsMappingLine = createFragmentContainer(
     node: graphql`
       fragment ContainerStixCoreObjectsMappingLine_node on StixCoreObject {
         id
+        draftVersion {
+          draft_id
+          draft_operation
+        }
         standard_id
         entity_type
         parent_types
         created_at
-        ... on AttackPattern {
-          name
-          x_mitre_id
-        }
-        ... on Campaign {
-          name
-        }
-        ... on CourseOfAction {
-          name
-        }
-        ... on ObservedData {
-          name
-        }
-        ... on Report {
-          name
-        }
-        ... on Grouping {
-          name
-        }
-        ... on Individual {
-          name
-        }
-        ... on Organization {
-          name
-        }
-        ... on Sector {
-          name
-        }
-        ... on System {
-          name
-        }
-        ... on Indicator {
-          name
-        }
-        ... on Infrastructure {
-          name
-        }
-        ... on IntrusionSet {
-          name
-        }
-        ... on Position {
-          name
-        }
-        ... on City {
-          name
-        }
-        ... on AdministrativeArea {
-          name
-        }
-        ... on Country {
-          name
-        }
-        ... on Region {
-          name
-        }
-        ... on Malware {
-          name
-        }
-        ... on MalwareAnalysis {
-          result_name
-        }
-        ... on ThreatActor {
-          name
-        }
-        ... on Tool {
-          name
-        }
-        ... on Vulnerability {
-          name
-        }
-        ... on Incident {
-          name
-        }
-        ... on Event {
-          name
-        }
-        ... on Channel {
-          name
-        }
-        ... on Narrative {
-          name
-        }
-        ... on Language {
-          name
-        }
-        ... on DataComponent {
-          name
-        }
-        ... on DataSource {
-          name
-        }
-        ... on Case {
-          name
-        }
-        ... on Task {
-          name
-        }
-        ... on StixCyberObservable {
-          observable_value
+        ... on StixObject {
+          representative {
+            main
+          }
         }
         createdBy {
           ... on Identity {
@@ -302,72 +211,20 @@ export const ContainerStixCoreObjectsMappingLineDummy = (props) => {
       <ListItemText
         primary={
           <div>
-            <div
-              className={classes.bodyItem}
-              style={{ width: dataColumns.entity_type.width }}
-            >
-              <Skeleton
-                animation="wave"
-                variant="rectangular"
-                width="90%"
-                height="100%"
-              />
-            </div>
-            <div
-              className={classes.bodyItem}
-              style={{ width: dataColumns.value.width }}
-            >
-              <Skeleton
-                animation="wave"
-                variant="rectangular"
-                width="90%"
-                height="100%"
-              />
-            </div>
-            <div
-              className={classes.bodyItem}
-              style={{ width: dataColumns.createdBy.width }}
-            >
-              <Skeleton
-                animation="wave"
-                variant="rectangular"
-                width="90%"
-                height="100%"
-              />
-            </div>
-            <div
-              className={classes.bodyItem}
-              style={{ width: dataColumns.created_at.width }}
-            >
-              <Skeleton
-                animation="wave"
-                variant="rectangular"
-                width="90%"
-                height="100%"
-              />
-            </div>
-            <div
-              className={classes.bodyItem}
-              style={{ width: dataColumns.objectMarking.width }}
-            >
-              <Skeleton
-                animation="wave"
-                variant="rectangular"
-                width="90%"
-                height="100%"
-              />
-            </div>
-            <div
-              className={classes.bodyItem}
-              style={{ width: dataColumns.mapping.width }}
-            >
-              <Skeleton
-                animation="wave"
-                variant="rectangular"
-                width="90%"
-                height="100%"
-              />
-            </div>
+            {Object.values(dataColumns).map((value) => (
+              <div
+                key={value.label}
+                className={classes.bodyItem}
+                style={{ width: value.width }}
+              >
+                <Skeleton
+                  animation="wave"
+                  variant="rectangular"
+                  width="90%"
+                  height={20}
+                />
+              </div>
+            ))}
           </div>
         }
       />

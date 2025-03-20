@@ -3,8 +3,8 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import React, { Suspense, lazy } from 'react';
-import { Redirect, Switch } from 'react-router-dom';
-import { BoundaryRoute } from '../Error';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { boundaryWrapper } from '../Error';
 import { useIsHiddenEntity } from '../../../utils/hooks/useEntitySettings';
 import Loader from '../../../components/Loader';
 
@@ -34,58 +34,52 @@ const Root = () => {
   }
   return (
     <Suspense fallback={<Loader />}>
-      <Switch>
-        <BoundaryRoute
-          exact
-          path="/dashboard/entities"
-          render={() => <Redirect to={`/dashboard/entities/${redirect}`} />}
+      <Routes>
+        <Route
+          path="/"
+          element={ <Navigate to={`/dashboard/entities/${redirect}`} replace={true} />}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/entities/sectors"
-          component={Sectors}
+        <Route
+          path="/sectors"
+          element={boundaryWrapper(Sectors)}
         />
-        <BoundaryRoute
-          path="/dashboard/entities/sectors/:sectorId"
-          component={RootSector}
+        <Route
+          path="/sectors/:sectorId/*"
+          element={boundaryWrapper(RootSector)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/entities/events"
-          component={Events}
+        <Route
+          path="/events"
+          element={boundaryWrapper(Events)}
         />
-        <BoundaryRoute
-          path="/dashboard/entities/events/:eventId"
-          component={RootEvent}
+        <Route
+          path="/events/:eventId/*"
+          element={boundaryWrapper(RootEvent)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/entities/organizations"
-          component={Organizations}
+        <Route
+          path="/organizations"
+          element={boundaryWrapper(Organizations)}
         />
-        <BoundaryRoute
-          path="/dashboard/entities/organizations/:organizationId"
-          component={RootOrganization}
+        <Route
+          path="/organizations/:organizationId/*"
+          element={boundaryWrapper(RootOrganization)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/entities/systems"
-          component={Systems}
+        <Route
+          path="/systems"
+          element={boundaryWrapper(Systems)}
         />
-        <BoundaryRoute
-          path="/dashboard/entities/systems/:systemId"
-          component={RootSystem}
+        <Route
+          path="/systems/:systemId/*"
+          element={boundaryWrapper(RootSystem)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/entities/individuals"
-          component={Individuals}
+        <Route
+          path="/individuals"
+          element={boundaryWrapper(Individuals)}
         />
-        <BoundaryRoute
-          path="/dashboard/entities/individuals/:individualId"
-          component={RootIndividual}
+        <Route
+          path="/individuals/:individualId/*"
+          element={boundaryWrapper(RootIndividual)}
         />
-      </Switch>
+      </Routes>
     </Suspense>
   );
 };

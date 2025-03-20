@@ -6,7 +6,7 @@ import {
   listAllToEntitiesThroughRelations,
   listEntities,
   listEntitiesThroughRelationsPaginated,
-  storeLoadById
+  storeLoadById,
 } from '../database/middleware-loader';
 import { BUS_TOPICS } from '../config/conf';
 import { delEditContext, notify, setEditContext } from '../database/redis';
@@ -29,6 +29,7 @@ const groupSessionRefresh = async (context, user, groupId) => {
   const members = await listAllFromEntitiesThroughRelations(context, user, groupId, RELATION_MEMBER_OF, ENTITY_TYPE_USER);
   const sessions = await findSessionsForUsers(members.map((e) => e.internal_id));
   await Promise.all(sessions.map((s) => markSessionForRefresh(s.id)));
+  await Promise.all(members.map((m) => notify(BUS_TOPICS[ENTITY_TYPE_USER].EDIT_TOPIC, m, user)));
 };
 
 export const findById = (context, user, groupId) => {
@@ -45,6 +46,16 @@ export const findAll = async (context, user, args) => {
 
 export const groupAllowedMarkings = async (context, user, groupId) => {
   return listAllToEntitiesThroughRelations(context, user, groupId, RELATION_ACCESSES_TO, ENTITY_TYPE_MARKING_DEFINITION);
+};
+
+export const groupNotShareableMarkingTypes = (group) => group.max_shareable_markings?.filter(({ value }) => value === 'none')
+  .map(({ type }) => type) ?? [];
+
+export const groupMaxShareableMarkings = async (context, group) => {
+  const markings = await getEntitiesMapFromCache(context, SYSTEM_USER, ENTITY_TYPE_MARKING_DEFINITION);
+  return group.max_shareable_markings?.filter(({ value }) => value !== 'none')
+    .map(({ value }) => markings.get(value))
+    ?? [];
 };
 
 export const defaultMarkingDefinitions = async (context, group) => {
@@ -129,8 +140,8 @@ export const groupEditField = async (context, user, groupId, input) => {
     message: `updates \`${input.map((i) => i.key).join(', ')}\` for group \`${element.name}\``,
     context_data: { id: groupId, entity_type: ENTITY_TYPE_GROUP, input }
   });
-  // on editing the group confidence level, all memebers might have changed their effective level
-  if (input.find((i) => i.key === 'group_confidence_level')) {
+  // on editing the group confidence level, all members might have changed their effective level
+  if (input.find((i) => ['group_confidence_level', 'max_shareable_markings'].includes(i.key))) {
     await groupSessionRefresh(context, user, groupId);
   }
   return notify(BUS_TOPICS[ENTITY_TYPE_GROUP].EDIT_TOPIC, element, user);
@@ -216,10 +227,10 @@ export const groupEditDefaultMarking = async (context, user, groupId, defaultMar
 
 export const groupCleanContext = async (context, user, groupId) => {
   await delEditContext(user, groupId);
-  return storeLoadById(context, user, groupId, ENTITY_TYPE_GROUP).then((group) => notify(BUS_TOPICS.Group.EDIT_TOPIC, group, user));
+  return storeLoadById(context, user, groupId, ENTITY_TYPE_GROUP); // notify removed for performance issues with users cache
 };
 
 export const groupEditContext = async (context, user, groupId, input) => {
   await setEditContext(user, groupId, input);
-  return storeLoadById(context, user, groupId, ENTITY_TYPE_GROUP).then((group) => notify(BUS_TOPICS.Group.EDIT_TOPIC, group, user));
+  return storeLoadById(context, user, groupId, ENTITY_TYPE_GROUP); // notify removed for performance issues with users cache
 };

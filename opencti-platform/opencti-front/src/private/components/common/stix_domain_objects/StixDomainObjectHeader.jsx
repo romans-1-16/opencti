@@ -23,9 +23,11 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import * as R from 'ramda';
 import * as Yup from 'yup';
-import makeStyles from '@mui/styles/makeStyles';
+import { useTheme } from '@mui/styles';
+import { DraftChip } from '../draft/DraftChip';
+import StixCoreObjectEnrollPlaybook from '../stix_core_objects/StixCoreObjectEnrollPlaybook';
+import StixCoreObjectFileExportButton from '../stix_core_objects/StixCoreObjectFileExportButton';
 import { stixCoreObjectQuickSubscriptionContentQuery } from '../stix_core_objects/stixCoreObjectTriggersUtils';
-import StixCoreObjectAskAI from '../stix_core_objects/StixCoreObjectAskAI';
 import StixCoreObjectSubscribers from '../stix_core_objects/StixCoreObjectSubscribers';
 import StixCoreObjectFileExport from '../stix_core_objects/StixCoreObjectFileExport';
 import StixCoreObjectContainer from '../stix_core_objects/StixCoreObjectContainer';
@@ -33,52 +35,16 @@ import { commitMutation, MESSAGING$ } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import { useFormatter } from '../../../../components/i18n';
 import Security from '../../../../utils/Security';
-import useGranted, { KNOWLEDGE_KNENRICHMENT, KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import useGranted, { KNOWLEDGE_KNENRICHMENT, KNOWLEDGE_KNGETEXPORT_KNASKEXPORT, KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import CommitMessage from '../form/CommitMessage';
 import StixCoreObjectSharing from '../stix_core_objects/StixCoreObjectSharing';
 import { truncate } from '../../../../utils/String';
 import { useIsEnforceReference } from '../../../../utils/hooks/useEntitySettings';
 import StixCoreObjectQuickSubscription from '../stix_core_objects/StixCoreObjectQuickSubscription';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import Transition from '../../../../components/Transition';
-import Loader, { LoaderVariant } from '../../../../components/Loader';
-
-const useStyles = makeStyles(() => ({
-  title: {
-    float: 'left',
-    marginRight: 10,
-  },
-  aliases: {
-    float: 'left',
-    marginTop: -6,
-  },
-  alias: {
-    margin: '4px 7px 0 0',
-    fontSize: 12,
-    lineHeight: '12px',
-    height: 28,
-  },
-  aliasesInput: {
-    margin: '4px 15px 0 10px',
-    float: 'left',
-  },
-  viewAsField: {
-    marginTop: -4,
-    float: 'left',
-  },
-  viewAsFieldLabel: {
-    margin: '4px 15px 0 0',
-    fontSize: 14,
-    float: 'left',
-  },
-  actions: {
-    margin: '-6px 0 0 0',
-    float: 'right',
-  },
-  actionButtons: {
-    display: 'flex',
-  },
-}));
+import StixCoreObjectEnrichment from '../stix_core_objects/StixCoreObjectEnrichment';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 export const stixDomainObjectMutation = graphql`
   mutation StixDomainObjectHeaderFieldMutation(
@@ -159,6 +125,16 @@ export const stixDomainObjectMutation = graphql`
         }
         ... on Incident {
           aliases
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+          objectParticipant {
+            id
+            name
+            entity_type
+          }
         }
         ... on Vulnerability {
           x_opencti_aliases
@@ -168,6 +144,80 @@ export const stixDomainObjectMutation = graphql`
         }
         ... on DataSource {
           aliases
+        }
+        ... on Report {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+          objectParticipant {
+            id
+            name
+            entity_type
+          }
+        }
+        ... on MalwareAnalysis {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+        }
+        ... on CaseIncident {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+          objectParticipant {
+            id
+            name
+            entity_type
+          }
+        }
+        ... on CaseRfi {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+          objectParticipant {
+            id
+            name
+            entity_type
+          }
+        }
+        ... on CaseRft {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+          objectParticipant {
+            id
+            name
+            entity_type
+          }
+        }
+        ... on Task {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
+          objectParticipant {
+            id
+            name
+            entity_type
+          }
+        }
+        ... on Feedback {
+          objectAssignee {
+            id
+            name
+            entity_type
+          }
         }
       }
     }
@@ -179,12 +229,13 @@ const aliasValidation = (t) => Yup.object().shape({
 });
 
 const StixDomainObjectHeader = (props) => {
-  const classes = useStyles();
+  const theme = useTheme();
   const { t_i18n } = useFormatter();
   const {
     stixDomainObject,
     isOpenctiAlias,
     PopoverComponent,
+    EditComponent,
     viewAs,
     onViewAs,
     disablePopover,
@@ -192,7 +243,8 @@ const StixDomainObjectHeader = (props) => {
     noAliases,
     entityType, // Should migrate all the parent component to call the useIsEnforceReference as the top
     enableQuickSubscription,
-    enableAskAi,
+    enableEnricher,
+    enableEnrollPlaybook,
   } = props;
   const openAliasesCreate = false;
   const [openAlias, setOpenAlias] = useState(false);
@@ -203,14 +255,9 @@ const StixDomainObjectHeader = (props) => {
   const [aliasToDelete, setAliasToDelete] = useState(null);
   const isKnowledgeUpdater = useGranted([KNOWLEDGE_KNUPDATE]);
   const isKnowledgeEnricher = useGranted([KNOWLEDGE_KNENRICHMENT]);
-  let type = 'unsupported';
-  const isThreat = ['Threat-Actor-Group', 'Threat-Actor-Individual', 'Intrusion-Set', 'Campaign', 'Incident', 'Malware', 'Tool'].includes(stixDomainObject.entity_type);
-  const isVictim = ['Sector', 'Organization', 'System', 'Individual', 'Region', 'Country', 'Administrative-Area', 'City', 'Position'].includes(stixDomainObject.entity_type);
-  if (isThreat) {
-    type = 'threat';
-  } else if (isVictim) {
-    type = 'victim';
-  }
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   const handleToggleOpenAliases = () => {
     setOpenAliases(!openAliases);
   };
@@ -340,214 +387,229 @@ const StixDomainObjectHeader = (props) => {
   const triggerData = useLazyLoadQuery(stixCoreObjectQuickSubscriptionContentQuery, { first: 20, ...triggersPaginationOptions });
 
   return (
-    <React.Suspense fallback={<Loader variant={LoaderVariant.inElement} />}>
-      <Tooltip title={defaultValue(stixDomainObject)}>
-        <Typography
-          variant="h1"
-          gutterBottom={true}
-          classes={{ root: classes.title }}
-        >
-          {truncate(defaultValue(stixDomainObject), 80)}
-        </Typography>
-      </Tooltip>
-      {typeof onViewAs === 'function' && (
-        <>
-          <InputLabel classes={{ root: classes.viewAsFieldLabel }}>
-            {t_i18n('Display as')}
-          </InputLabel>
-          <FormControl
-            classes={{ root: classes.viewAsField }}
-            variant="outlined"
-          >
-            <Select
-              size="small"
-              name="view-as"
-              value={viewAs}
-              onChange={onViewAs}
-              inputProps={{
-                name: 'view-as',
-                id: 'view-as',
+    <React.Suspense fallback={<span />}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing(1) }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing(2) }}>
+          <Tooltip title={getMainRepresentative(stixDomainObject)}>
+            <Typography
+              variant="h1"
+              sx={{
+                margin: 0,
+                lineHeight: 'unset',
               }}
-              variant="outlined"
             >
-              <MenuItem value="knowledge">{t_i18n('Knowledge entity')}</MenuItem>
-              <MenuItem value="author">{t_i18n('Author')}</MenuItem>
-            </Select>
-          </FormControl>
-        </>
-      )}
-      {!noAliases && (
-        <div
-          className={classes.aliases}
-          style={{
-            marginLeft:
-              typeof onViewAs === 'function' || !isKnowledgeUpdater ? 10 : 0,
-          }}
-        >
-          {R.take(5, aliases).map(
-            (label) => label.length > 0 && (
-            <Security
-              needs={[KNOWLEDGE_KNUPDATE]}
-              key={label}
-              placeholder={
-                <Tooltip title={label}>
-                  <Chip
-                    classes={{ root: classes.alias }}
-                    label={truncate(label, 40)}
-                  />
-                </Tooltip>
-              }
-            >
-              <Tooltip title={label}>
-                <Chip
-                  classes={{ root: classes.alias }}
-                  label={truncate(label, 40)}
-                  onDelete={
-                        enableReferences
-                          ? () => handleOpenCommitDelete(label)
-                          : () => deleteAlias(label)
+              {truncate(getMainRepresentative(stixDomainObject), 80)}
+            </Typography>
+          </Tooltip>
+          {stixDomainObject.draftVersion && (
+            <DraftChip style={{ marginTop: 7 }}/>
+          )}
+          {typeof onViewAs === 'function' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing(0.5) }}>
+              <InputLabel>
+                {t_i18n('Display as')}
+              </InputLabel>
+              <FormControl
+                variant="outlined"
+              >
+                <Select
+                  size="small"
+                  name="view-as"
+                  value={viewAs}
+                  onChange={onViewAs}
+                  inputProps={{
+                    name: 'view-as',
+                    id: 'view-as',
+                  }}
+                  variant="outlined"
+                >
+                  <MenuItem value="knowledge">{t_i18n('Knowledge entity')}</MenuItem>
+                  <MenuItem value="author">{t_i18n('Author')}</MenuItem>
+                </Select>
+              </FormControl>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            {(!noAliases && aliases.length > 0) && (
+              <>
+                {aliases.slice(0, 5).map(
+                  (label) => label.length > 0 && (
+                    <Security
+                      needs={[KNOWLEDGE_KNUPDATE]}
+                      key={label}
+                      placeholder={
+                        <Tooltip title={label}>
+                          <Chip
+                            sx={{
+                              marginRight: '4px',
+                              fontSize: 12,
+                              lineHeight: '12px',
+                              height: 28,
+                            }}
+                            label={truncate(label, 40)}
+                          />
+                        </Tooltip>
                       }
-                />
-              </Tooltip>
-            </Security>
-            ),
-          )}
-        </div>
-      )}
-      {!noAliases && (
-        <Slide
-          direction="right"
-          in={openAlias}
-          mountOnEnter={true}
-          unmountOnExit={true}
-        >
-          <div style={{ float: 'left', marginTop: -5 }}>
-            <Formik
-              initialValues={{ new_alias: '' }}
-              onSubmit={onSubmitCreateAlias}
-              validationSchema={enableReferences ? aliasValidation(t_i18n) : null}
-            >
-              {({ submitForm, isSubmitting, setFieldValue, values }) => (
-                <Form style={{ float: 'right' }}>
-                  <Field
-                    component={TextField}
-                    variant="standard"
-                    name="new_alias"
-                    autoFocus={true}
-                    placeholder={t_i18n('New alias')}
-                    className={classes.aliasesInput}
-                    onChange={handleChangeNewAlias}
-                    value={newAlias}
-                    onKeyDown={(e) => {
-                      if (e.keyCode === 13) {
-                        if (enableReferences && !openCommitCreate) {
-                          return handleOpenCommitCreate();
-                        }
-                        return submitForm();
-                      }
-                      return true;
-                    }}
-                  />
-                  {enableReferences && (
-                    <CommitMessage
-                      handleClose={openCommitCreate}
-                      open={openCommitCreate}
-                      submitForm={submitForm}
-                      disabled={isSubmitting}
-                      setFieldValue={setFieldValue}
-                      values={values.references}
-                      id={stixDomainObject.id}
-                    />
-                  )}
-                </Form>
-              )}
-            </Formik>
-          </div>
-        </Slide>
-      )}
-      {!noAliases && (
-        <Security needs={[KNOWLEDGE_KNUPDATE]}>
-          {aliases.length > 5 ? (
-            <IconButton
-              style={{ float: 'left', marginTop: -8 }}
-              color="primary"
-              aria-label="More"
-              onClick={handleToggleOpenAliases}
-              size="large"
-            >
-              <DotsHorizontalCircleOutline fontSize="small" />
-            </IconButton>
-          ) : (
-            <IconButton
-              style={{ float: 'left', marginTop: -8 }}
-              color="primary"
-              aria-label="Alias"
-              onClick={handleToggleCreateAlias}
-              size="large"
-            >
-              {openAlias ? (
-                <Close fontSize="small" />
-              ) : (
-                <Add fontSize="small" />
-              )}
-            </IconButton>
-          )}
-        </Security>
-      )}
-      <div className={classes.actions}>
-        <div className={classes.actionButtons}>
-          {enableQuickSubscription && (
-            <StixCoreObjectSubscribers triggerData={triggerData} />
-          )}
-          {disableSharing !== true && (
-            <StixCoreObjectSharing
-              elementId={stixDomainObject.id}
-              variant="header"
-            />
-          )}
-          <StixCoreObjectFileExport
-            id={stixDomainObject.id}
-            type={entityType}
-          />
-          {isKnowledgeUpdater && (
-            <StixCoreObjectContainer elementId={stixDomainObject.id} />
-          )}
-          {enableQuickSubscription && (
-            <StixCoreObjectQuickSubscription
-              instanceId={stixDomainObject.id}
-              instanceName={defaultValue(stixDomainObject)}
-              paginationOptions={triggersPaginationOptions}
-              triggerData={triggerData}
-            />
-          )}
-          {enableAskAi && (
-          <StixCoreObjectAskAI
-            instanceId={stixDomainObject.id}
-            instanceType={stixDomainObject.entity_type}
-            instanceName={defaultValue(stixDomainObject)}
-            type={type}
-          />
-          )}
-          {(isKnowledgeUpdater || isKnowledgeEnricher) && (
-          <div className={classes.popover}>
-            {/* TODO remove this when all components are pure function without compose() */}
-            {!React.isValidElement(PopoverComponent) ? (
-              <PopoverComponent
-                disabled={disablePopover}
-                id={stixDomainObject.id}
-              />
-            ) : (
-              React.cloneElement(PopoverComponent, {
-                id: stixDomainObject.id,
-                disabled: disablePopover,
-              })
+                    >
+                      <Tooltip title={label}>
+                        <Chip
+                          sx={{
+                            marginRight: '4px',
+                            fontSize: 12,
+                            lineHeight: '12px',
+                            height: 28,
+                          }}
+                          label={truncate(label, 40)}
+                          onDelete={
+                            enableReferences
+                              ? () => handleOpenCommitDelete(label)
+                              : () => deleteAlias(label)
+                          }
+                        />
+                      </Tooltip>
+                    </Security>
+                  ),
+                )}
+              </>
+            )}
+            {!noAliases && (
+              <Slide
+                direction="right"
+                in={openAlias}
+                mountOnEnter={true}
+                unmountOnExit={true}
+              >
+                <div>
+                  <Formik
+                    initialValues={{ new_alias: '' }}
+                    onSubmit={onSubmitCreateAlias}
+                    validationSchema={enableReferences ? aliasValidation(t_i18n) : null}
+                  >
+                    {({ submitForm, isSubmitting, setFieldValue, values }) => (
+                      <Form>
+                        <Field
+                          component={TextField}
+                          variant="standard"
+                          name="new_alias"
+                          autoFocus={true}
+                          placeholder={t_i18n('New alias')}
+                          sx={{
+                            margin: '4px 15px 0 10px',
+                            float: 'left',
+                          }}
+                          onChange={handleChangeNewAlias}
+                          value={newAlias}
+                          onKeyDown={(e) => {
+                            if (e.keyCode === 13) {
+                              if (enableReferences && !openCommitCreate) {
+                                return handleOpenCommitCreate();
+                              }
+                              return submitForm();
+                            }
+                            return true;
+                          }}
+                        />
+                        {enableReferences && (
+                          <CommitMessage
+                            handleClose={openCommitCreate}
+                            open={openCommitCreate}
+                            submitForm={submitForm}
+                            disabled={isSubmitting}
+                            setFieldValue={setFieldValue}
+                            values={values.references}
+                            id={stixDomainObject.id}
+                          />
+                        )}
+                      </Form>
+                    )}
+                  </Formik>
+                </div>
+              </Slide>
+            )}
+            {!noAliases && (
+              <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                {aliases.length > 5 ? (
+                  <IconButton
+                    color="primary"
+                    aria-label="More"
+                    onClick={handleToggleOpenAliases}
+                    size="small"
+                  >
+                    <DotsHorizontalCircleOutline fontSize="small" />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    color="primary"
+                    aria-label="Alias"
+                    onClick={handleToggleCreateAlias}
+                    size="small"
+                  >
+                    {openAlias ? (
+                      <Close fontSize="small" />
+                    ) : (
+                      <Add fontSize="small" />
+                    )}
+                  </IconButton>
+                )}
+              </Security>
             )}
           </div>
-          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: 'flex' }}>
+            {enableQuickSubscription && (
+              <StixCoreObjectSubscribers triggerData={triggerData} />
+            )}
+            {disableSharing !== true && (
+              <StixCoreObjectSharing
+                elementId={stixDomainObject.id}
+                variant="header"
+              />
+            )}
+            <Security needs={[KNOWLEDGE_KNGETEXPORT_KNASKEXPORT]}>
+              <StixCoreObjectFileExport
+                scoId={stixDomainObject.id}
+                scoEntityType={entityType}
+                OpenFormComponent={StixCoreObjectFileExportButton}
+              />
+            </Security>
+            {isKnowledgeUpdater && (
+              <StixCoreObjectContainer elementId={stixDomainObject.id} />
+            )}
+            {enableQuickSubscription && (
+              <StixCoreObjectQuickSubscription
+                instanceId={stixDomainObject.id}
+                instanceName={getMainRepresentative(stixDomainObject)}
+                paginationOptions={triggersPaginationOptions}
+                triggerData={triggerData}
+              />
+            )}
+            {(enableEnricher && isKnowledgeEnricher) && (
+              <StixCoreObjectEnrichment stixCoreObjectId={stixDomainObject.id} />
+            )}
+            {isFABReplaced && enableEnrollPlaybook && (
+              <StixCoreObjectEnrollPlaybook stixCoreObjectId={stixDomainObject.id} />
+            )}
+            {isKnowledgeUpdater && (
+              <div>
+                {/* TODO remove this when all components are pure function without compose() */}
+                {!React.isValidElement(PopoverComponent) ? (
+                  <PopoverComponent
+                    disabled={disablePopover}
+                    id={stixDomainObject.id}
+                  />
+                ) : (
+                  React.cloneElement(PopoverComponent, {
+                    id: stixDomainObject.id,
+                    disabled: disablePopover,
+                  })
+                )}
+              </div>
+            )}
+            {EditComponent}
+          </div>
         </div>
       </div>
-
-      <div className="clearfix" />
       {!noAliases && (
         <Dialog
           PaperProps={{ elevation: 1 }}
@@ -571,7 +633,10 @@ const StixDomainObjectHeader = (props) => {
                     name="new_alias"
                     autoFocus={true}
                     placeholder={t_i18n('New alias')}
-                    className={classes.aliasesInput}
+                    sx={{
+                      margin: '4px 15px 0 10px',
+                      float: 'left',
+                    }}
                     onChange={handleChangeNewAlias}
                     value={newAlias}
                     onKeyDown={(e) => {
@@ -607,23 +672,23 @@ const StixDomainObjectHeader = (props) => {
                 stixDomainObject,
               ).map(
                 (label) => label.length > 0 && (
-                <ListItem key={label} disableGutters={true} dense={true}>
-                  <ListItemText primary={label} />
-                  <ListItemSecondaryAction>
-                    <IconButton
-                      edge="end"
-                      aria-label="delete"
-                      onClick={
-                            enableReferences
-                              ? () => handleOpenCommitDelete(label)
-                              : () => deleteAlias(label)
-                          }
-                      size="large"
-                    >
-                      <Delete />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
+                  <ListItem key={label} disableGutters={true} dense={true}>
+                    <ListItemText primary={label} />
+                    <ListItemSecondaryAction>
+                      <IconButton
+                        edge="end"
+                        aria-label="delete"
+                        onClick={
+                          enableReferences
+                            ? () => handleOpenCommitDelete(label)
+                            : () => deleteAlias(label)
+                        }
+                        size="large"
+                      >
+                        <Delete />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  </ListItem>
                 ),
               )}
             </List>
@@ -646,7 +711,10 @@ const StixDomainObjectHeader = (props) => {
                       autoFocus={true}
                       fullWidth={true}
                       placeholder={t_i18n('New aliases')}
-                      className={classes.aliasesInput}
+                      sx={{
+                        margin: '4px 15px 0 10px',
+                        float: 'left',
+                      }}
                       onChange={handleChangeNewAlias}
                       value={newAlias}
                       onKeyDown={(e) => {

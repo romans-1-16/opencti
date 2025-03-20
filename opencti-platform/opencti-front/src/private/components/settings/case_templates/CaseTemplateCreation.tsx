@@ -3,19 +3,22 @@ import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import React, { FunctionComponent } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import * as Yup from 'yup';
 import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
 import { insertNode } from '../../../../utils/store';
 import CaseTemplateTasks from '../../common/form/CaseTemplateTasks';
 import { CaseTemplateAddInput } from './__generated__/CaseTemplateCreationMutation.graphql';
 import { CaseTemplateLinesPaginationQuery$variables } from './__generated__/CaseTemplateLinesPaginationQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -50,7 +53,7 @@ const CaseTemplateCreation: FunctionComponent<CaseTemplateCreationProps> = ({
   const classes = useStyles();
   const { t_i18n } = useFormatter();
 
-  const [commitMutation] = useMutation(caseTemplateMutation);
+  const [commitMutation] = useApiMutation(caseTemplateMutation);
 
   const onSubmit: FormikConfig<CaseTemplateAddInput>['onSubmit'] = (
     values,
@@ -101,7 +104,7 @@ const CaseTemplateCreation: FunctionComponent<CaseTemplateCreationProps> = ({
             setFieldValue,
             values,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"

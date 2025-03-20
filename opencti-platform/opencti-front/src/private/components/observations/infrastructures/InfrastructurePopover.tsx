@@ -8,8 +8,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { graphql } from 'react-relay';
+import { useNavigate } from 'react-router-dom';
 import { useFormatter } from '../../../../components/i18n';
 import Security from '../../../../utils/Security';
 import { KNOWLEDGE_KNUPDATE_KNDELETE } from '../../../../utils/hooks/useGranted';
@@ -17,6 +17,8 @@ import { InfrastructureEditionContainerQuery } from './__generated__/Infrastruct
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import InfrastructureEditionContainer, { infrastructureEditionContainerQuery } from './InfrastructureEditionContainer';
 import Transition from '../../../../components/Transition';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const InfrastructurePopoverDeletionMutation = graphql`
   mutation InfrastructurePopoverDeletionMutation($id: ID!) {
@@ -32,8 +34,10 @@ const InfrastructurePopover = ({ id }: { id: string }) => {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [displayDelete, setDisplayDelete] = useState<boolean>(false);
   const [displayEdit, setDisplayEdit] = useState<boolean>(false);
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const [deleting, setDeleting] = useState<boolean>(false);
-  const [commit] = useMutation(InfrastructurePopoverDeletionMutation);
+  const [commit] = useApiMutation(InfrastructurePopoverDeletionMutation);
   const queryRef = useQueryLoading<InfrastructureEditionContainerQuery>(
     infrastructureEditionContainerQuery,
     { id },
@@ -64,53 +68,55 @@ const InfrastructurePopover = ({ id }: { id: string }) => {
     setDisplayEdit(true);
     handleClose();
   };
-  return (
-    <>
-      <ToggleButton
-        value="popover"
-        size="small"
-        onClick={handleOpen}
-      >
-        <MoreVert fontSize="small" color="primary" />
-      </ToggleButton>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
-        <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
-          <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
-        </Security>
-      </Menu>
-      <Dialog
-        open={displayDelete}
-        PaperProps={{ elevation: 1 }}
-        keepMounted={true}
-        TransitionComponent={Transition}
-        onClose={handleCloseDelete}
-      >
-        <DialogContent>
-          <DialogContentText>
-            {t_i18n('Do you want to delete this intrusion set?')}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDelete} disabled={deleting}>
-            {t_i18n('Cancel')}
-          </Button>
-          <Button color="secondary" onClick={submitDelete} disabled={deleting}>
-            {t_i18n('Delete')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      {queryRef && (
-        <React.Suspense fallback={<div />}>
-          <InfrastructureEditionContainer
-            queryRef={queryRef}
-            handleClose={handleClose}
-            open={displayEdit}
-          />
-        </React.Suspense>
-      )}
-    </>
-  );
+  return isFABReplaced
+    ? (<></>)
+    : (
+      <>
+        <ToggleButton
+          value="popover"
+          size="small"
+          onClick={handleOpen}
+        >
+          <MoreVert fontSize="small" color="primary" />
+        </ToggleButton>
+        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
+          <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
+          <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
+            <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+          </Security>
+        </Menu>
+        <Dialog
+          open={displayDelete}
+          PaperProps={{ elevation: 1 }}
+          keepMounted={true}
+          TransitionComponent={Transition}
+          onClose={handleCloseDelete}
+        >
+          <DialogContent>
+            <DialogContentText>
+              {t_i18n('Do you want to delete this infrastructure?')}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDelete} disabled={deleting}>
+              {t_i18n('Cancel')}
+            </Button>
+            <Button color="secondary" onClick={submitDelete} disabled={deleting}>
+              {t_i18n('Delete')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        {queryRef && (
+          <React.Suspense fallback={<div />}>
+            <InfrastructureEditionContainer
+              queryRef={queryRef}
+              handleClose={handleClose}
+              open={displayEdit}
+            />
+          </React.Suspense>
+        )}
+      </>
+    );
 };
 
 export default InfrastructurePopover;

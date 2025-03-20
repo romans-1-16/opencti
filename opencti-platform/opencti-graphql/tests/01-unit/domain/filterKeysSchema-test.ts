@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateFilterKeysSchema } from '../../../src/domain/filterKeysSchema';
+import {type FilterDefinition, generateFilterKeysSchema} from '../../../src/domain/filterKeysSchema';
 import {
   ABSTRACT_BASIC_RELATIONSHIP,
   ABSTRACT_STIX_CORE_OBJECT,
@@ -18,8 +18,22 @@ import { ENTITY_TYPE_NOTIFICATION, ENTITY_TYPE_TRIGGER } from '../../../src/modu
 import { ENTITY_HASHED_OBSERVABLE_ARTIFACT, ENTITY_HASHED_OBSERVABLE_STIX_FILE, ENTITY_HASHED_OBSERVABLE_X509_CERTIFICATE } from '../../../src/schema/stixCyberObservable';
 import { ENTITY_TYPE_CONTAINER_CASE } from '../../../src/modules/case/case-types';
 import { ENTITY_TYPE_CONTAINER_GROUPING } from '../../../src/modules/grouping/grouping-types';
-import { ALIAS_FILTER, CONNECTED_TO_INSTANCE_FILTER, CONTEXT_OBJECT_LABEL_FILTER, INSTANCE_REGARDING_OF, TYPE_FILTER } from '../../../src/utils/filtering/filtering-constants';
+import {
+  ALIAS_FILTER,
+  CONNECTED_TO_INSTANCE_FILTER,
+  CONTEXT_OBJECT_LABEL_FILTER,
+  INSTANCE_RELATION_TYPES_FILTER,
+  INSTANCE_REGARDING_OF,
+  RELATION_FROM_FILTER,
+  RELATION_TO_TYPES_FILTER,
+  TYPE_FILTER
+} from '../../../src/utils/filtering/filtering-constants';
 import { ENTITY_TYPE_HISTORY } from '../../../src/schema/internalObject';
+import { STIX_CYBER_OBSERVABLES } from '../../../src/schema/stixCyberObservable';
+import stixCoreObjectFilterKeys from '../../data/filter-keys-schema/stix-core-object';
+import stixCoreRelationshipFilterKeys from '../../data/filter-keys-schema/stix-core-relationship';
+import { ENTITY_TYPE_INDICATOR } from "../../../src/modules/indicator/indicator-types";
+import indicatorFilterKeys from "../../data/filter-keys-schema/indicatorFilterKeys";
 
 describe('Filter keys schema generation testing', async () => {
   const filterKeysSchemaArray = await generateFilterKeysSchema();
@@ -28,10 +42,17 @@ describe('Filter keys schema generation testing', async () => {
       n.entity_type,
       new Map(n.filters_schema.map((m) => [m.filterKey, m.filterDefinition]))
     ]));
-  it('should generate a filter keys schema for filterable attributes only', () => {
-    const stixCoreObjectFilterDefinitionMap = filterKeysSchema.get(ABSTRACT_STIX_CORE_OBJECT);
-    expect(stixCoreObjectFilterDefinitionMap?.get('name')?.filterKey).toEqual('name'); // filterable attribute
-    expect(stixCoreObjectFilterDefinitionMap?.get('content_mapping')).toEqual(undefined); // not filterable attribute
+  it('should generate a filter keys schema for Stix core object filterable attributes only', () => {
+    const stixCoreObjectFilterDefinitionMap = filterKeysSchema.get(ABSTRACT_STIX_CORE_OBJECT) ?? new Map<string, FilterDefinition>();
+    expect(Array.from(stixCoreObjectFilterDefinitionMap.keys())).containSubset(stixCoreObjectFilterKeys);
+  });
+  it('should generate a filter keys schema for Stix core relationship filterable attributes only', () => {
+    const stixCoreRelationshipFilterDefinitionMap = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP) ?? new Map<string, FilterDefinition>();
+    expect(Array.from(stixCoreRelationshipFilterDefinitionMap.keys())).containSubset(stixCoreRelationshipFilterKeys);
+  });
+  it('should generate a filter keys schema for Indicator filterable attributes only', () => {
+    const indicatorFilterDefinitionMap = filterKeysSchema.get(ENTITY_TYPE_INDICATOR) ?? new Map<string, FilterDefinition>();
+    expect(Array.from(indicatorFilterDefinitionMap.keys())).containSubset(indicatorFilterKeys);
   });
   it('should construct correct filter definition for vocabulary string attributes', () => {
     // 'report_types' attribute (for Report entity type)
@@ -128,22 +149,26 @@ describe('Filter keys schema generation testing', async () => {
     expect(filterDefinition?.type).toEqual('enum');
     expect(filterDefinition?.elementsForFilterValuesSearch.length).toEqual(3); // create, update, delete
   });
-  it('should construct correct filter definition for nested object attributes', () => {
+  it('should construct correct filter definition for nested object attributes: case of relationships', () => {
     // 'fromId' for stix core relationships
-    let filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get('fromId');
-    expect(filterDefinition?.filterKey).toEqual('fromId');
+    let filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get(RELATION_FROM_FILTER);
+    expect(filterDefinition?.filterKey).toEqual(RELATION_FROM_FILTER);
     expect(filterDefinition?.type).toEqual('id');
     expect(filterDefinition?.label).toEqual('Source entity');
     expect(filterDefinition?.elementsForFilterValuesSearch.length).toEqual(1);
     expect(filterDefinition?.elementsForFilterValuesSearch[0]).toEqual(ABSTRACT_STIX_CORE_OBJECT);
     // 'toTypes' for stix core relationships
-    filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get('toTypes');
-    expect(filterDefinition?.filterKey).toEqual('toTypes');
+    filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get(RELATION_TO_TYPES_FILTER);
+    expect(filterDefinition?.filterKey).toEqual(RELATION_TO_TYPES_FILTER);
     expect(filterDefinition?.type).toEqual('string');
     expect(filterDefinition?.label).toEqual('Target type');
     expect(filterDefinition?.elementsForFilterValuesSearch.length).toEqual(0);
+    // 'elementWithTargetTypes' for stix core relationships
+    filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get(INSTANCE_RELATION_TYPES_FILTER);
+    expect(filterDefinition?.filterKey).toEqual(INSTANCE_RELATION_TYPES_FILTER);
+    expect(filterDefinition?.type).toEqual('string');
     // 'fromId' for basic relationships: not filterable
-    filterDefinition = filterKeysSchema.get(ABSTRACT_BASIC_RELATIONSHIP)?.get('fromId');
+    filterDefinition = filterKeysSchema.get(ABSTRACT_BASIC_RELATIONSHIP)?.get(RELATION_FROM_FILTER);
     expect(filterDefinition).toBeUndefined();
   });
   it('should construct correct filter definition for special filter keys', () => {
@@ -199,12 +224,12 @@ describe('Filter keys schema generation testing', async () => {
     expect(filterDefinition?.subEntityTypes.length).toEqual(1); // 'Threat-Actor-Individual'
 
     // Stix Core Relationships
-    filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get('fromId');
-    expect(filterDefinition?.subEntityTypes.length).toEqual(49); // 48 stix core relationship types + abstract type 'stix-core-relationships'
+    filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CORE_RELATIONSHIP)?.get(RELATION_FROM_FILTER);
+    expect(filterDefinition?.subEntityTypes.length).toEqual(52); // 51 stix core relationship types + abstract type 'stix-core-relationships'
     // Stix Cyber Observables
     filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CYBER_OBSERVABLE)?.get('x_opencti_score'); // attribute existing for all the observables
     filterDefinition = filterKeysSchema.get(ABSTRACT_STIX_CYBER_OBSERVABLE)?.get(INPUT_LABELS); // ref existing for all the observables
-    expect(filterDefinition?.subEntityTypes.length).toEqual(30); // 29 observables + abstract type 'Stix-Cyber-Observable'
+    expect(filterDefinition?.subEntityTypes.length).toEqual(STIX_CYBER_OBSERVABLES.length + 1); // 31 observables + abstract type 'Stix-Cyber-Observable'
   });
   it('should includes the filters associated to the attributes of the History entity type', () => {
     let filterDefinition = filterKeysSchema.get(ENTITY_TYPE_HISTORY)?.get(CONTEXT_OBJECT_LABEL_FILTER);

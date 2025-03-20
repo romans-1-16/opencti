@@ -5,7 +5,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import ListItem from '@mui/material/ListItem';
-import { Link, useHistory } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import AccessesMenu from '../AccessesMenu';
@@ -24,8 +24,12 @@ import { groupsSearchQuery } from '../Groups';
 import { GroupsSearchQuery } from '../__generated__/GroupsSearchQuery.graphql';
 import ItemIcon from '../../../../components/ItemIcon';
 import ExpandableMarkdown from '../../../../components/ExpandableMarkdown';
+import type { Theme } from '../../../../components/Theme';
+import useSensitiveModifications from '../../../../utils/hooks/useSensitiveModifications';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     margin: 0,
     padding: '0 200px 0 0',
@@ -41,9 +45,7 @@ const useStyles = makeStyles(() => ({
     marginTop: '-13px',
   },
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -52,6 +54,7 @@ const useStyles = makeStyles(() => ({
 const roleFragment = graphql`
   fragment Role_role on Role {
     id
+    standard_id
     name
     description
     created_at
@@ -61,6 +64,7 @@ const roleFragment = graphql`
       name
       description
     }
+    can_manage_sensitive_config
   }
 `;
 
@@ -72,8 +76,8 @@ const Role = ({
   groupsQueryRef: PreloadedQuery<GroupsSearchQuery>;
 }) => {
   const classes = useStyles();
+
   const { t_i18n } = useFormatter();
-  const history = useHistory();
   const groupsData = usePreloadedQuery(groupsSearchQuery, groupsQueryRef);
   const groupNodes = (role: Role_role$data) => {
     return (groupsData.groups?.edges ?? [])
@@ -83,6 +87,7 @@ const Role = ({
       .filter((n) => n !== null && n !== undefined);
   };
   const role = useFragment<Role_role$key>(roleFragment, roleData);
+  const { isAllowed, isSensitive } = useSensitiveModifications('roles', role.standard_id);
   const queryRef = useQueryLoading<RoleEditionCapabilitiesLinesSearchQuery>(
     roleEditionCapabilitiesLinesSearch,
   );
@@ -98,22 +103,22 @@ const Role = ({
           {role.name}
         </Typography>
         <div className={classes.popover}>
-          <RolePopover history={history} roleId={role.id} />
+          <RolePopover roleId={role.id} disabled={!isAllowed && isSensitive} isSensitive={isSensitive} />
         </div>
-        <div className="clearfix" />
+        <div className="clearfix"/>
       </div>
       <Grid
         container={true}
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Basic information')}
           </Typography>
-          <Paper classes={{ root: classes.paper }} variant="outlined">
+          <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={12}>
+              <Grid item xs={12}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Description')}
                 </Typography>
@@ -122,7 +127,7 @@ const Role = ({
                   limit={400}
                 />
               </Grid>
-              <Grid item={true} xs={12}>
+              <Grid item xs={12}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Groups using this role')}
                 </Typography>
@@ -147,13 +152,13 @@ const Role = ({
             </Grid>
           </Paper>
         </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Capabilities')}
           </Typography>
           <Paper classes={{ root: classes.paper }} variant="outlined">
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={12} style={{ paddingTop: 10 }}>
+              <Grid item xs={12} style={{ paddingTop: 10 }}>
                 {queryRef && (
                   <React.Suspense>
                     <CapabilitiesList queryRef={queryRef} role={role} />
@@ -172,6 +177,7 @@ const Role = ({
             return (
               <RoleEdition
                 role={props.role}
+                disabled={!isAllowed && isSensitive}
               />
             );
           }

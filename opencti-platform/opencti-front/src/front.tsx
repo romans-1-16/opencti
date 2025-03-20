@@ -6,6 +6,8 @@ import makeStyles from '@mui/styles/makeStyles';
 import { RelayEnvironmentProvider } from 'react-relay/hooks';
 import './static/css/index.css';
 import './static/css/leaflet.css';
+import './static/css/timerange.css';
+import 'ckeditor5/ckeditor5.css';
 import './static/css/CKEditorDark.css';
 import './static/css/CKEditorLight.css';
 import 'react-grid-layout/css/styles.css';
@@ -16,6 +18,8 @@ import { environment } from './relay/environment';
 import Loader from './components/Loader';
 import { THEME_DARK_DEFAULT_BACKGROUND } from './components/ThemeDark';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   loading: {
     width: '100%',

@@ -1,13 +1,13 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
-import { graphql, createPaginationContainer } from 'react-relay';
-import { map, filter, head, compose } from 'ramda';
+import { createPaginationContainer, graphql } from 'react-relay';
+import { compose, filter, head, map } from 'ramda';
 import withStyles from '@mui/styles/withStyles';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
-import { CheckCircle, DocumentScannerOutlined } from '@mui/icons-material';
+import { CheckCircle } from '@mui/icons-material';
 import { ConnectionHandler } from 'relay-runtime';
 import { truncate } from '../../../../utils/String';
 import inject18n from '../../../../components/i18n';
@@ -175,6 +175,8 @@ class AddExternalReferencesLinesContainer extends Component {
       open,
       search,
       paginationOptions,
+      openContextual,
+      handleCloseContextual,
     } = this.props;
     const stixCoreObjectOrStixCoreRelationshipReferencesIds = map(
       (n) => n.node.id,
@@ -213,9 +215,19 @@ class AddExternalReferencesLinesContainer extends Component {
                   key={externalReference.id}
                   classes={{ root: classes.menuItem }}
                   divider={true}
+                  button={true}
+                  onClick={this.toggleExternalReference.bind(
+                    this,
+                    externalReference,
+                    false,
+                  )}
                 >
                   <ListItemIcon>
-                    <DocumentScannerOutlined />
+                    {alreadyAdded ? (
+                      <CheckCircle classes={{ root: classes.icon }} />
+                    ) : (
+                      <ItemIcon type="External-Reference" />
+                    )}
                   </ListItemIcon>
                   {computeTextItem(externalReferenceNode)}
                 </ListItem>
@@ -248,6 +260,8 @@ class AddExternalReferencesLinesContainer extends Component {
         <ExternalReferenceCreation
           display={open}
           contextual={true}
+          openContextual={openContextual}
+          handleCloseContextual={handleCloseContextual}
           inputValue={search}
           paginationOptions={paginationOptions}
           onCreate={this.toggleExternalReference.bind(this)}

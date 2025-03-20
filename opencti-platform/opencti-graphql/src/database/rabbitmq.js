@@ -1,12 +1,16 @@
 import amqp from 'amqplib/callback_api';
 import util from 'util';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION } from '@opentelemetry/semantic-conventions';
+import { LRUCache } from 'lru-cache';
 import conf, { booleanConf, configureCA, loadCert, logApp } from '../config/conf';
 import { DatabaseError } from '../config/errors';
 import { SYSTEM_USER } from '../utils/access';
 import { telemetry } from '../config/tracing';
-import { INTERNAL_PLAYBOOK_QUEUE, INTERNAL_SYNC_QUEUE, RABBIT_QUEUE_PREFIX } from './utils';
+import { isEmptyField, RABBIT_QUEUE_PREFIX } from './utils';
 import { getHttpClient } from '../utils/http-client';
+import { listAllEntities } from './middleware-loader';
+import { ENTITY_TYPE_CONNECTOR, ENTITY_TYPE_SYNC } from '../schema/internalObject';
+import { ENTITY_TYPE_PLAYBOOK } from '../modules/playbook/playbook-types';
 
 export const CONNECTOR_EXCHANGE = `${RABBIT_QUEUE_PREFIX}amqp.connector.exchange`;
 export const WORKER_EXCHANGE = `${RABBIT_QUEUE_PREFIX}amqp.worker.exchange`;
@@ -21,6 +25,8 @@ const RABBITMQ_CA_PFX = readFileFromConfig('rabbitmq:use_ssl_pfx');
 const RABBITMQ_CA_PASSPHRASE = conf.get('rabbitmq:use_ssl_passphrase');
 const RABBITMQ_REJECT_UNAUTHORIZED = booleanConf('rabbitmq:use_ssl_reject_unauthorized', false);
 const RABBITMQ_MGMT_REJECT_UNAUTHORIZED = booleanConf('rabbitmq:management_ssl_reject_unauthorized', false);
+const RABBITMQ_PUSH_QUEUE_PREFIX = `${RABBIT_QUEUE_PREFIX}push_`;
+const RABBITMQ_LISTEN_QUEUE_PREFIX = `${RABBIT_QUEUE_PREFIX}listen_`;
 const HOSTNAME = conf.get('rabbitmq:hostname');
 const PORT = conf.get('rabbitmq:port');
 const USERNAME = conf.get('rabbitmq:username');
@@ -51,6 +57,54 @@ export const config = () => {
   };
 };
 
+const amqpHttpClient = async () => {
+  const ssl = USE_SSL_MGMT ? 's' : '';
+  const baseURL = `http${ssl}://${HOSTNAME_MGMT}:${PORT_MGMT}`;
+  const httpClientOptions = {
+    baseURL,
+    responseType: 'json',
+    rejectUnauthorized: RABBITMQ_MGMT_REJECT_UNAUTHORIZED,
+    auth: {
+      username: USERNAME,
+      password: PASSWORD,
+    },
+  };
+  return getHttpClient(httpClientOptions);
+};
+
+/**
+ * Purge listen and push queue when connector state is reset using rabbit HTTP api management.
+ * @param connector All information concerning a specific connector
+ */
+export const purgeConnectorQueues = async (connector) => {
+  const httpClient = await amqpHttpClient();
+  const pathPushQueue = `/api/queues${isEmptyField(VHOST_PATH) ? '/%2F' : VHOST_PATH}/${RABBITMQ_PUSH_QUEUE_PREFIX}${connector.id}/contents`;
+  const pathListenQueue = `/api/queues${isEmptyField(VHOST_PATH) ? '/%2F' : VHOST_PATH}/${RABBITMQ_LISTEN_QUEUE_PREFIX}${connector.id}/contents`;
+
+  await httpClient.delete(pathPushQueue).then((response) => response.data);
+  await httpClient.delete(pathListenQueue).then((response) => response.data);
+};
+
+export const getConnectorQueueDetails = async (connectorId) => {
+  try {
+    const httpClient = await amqpHttpClient();
+    const pathRabbit = `/api/queues${isEmptyField(VHOST_PATH) ? '/%2F' : VHOST_PATH}/${RABBITMQ_PUSH_QUEUE_PREFIX}${connectorId}`;
+
+    const queueDetailResponse = await httpClient.get(pathRabbit).then((response) => response.data);
+    logApp.debug('Rabbit HTTP API response', { queueDetailResponse });
+    return {
+      messages_number: queueDetailResponse.messages || 0,
+      messages_size: queueDetailResponse.message_bytes || 0
+    };
+  } catch (e) {
+    logApp.error('Get connector queue details fail', { cause: e, connectorId });
+    return {
+      messages_number: 0,
+      messages_size: 0
+    };
+  }
+};
+
 const amqpExecute = async (execute) => {
   const connOptions = USE_SSL ? {
     ...amqpCred(),
@@ -68,25 +122,32 @@ const amqpExecute = async (execute) => {
           reject(err);
         } else { // Connection success
           conn.on('error', (onConnectError) => {
+            logApp.error('Rabbit Error trying to connect', { onConnectError });
             reject(onConnectError);
           });
           conn.createConfirmChannel((channelError, channel) => {
             if (channelError) {
+              logApp.error('Rabbit Error on channel', { channelError });
               reject(channelError);
             } else {
               channel.on('error', (onChannelError) => {
+                logApp.error('Rabbit Error on channel', { onChannelError });
                 reject(onChannelError);
               });
               execute(channel).then((data) => {
                 channel.close();
                 conn.close();
                 resolve(data);
-              }).catch((executeError) => reject(executeError));
+              }).catch((executeError) => {
+                logApp.error('Rabbit Error on execute', { executeError });
+                reject(executeError);
+              });
             }
           });
         }
       });
     } catch (globalError) {
+      logApp.error('Rabbit Error', { globalError });
       reject(globalError);
     }
   });
@@ -101,17 +162,7 @@ export const send = (exchangeName, routingKey, message) => {
 
 export const metrics = async (context, user) => {
   const metricApi = async () => {
-    const ssl = USE_SSL_MGMT ? 's' : '';
-    const baseURL = `http${ssl}://${HOSTNAME_MGMT}:${PORT_MGMT}`;
-    const httpClient = getHttpClient({
-      baseURL,
-      responseType: 'json',
-      rejectUnauthorized: RABBITMQ_MGMT_REJECT_UNAUTHORIZED,
-      auth: {
-        username: USERNAME,
-        password: PASSWORD,
-      },
-    });
+    const httpClient = await amqpHttpClient();
     const overview = await httpClient.get('/api/overview').then((response) => response.data);
     const queues = await httpClient.get(`/api/queues${VHOST_PATH}`).then((response) => response.data);
     // Compute number of push queues
@@ -121,12 +172,23 @@ export const metrics = async (context, user) => {
     return { overview, consumers, queues: platformQueues };
   };
   return telemetry(context, user, 'QUEUE metrics', {
-    [SemanticAttributes.DB_NAME]: 'messaging_engine',
-    [SemanticAttributes.DB_OPERATION]: 'metrics',
+    [SEMATTRS_DB_NAME]: 'messaging_engine',
+    [SEMATTRS_DB_OPERATION]: 'metrics',
   }, metricApi);
 };
 
-export const connectorConfig = (id) => ({
+const metricsCache = new LRUCache({ ttl: 15000, max: 1 }); // 15 seconds cache
+export const getConnectorQueueSize = async (context, user, connectorId) => {
+  let stats = metricsCache.get('cached_metrics');
+  if (!stats) {
+    stats = await metrics(context, user);
+    metricsCache.set('cached_metrics', stats);
+  }
+  const targetQueues = stats.queues.filter((queue) => queue.name.includes(connectorId));
+  return targetQueues.length > 0 ? targetQueues.reduce((a, b) => (a.messages ?? 0) + (b.messages ?? 0)) : 0;
+};
+
+export const connectorConfig = (id, listen_callback_uri = undefined) => ({
   connection: config(),
   push: `${RABBIT_QUEUE_PREFIX}push_${id}`,
   push_routing: pushRouting(id),
@@ -134,6 +196,7 @@ export const connectorConfig = (id) => ({
   listen: `${RABBIT_QUEUE_PREFIX}listen_${id}`,
   listen_routing: listenRouting(id),
   listen_exchange: CONNECTOR_EXCHANGE,
+  listen_callback_uri,
 });
 
 export const listenRouting = (connectorId) => `${RABBIT_QUEUE_PREFIX}listen_routing_${connectorId}`;
@@ -173,9 +236,36 @@ export const registerConnectorQueues = async (id, name, type, scope) => {
   return connectorConfig(id);
 };
 
+// region RETRO COMPATIBILITY Register internal queues
+/** @deprecated [>=6.3 & <6.6]. Remove and add migration to remove the queues. */
 export const initializeInternalQueues = async () => {
-  await registerConnectorQueues(INTERNAL_PLAYBOOK_QUEUE, 'Internal playbook manager', 'internal', 'playbook');
-  await registerConnectorQueues(INTERNAL_SYNC_QUEUE, 'Internal sync manager', 'internal', 'sync');
+  await registerConnectorQueues('playbook', 'Internal playbook manager', 'internal', 'playbook');
+  await registerConnectorQueues('sync', 'Internal sync manager', 'internal', 'sync');
+};
+
+// This method reinitialize the expected queues in rabbitmq
+// Thanks to this approach if rabbitmq is destroyed, restarting the platform
+// will recreate everything needed by the queuing system.
+export const enforceQueuesConsistency = async (context, user) => {
+  // List all current platform connectors and ensure queues are correctly setup
+  const connectors = await listAllEntities(context, user, [ENTITY_TYPE_CONNECTOR]);
+  for (let index = 0; index < connectors.length; index += 1) {
+    const connector = connectors[index];
+    const scopes = connector.connector_scope ? connector.connector_scope.split(',') : [];
+    await registerConnectorQueues(connector.internal_id, connector.name, connector.connector_type, scopes);
+  }
+  // List all current platform playbooks and ensure queues are correctly setup
+  const playbooks = await listAllEntities(context, user, [ENTITY_TYPE_PLAYBOOK]);
+  for (let index = 0; index < playbooks.length; index += 1) {
+    const playbook = playbooks[index];
+    await registerConnectorQueues(playbook.internal_id, `Playbook ${playbook.internal_id} queue`, 'internal', ENTITY_TYPE_PLAYBOOK);
+  }
+  // List all current platform synchronizers (OpenCTI Streams) and ensure queues are correctly setup
+  const syncs = await listAllEntities(context, user, [ENTITY_TYPE_SYNC]);
+  for (let i = 0; i < syncs.length; i += 1) {
+    const sync = syncs[i];
+    await registerConnectorQueues(sync.internal_id, `Sync ${sync.internal_id} queue`, 'internal', ENTITY_TYPE_SYNC);
+  }
 };
 
 export const unregisterConnector = async (id) => {
@@ -212,12 +302,9 @@ export const rabbitMQIsAlive = async () => {
   );
 };
 
-export const pushToSync = (message) => {
-  return send(WORKER_EXCHANGE, pushRouting(INTERNAL_SYNC_QUEUE), JSON.stringify(message));
-};
-
-export const pushToPlaybook = (message) => {
-  return send(WORKER_EXCHANGE, pushRouting(INTERNAL_PLAYBOOK_QUEUE), JSON.stringify(message));
+export const pushToWorkerForConnector = (connectorId, message) => {
+  const routingKey = pushRouting(connectorId);
+  return send(WORKER_EXCHANGE, routingKey, JSON.stringify(message));
 };
 
 export const pushToConnector = (connectorId, message) => {
@@ -248,7 +335,12 @@ export const consumeQueue = async (context, connectorId, connectionSetterCallbac
         if (err) {
           reject(err);
         } else { // Connection success
-          logApp.info('Starting connector queue consuming');
+          logApp.debug('[QUEUEING] Starting connector queue consuming', { connectorId });
+          conn.on('close', (onConnectError) => {
+            if (onConnectError) {
+              reject(onConnectError);
+            }
+          });
           conn.on('error', (onConnectError) => {
             reject(onConnectError);
           });
@@ -266,7 +358,10 @@ export const consumeQueue = async (context, connectorId, connectionSetterCallbac
                 }
               }, { noAck: true }, (consumeError) => {
                 if (consumeError) {
-                  logApp.error(DatabaseError('Queueing consumption fail', { cause: consumeError }));
+                  logApp.error('[QUEUEING] Consumption fail', {
+                    connectorId,
+                    cause: consumeError
+                  });
                 }
               });
             }

@@ -26,11 +26,14 @@ import { SettingsOrganization_organization$key } from './__generated__/SettingsO
 import SettingsOrganizationEdition from './SettingsOrganizationEdition';
 import SettingsOrganizationHiddenTypesChipList from './SettingsOrganizationHiddenTypesChipList';
 import useAuth from '../../../../utils/hooks/useAuth';
-import useGranted, { BYPASS, SETTINGS, SETTINGS_SETACCESSES } from '../../../../utils/hooks/useGranted';
+import useGranted, { BYPASS, SETTINGS_SETACCESSES } from '../../../../utils/hooks/useGranted';
 import Security from '../../../../utils/Security';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
+import type { Theme } from '../../../../components/Theme';
 
-const useStyles = makeStyles({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     margin: 0,
     padding: '0 200px 0 0',
@@ -39,16 +42,14 @@ const useStyles = makeStyles({
     marginBottom: 20,
   },
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
   title: {
     float: 'left',
   },
-});
+}));
 const settingsOrganizationFragment = graphql`
   fragment SettingsOrganization_organization on Organization {
     id
@@ -142,7 +143,7 @@ const SettingsOrganization = ({
   return (
     <div className={classes.container}>
       <AccessesMenu />
-      <Security needs={[SETTINGS]}>
+      <Security needs={[SETTINGS_SETACCESSES]}>
         <SettingsOrganizationEdition
           organization={organization}
           enableReferences={useIsEnforceReference('Organization')}
@@ -160,22 +161,22 @@ const SettingsOrganization = ({
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <SettingsOrganizationDetails settingsOrganization={organization} />
         </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <div style={{ height: '100%' }}>
             <Typography variant="h4" gutterBottom={true}>
               {t_i18n('More information')}
             </Typography>
-            <Paper classes={{ root: classes.paper }} variant="outlined">
+            <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
               <Grid container={true} spacing={3}>
-                <Grid item={true} xs={12}>
+                <Grid item xs={12}>
                   <SettingsOrganizationHiddenTypesChipList
                     organizationData={organization}
                   />
                 </Grid>
-                <Grid item={true} xs={6}>
+                <Grid item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {t_i18n('Parent organizations')}
                   </Typography>
@@ -201,7 +202,7 @@ const SettingsOrganization = ({
                     </List>
                   </FieldOrEmpty>
                 </Grid>
-                <Grid item={true} xs={6}>
+                <Grid item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {t_i18n('Child organizations')}
                   </Typography>
@@ -225,7 +226,7 @@ const SettingsOrganization = ({
                     </List>
                   </FieldOrEmpty>
                 </Grid>
-                <Grid item={true} xs={6}>
+                <Grid item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {t_i18n('Default dashboard')}
                   </Typography>
@@ -262,7 +263,7 @@ const SettingsOrganization = ({
                     </List>
                   </FieldOrEmpty>
                 </Grid>
-                <Grid item={true} xs={6}>
+                <Grid item xs={6}>
                   <Typography variant="h3" gutterBottom={true}>
                     {t_i18n('Grantable groups by organization administrators')}
                   </Typography>
@@ -331,7 +332,7 @@ const SettingsOrganization = ({
             <SettingsOrganizationUsers organization={organization} />
           </>
         ) : (
-          <Grid item={true} xs={12} style={{ marginTop: 30 }}>
+          <Grid item xs={12}>
             <EnterpriseEdition
               feature={t_i18n('Organization sharing')}
             />

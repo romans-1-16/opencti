@@ -3,16 +3,17 @@ import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import IconButton from '@mui/material/IconButton';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
+import { graphql, useQueryLoader } from 'react-relay';
 import { PopoverProps } from '@mui/material/Popover';
 import CsvMapperEditionContainer, { csvMapperEditionContainerQuery } from '@components/data/csvMapper/CsvMapperEditionContainer';
 import { CsvMapperEditionContainerQuery } from '@components/data/csvMapper/__generated__/CsvMapperEditionContainerQuery.graphql';
 import { csvMappers_MappersQuery$variables } from '@components/data/csvMapper/__generated__/csvMappers_MappersQuery.graphql';
+import CsvMapperCreationContainer from '@components/data/csvMapper/CsvMapperCreationContainer';
 import { useFormatter } from '../../../../components/i18n';
 import DeleteDialog from '../../../../components/DeleteDialog';
 import useDeletion from '../../../../utils/hooks/useDeletion';
 import { deleteNode } from '../../../../utils/store';
-import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 const csvMapperPopoverDelete = graphql`
   mutation CsvMapperPopoverDeleteMutation($id: ID!) {
@@ -36,20 +37,27 @@ const CsvMapperPopover: FunctionComponent<CsvMapperPopoverProps> = ({
   const handleClose = () => setAnchorEl(null);
 
   // -- Edition --
+  const [queryRef, loadQuery] = useQueryLoader<CsvMapperEditionContainerQuery>(csvMapperEditionContainerQuery);
   const [displayUpdate, setDisplayUpdate] = useState<boolean>(false);
 
   const handleOpenUpdate = () => {
     setDisplayUpdate(true);
+    loadQuery({ id: csvMapperId });
     handleClose();
   };
-  const queryRef = useQueryLoading<CsvMapperEditionContainerQuery>(
-    csvMapperEditionContainerQuery,
-    { id: csvMapperId },
-  );
+
+  // -- Duplication --
+  const [displayDuplicate, setDisplayDuplicate] = useState(false);
+
+  const handleOpenDuplicate = () => {
+    setDisplayDuplicate(true);
+    loadQuery({ id: csvMapperId });
+    handleClose();
+  };
 
   // -- Deletion --
 
-  const [commit] = useMutation(csvMapperPopoverDelete);
+  const [commit] = useApiMutation(csvMapperPopoverDelete);
 
   const deletion = useDeletion({ handleClose });
   const submitDelete = () => {
@@ -80,6 +88,7 @@ const CsvMapperPopover: FunctionComponent<CsvMapperPopoverProps> = ({
       </IconButton>
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
         <MenuItem onClick={handleOpenUpdate}>{t_i18n('Update')}</MenuItem>
+        <MenuItem onClick={handleOpenDuplicate}>{t_i18n('Duplicate')}</MenuItem>
         <MenuItem onClick={deletion.handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
       </Menu>
       {queryRef && (
@@ -89,10 +98,17 @@ const CsvMapperPopover: FunctionComponent<CsvMapperPopoverProps> = ({
             onClose={() => setDisplayUpdate(false)}
             open={displayUpdate}
           />
+          <CsvMapperCreationContainer
+            queryRef={queryRef}
+            isDuplicated={true}
+            paginationOptions={paginationOptions}
+            onClose={() => setDisplayDuplicate(false)}
+            open={displayDuplicate}
+          />
         </React.Suspense>
       )}
       <DeleteDialog
-        title={t_i18n('Do you want to delete this CSV mapper ?')}
+        title={t_i18n('Do you want to delete this CSV mapper?')}
         deletion={deletion}
         submitDelete={submitDelete}
       />

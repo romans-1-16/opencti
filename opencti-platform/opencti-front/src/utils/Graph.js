@@ -51,6 +51,7 @@ import { dateFormat, dayEndDate, daysAfter, daysAgo, jsDate, minutesBefore, minu
 import { isDateStringNone, isNone } from '../components/i18n';
 import { fileUri } from '../relay/environment';
 import { isNotEmptyField } from './utils';
+import { defaultDate, getMainRepresentative } from './defaultRepresentatives';
 
 const genImage = (src) => {
   const img = new Image();
@@ -129,7 +130,10 @@ export const graphImages = {
   'Bank-Account': genImage(StixCyberObservable),
   'Payment-Card': genImage(StixCyberObservable),
   'Media-Content': genImage(StixCyberObservable),
+  Persona: genImage(StixCyberObservable),
   Text: genImage(StixCyberObservable),
+  Credential: genImage(StixCyberObservable),
+  'Tracking-Number': genImage(StixCyberObservable),
   relationship: genImage(relationship),
   Unknown: genImage(Unknown),
 };
@@ -199,10 +203,13 @@ export const graphLevel = {
   Hostname: 1,
   'User-Agent': 1,
   Text: 1,
+  Credential: 1,
+  'Tracking-Number': 1,
   'Phone-Number': 1,
   'Bank-Account': 1,
   'Payment-Card': 1,
   'Media-Content': 1,
+  Persona: 1,
   relationship: 1,
   Unknown: 1,
 };
@@ -274,10 +281,13 @@ export const graphRawImages = {
   Hostname: StixCyberObservable,
   'User-Agent': StixCyberObservable,
   Text: StixCyberObservable,
+  Credential: StixCyberObservable,
+  'Tracking-Number': StixCyberObservable,
   'Phone-Number': StixCyberObservable,
   'Bank-Account': StixCyberObservable,
   'Payment-Card': StixCyberObservable,
   'Media-Content': StixCyberObservable,
+  Persona: StixCyberObservable,
   Unknown,
   relationship,
 };
@@ -304,135 +314,6 @@ export const decodeMappingData = (encodedMappingData) => {
     }
   }
   return {};
-};
-
-export const defaultDate = (n) => {
-  if (!n) return '';
-  if (!isDateStringNone(n.start_time)) {
-    return n.start_time;
-  }
-  if (!isDateStringNone(n.first_seen)) {
-    return n.first_seen;
-  }
-  if (!isDateStringNone(n.first_observed)) {
-    return n.first_observed;
-  }
-  if (!isDateStringNone(n.valid_from)) {
-    return n.valid_from;
-  }
-  if (!isDateStringNone(n.published)) {
-    return n.published;
-  }
-  if (!isDateStringNone(n.created)) {
-    return n.created;
-  }
-  if (!isDateStringNone(n.created_at)) {
-    return n.created_at;
-  }
-  return null;
-};
-
-export const defaultType = (n, t) => {
-  if (n.parent_types.includes('basic-relationship')) {
-    return t(`relationship_${n.entity_type}`);
-  }
-  return t(`entity_${n.entity_type}`);
-};
-
-export const defaultValueMarking = (n) => {
-  let def = 'Unknown';
-  if (n.definition) {
-    const definition = R.toPairs(n.definition);
-    if (definition[0]) {
-      if (definition[0][1].includes(':')) {
-        // eslint-disable-next-line prefer-destructuring
-        def = definition[0][1];
-      } else {
-        def = `${definition[0][0]}:${definition[0][1]}`;
-      }
-    }
-  }
-  return def;
-};
-
-export const defaultKey = (n) => {
-  if (!n) return null;
-  if (n.hashes) {
-    return 'hashes';
-  }
-  if (n.name) {
-    return 'name';
-  }
-  if (n.value) {
-    return 'value';
-  }
-  if (n.observable_value) {
-    return 'observable_value';
-  }
-  if (n.attribute_abstract) {
-    return 'attribute_abstract';
-  }
-  if (n.opinion) {
-    return null;
-  }
-  if (n.abstract) {
-    return 'abstract';
-  }
-  return null;
-};
-
-export const defaultValue = (n, fallback = 'Unknown') => {
-  if (!n) return '';
-  if (typeof n.definition === 'object') {
-    return defaultValueMarking(n);
-  }
-  const mainValue = n.name
-      || n.label
-      || n.observableName
-      || n.observable_value
-      || n.pattern
-      || n.attribute_abstract
-      || n.opinion
-      || n.value
-      || n.definition
-      || n.source_name
-      || n.phase_name
-      || n.result_name
-      || n.country
-      || n.key
-      || (n.template && n.template.name)
-      || (n.content && truncate(n.content, 30))
-      || (n.hashes
-          && (n.hashes.MD5
-              || n.hashes['SHA-1']
-              || n.hashes['SHA-256']
-              || n.hashes['SHA-512']))
-      || (n.source_ref_name
-          && n.target_ref_name
-          && `${truncate(n.source_ref_name, 20)} ➡️ ${truncate(
-            n.target_ref_name,
-            20,
-          )}`)
-      || defaultValue(R.head(R.pathOr([], ['objects', 'edges'], n))?.node)
-      || (n.from
-          && n.to
-          && `${truncate(defaultValue(n.from), 20)} ➡️ ${truncate(
-            defaultValue(n.to),
-            20,
-          )}`)
-      || fallback;
-  return n.x_mitre_id ? `[${n.x_mitre_id}] ${mainValue}` : mainValue;
-};
-
-export const defaultSecondaryValue = (n) => {
-  if (!n) return '';
-  return (
-    n.description
-    || n.x_opencti_description
-    || n.content
-    || n.entity_type
-    || dateFormat(n.created_at)
-  );
 };
 
 export const computeTimeRangeInterval = (objects) => {
@@ -559,7 +440,6 @@ export const buildCorrelationData = (
   graphData,
   t,
   filterAdjust,
-  key = 'reports',
 ) => {
   const objects = R.map((n) => {
     let { objectMarking } = n;
@@ -579,29 +459,37 @@ export const buildCorrelationData = (
         name: t('None'),
       };
     }
+    // we need to aggregate all containers nodes
+    const aggregatedContainersEdges = [...(n.reports?.edges ?? []), ...(n.groupings?.edges ?? []), ...(n.cases?.edges ?? [])];
     return {
       ...n,
+      aggregatedContainers: aggregatedContainersEdges.length > 0 ? { edges: aggregatedContainersEdges } : undefined,
       objectMarking,
       createdBy,
       markedBy: objectMarking,
     };
   }, originalObjects);
-  const thisReportOriginalNodes = R.filter(
+
+  const key = 'aggregatedContainers';
+
+  const thisContainerOriginalNodes = R.filter(
     (o) => o && o.id && o.entity_type && o[key],
     objects,
   );
   const filteredNodesIds = computeFilteredNodesIds(
-    thisReportOriginalNodes,
+    thisContainerOriginalNodes,
     filterAdjust.stixCoreObjectsTypes,
     filterAdjust.markedBy,
     filterAdjust.createdBy,
   );
-  const thisReportNodes = thisReportOriginalNodes.map((n) => R.assoc('disabled', filteredNodesIds.includes(n.id), n));
-  const thisReportLinkNodes = R.filter(
+  const thisContainerNodes = thisContainerOriginalNodes.map((n) => ({
+    ...n,
+    disabled: filteredNodesIds.includes(n.id),
+  }));
+  const thisContainerLinkNodes = thisContainerNodes.filter(
     (n) => n[key] && n.parent_types && n[key].edges.length > 1,
-    thisReportNodes,
   );
-  const relatedReportOriginalNodes = R.pipe(
+  const relatedContainerOriginalNodes = R.pipe(
     R.map((n) => n[key].edges),
     R.flatten,
     R.map((n) => {
@@ -631,14 +519,17 @@ export const buildCorrelationData = (
     }),
     R.uniqBy(R.prop('id')),
     R.map((n) => (n.defaultDate ? { ...n } : { ...n, defaultDate: jsDate(defaultDate(n)) })),
-  )(thisReportLinkNodes);
-  const relatedReportFilteredNodeIds = computeFilteredNodesIds(
-    relatedReportOriginalNodes,
+  )(thisContainerLinkNodes);
+  const relatedContainerFilteredNodeIds = computeFilteredNodesIds(
+    relatedContainerOriginalNodes,
     filterAdjust.stixCoreObjectsTypes,
     filterAdjust.markedBy,
     filterAdjust.createdBy,
   );
-  const relatedReportNodes = relatedReportOriginalNodes.map((n) => R.assoc('disabled', relatedReportFilteredNodeIds.includes(n.id), n));
+  const relatedContainerNodes = relatedContainerOriginalNodes.map((n) => ({
+    ...n,
+    disabled: relatedContainerFilteredNodeIds.includes(n.id),
+  }));
   const links = R.pipe(
     R.map((n) => R.map(
       (e) => ({
@@ -666,20 +557,20 @@ export const buildCorrelationData = (
               m.id,
               R.map((o) => o.node.id, n[key].edges),
             ),
-      )(relatedReportNodes),
+      )(relatedContainerNodes),
     )),
     R.flatten,
-  )(thisReportLinkNodes);
-  const combinedNodes = R.concat(thisReportLinkNodes, relatedReportNodes);
+  )(thisContainerLinkNodes);
+  const combinedNodes = [...thisContainerLinkNodes, ...relatedContainerNodes];
   const nodes = R.pipe(
     R.map((n) => ({
       id: n.id,
       disabled: n.disabled,
       val: graphLevel[n.entity_type] || graphLevel.Unknown,
-      name: defaultValue(n),
+      name: getMainRepresentative(n),
       defaultDate: jsDate(defaultDate(n)),
       label: truncate(
-        defaultValue(n),
+        getMainRepresentative(n),
         n.entity_type === 'Attack-Pattern' ? 30 : 20,
       ),
       img: graphImages[n.entity_type] || graphImages.Unknown,
@@ -888,30 +779,59 @@ export const buildGraphData = (objects, graphData, t) => {
               ? 'relationship'
               : n.entity_type
           ] || graphLevel.Unknown,
-        name: `${
-          n.relationship_type
-            ? `<strong>${t(
-              `relationship_${n.relationship_type}`,
-            )}</strong>\n${t('Created the')} ${dateFormat(n.created)}\n${t(
-              'Start time',
-            )} ${
-              isNone(n.start_time || n.first_seen)
-                ? '-'
-                : dateFormat(n.start_time || n.first_seen)
+        name: (() => {
+          if (n.relationship_type) {
+            return `<strong>${t(`relationship_${n.relationship_type}`)}</strong>\n${t('Created the')} ${dateFormat(n.created)}\n${t('Start time')} ${
+              isNone(n.start_time || n.first_seen) ? '-' : dateFormat(n.start_time || n.first_seen)
             }\n${t('Stop time')} ${
-              isNone(n.stop_time || n.last_seen)
-                ? '-'
-                : dateFormat(n.stop_time || n.last_seen)
-            }`
-            : defaultValue(n)
-        }\n${dateFormat(defaultDate(n))}`,
+              isNone(n.stop_time || n.last_seen) ? '-' : dateFormat(n.stop_time || n.last_seen)
+            }\n${dateFormat(defaultDate(n))}`;
+          } if (n.entity_type === 'StixFile' && n.observable_value) {
+            const hashAlgorithms = ['SHA-512', 'SHA-256', 'SHA-1', 'MD5'];
+            // Find if the observable_value matches one of the hashes
+            let displayValue = n.observable_value;
+            let label = 'Name';
+            const matchingHash = n.hashes.find((hashObj) => hashObj.hash === n.observable_value && hashAlgorithms.includes(hashObj.algorithm));
+            if (matchingHash) {
+              displayValue = matchingHash.hash;
+              label = `${matchingHash.algorithm}`;
+            } else if (n.observable_value === n.observableName) {
+            // Find if observable_value matches observableName
+              displayValue = n.observable_value;
+              label = 'Name';
+            }
+            // List of other hashes to display (without duplicating the observable_value)
+            const hashesList = n.hashes && Array.isArray(n.hashes)
+              ? n.hashes
+                .filter((hashObj) => hashObj.hash !== displayValue)
+                .map((hashObj) => `${hashObj.algorithm}: ${hashObj.hash}`)
+                .join('\n')
+              : '';
+            // Add name (observableName) if available and different from observable_value
+            const additionalInfo = (n.observableName && n.observableName !== displayValue) ? `\nName: ${n.observableName}` : '';
+            // Add additional_names if available and different from `observableName`.
+            const additionalNames = n.x_opencti_additional_names && Array.isArray(n.x_opencti_additional_names)
+              ? n.x_opencti_additional_names
+                .filter((additionalName) => additionalName !== n.observableName)
+                .join(', ')
+              : '';
+            const additionalNamesString = additionalNames ? `\n${t('Additional Names')}: ${additionalNames}` : '';
+            return `${label}: ${displayValue}${hashesList ? `\n${hashesList}` : ''}${additionalInfo}${additionalNamesString}\n${dateFormat(defaultDate(n))}`;
+          }
+          return `${getMainRepresentative(n)}\n${dateFormat(defaultDate(n))}`;
+        })(),
         defaultDate: jsDate(defaultDate(n)),
-        label: n.parent_types.includes('basic-relationship')
-          ? t(`relationship_${n.relationship_type}`)
-          : truncate(
-            defaultValue(n),
+        label: (() => {
+          if (n.parent_types.includes('basic-relationship')) {
+            return t(`relationship_${n.relationship_type}`);
+          } if (n.entity_type === 'StixFile' && n.observable_value) {
+            return truncate(n.observable_value, 20);
+          }
+          return truncate(
+            getMainRepresentative(n),
             n.entity_type === 'Attack-Pattern' ? 30 : 20,
-          ),
+          );
+        })(),
         img:
           graphImages[
             n.parent_types.includes('basic-relationship')

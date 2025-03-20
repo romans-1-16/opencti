@@ -1,4 +1,3 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { Page } from '@playwright/test';
 
 export default class ArtifactPage {
@@ -9,6 +8,6 @@ export default class ArtifactPage {
   }
 
   addNewArtifactImport() {
-    return this.page.getByLabel('Add', { exact: true });
+    return this.page.getByLabel('Create Artifact', { exact: true });
   }
 }

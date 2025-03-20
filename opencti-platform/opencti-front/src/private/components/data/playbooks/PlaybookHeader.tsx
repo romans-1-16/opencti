@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -41,6 +41,8 @@ import Transition from '../../../../components/Transition';
 
 const interval$ = interval(FIVE_SECONDS);
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   title: {
     float: 'left',
@@ -52,7 +54,6 @@ const useStyles = makeStyles(() => ({
   },
   status: {
     float: 'left',
-    margin: '3px 0 0 5px',
   },
   chip: {
     fontSize: 12,
@@ -106,7 +107,7 @@ const PlaybookHeaderComponent = ({
   const [openLastExecutions, setOpenLastExecutions] = useState(false);
   const [openExecution, setOpenExecution] = useState<string | null>(null);
   const [rawData, setRawData] = useState<string | null | undefined>(null);
-  const { t_i18n, nsdt } = useFormatter();
+  const { t_i18n, nsdt, n } = useFormatter();
   return (
     <>
       <Typography
@@ -145,12 +146,19 @@ const PlaybookHeaderComponent = ({
           style={{ margin: '7px 0 0 5px' }}
         >
           <ToggleButton value="cards" aria-label="cards">
+            <div>
+              <Chip
+                classes={{ root: classes.chip }}
+                style={{ marginRight: 14 }}
+                label={`${n(playbook.queue_messages)} ${t_i18n('messages in queue')}`}
+              />
+            </div>
             <Tooltip title={t_i18n('Open last execution traces')}>
               <Badge
                 badgeContent={(playbook.last_executions ?? []).length}
                 color="secondary"
               >
-                <ManageHistoryOutlined color="primary" />
+                <ManageHistoryOutlined color="primary"/>
               </Badge>
             </Tooltip>
           </ToggleButton>
@@ -258,6 +266,7 @@ const PlaybookHeader = createRefetchContainer(
         name
         description
         playbook_running
+        queue_messages
         last_executions {
           id
           playbook_id

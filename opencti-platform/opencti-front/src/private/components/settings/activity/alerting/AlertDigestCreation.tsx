@@ -1,5 +1,5 @@
 import React, { FunctionComponent } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { FormikConfig, FormikHelpers } from 'formik/dist/types';
 import { Field, Form, Formik } from 'formik';
 import MenuItem from '@mui/material/MenuItem';
@@ -14,13 +14,13 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import * as Yup from 'yup';
 import makeStyles from '@mui/styles/makeStyles';
-import MarkdownField from '../../../../../components/MarkdownField';
+import MarkdownField from '../../../../../components/fields/MarkdownField';
 import { handleErrorInForm } from '../../../../../relay/environment';
 import { insertNode } from '../../../../../utils/store';
 import { dayStartDate, parse } from '../../../../../utils/Time';
 import { useFormatter } from '../../../../../components/i18n';
 import TimePickerField from '../../../../../components/TimePickerField';
-import SelectField from '../../../../../components/SelectField';
+import SelectField from '../../../../../components/fields/SelectField';
 import { fieldSpacingContainerStyle } from '../../../../../utils/field';
 import type { Theme } from '../../../../../components/Theme';
 import TextField from '../../../../../components/TextField';
@@ -28,7 +28,10 @@ import NotifierField from '../../../common/form/NotifierField';
 import AlertsField from './AlertsField';
 import { AlertingPaginationQuery$variables } from './__generated__/AlertingPaginationQuery.graphql';
 import ObjectMembersField from '../../../common/form/ObjectMembersField';
+import useApiMutation from '../../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   drawerPaper: {
     minHeight: '100vh',
@@ -114,7 +117,7 @@ const AlertDigestCreation: FunctionComponent<TriggerDigestCreationProps> = ({
   const { t_i18n } = useFormatter();
   const classes = useStyles();
   const onReset = () => handleClose && handleClose();
-  const [commitDigest] = useMutation(triggerDigestCreationMutation);
+  const [commitDigest] = useApiMutation(triggerDigestCreationMutation);
   const digestInitialValues: TriggerDigestActivityAddInput = {
     name: inputValue || '',
     description: '',
@@ -306,7 +309,7 @@ const AlertDigestCreation: FunctionComponent<TriggerDigestCreationProps> = ({
             setFieldValue,
             values,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               {digestFields(setFieldValue, values)}
               <div className={classes.buttons}>
                 <Button

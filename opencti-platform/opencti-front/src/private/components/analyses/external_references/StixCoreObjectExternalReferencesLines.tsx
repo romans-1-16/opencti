@@ -26,6 +26,9 @@ import { Link } from 'react-router-dom';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import { FileLine_file$data } from '@components/common/files/__generated__/FileLine_file.graphql';
+import ManageImportConnectorMessage from '@components/data/import/ManageImportConnectorMessage';
+import ObjectMarkingField from '@components/common/form/ObjectMarkingField';
+import { CsvMapperFieldOption } from '@components/common/form/CsvMapperField';
 import { truncate } from '../../../../utils/String';
 import { commitMutation, MESSAGING$ } from '../../../../relay/environment';
 import AddExternalReferences from './AddExternalReferences';
@@ -36,7 +39,7 @@ import ExternalReferenceEnrichment from './ExternalReferenceEnrichment';
 import FileLine from '../../common/files/FileLine';
 import FileUploader from '../../common/files/FileUploader';
 import ExternalReferencePopover from './ExternalReferencePopover';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import { scopesConn, stixCoreObjectFilesAndHistoryAskJobImportMutation } from '../../common/stix_core_objects/StixCoreObjectFilesAndHistory';
 import type { Theme } from '../../../../components/Theme';
 import { useFormatter } from '../../../../components/i18n';
@@ -44,11 +47,14 @@ import { deleteNodeFromId } from '../../../../utils/store';
 import { StixCoreObjectExternalReferencesLines_data$data } from './__generated__/StixCoreObjectExternalReferencesLines_data.graphql';
 import { isNotEmptyField } from '../../../../utils/utils';
 import ItemIcon from '../../../../components/ItemIcon';
+import { fieldSpacingContainerStyle } from '../../../../utils/field';
+import { resolveHasUserChoiceParsedCsvMapper } from '../../../../utils/csvMapperUtils';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '-4px 0 0 0',
     padding: 0,
     borderRadius: 4,
@@ -91,6 +97,19 @@ interface StixCoreObjectExternalReferencesLinesContainerProps {
   relay: RelayPaginationProp;
 }
 
+interface Connector {
+  readonly active: boolean | null | undefined;
+  readonly connector_scope: ReadonlyArray<string> | null | undefined;
+  readonly id: string;
+  readonly name: string;
+  readonly updated_at: null | undefined;
+  readonly configurations: ReadonlyArray<{
+    readonly configuration: string;
+    readonly id: string;
+    readonly name: string;
+  }> | null | undefined;
+}
+
 const StixCoreObjectExternalReferencesLinesContainer: FunctionComponent<
 StixCoreObjectExternalReferencesLinesContainerProps
 > = ({ stixCoreObjectId, data, relay }) => {
@@ -101,6 +120,12 @@ StixCoreObjectExternalReferencesLinesContainerProps
   const [externalLink, setExternalLink] = useState<string | URL | undefined>(
     undefined,
   );
+  const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null);
+  const handleSelectConnector = (_: string, value: string) => {
+    setSelectedConnector(data.connectorsForImport?.find((c) => c?.id === value) ?? null);
+  };
+  const invalidCsvMapper = selectedConnector?.name === 'ImportCsv'
+      && selectedConnector?.configurations?.length === 0;
   const [externalReferenceToRemove, setExternalReferenceToRemove] = useState<externalReferenceEdge_type | null>(null);
   const [removing, setRemoving] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -185,7 +210,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
   const handleCloseImport = () => {
     setFileToImport(null);
   };
-  const onSubmitImport: FormikConfig<{ connector_id: string }>['onSubmit'] = (
+  const onSubmitImport: FormikConfig<{ connector_id: string, configuration: string }>['onSubmit'] = (
     values,
     { setSubmitting, resetForm },
   ) => {
@@ -195,6 +220,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
         fileName: fileToImport?.id,
         connectorId: values.connector_id,
         bypassEntityId: stixCoreObjectId,
+        configuration: values.configuration,
       },
       onCompleted: () => {
         setSubmitting(false);
@@ -208,6 +234,17 @@ StixCoreObjectExternalReferencesLinesContainerProps
       onError: undefined,
       setSubmitting: undefined,
     });
+  };
+  const [hasUserChoiceCsvMapper, setHasUserChoiceCsvMapper] = useState(false);
+  const onCsvMapperSelection = (option: CsvMapperFieldOption | string) => {
+    const parsedOption = typeof option === 'string' ? JSON.parse(option) : option;
+    const parsedRepresentations = JSON.parse(parsedOption.representations);
+    const selectedCsvMapper = {
+      ...parsedOption,
+      representations: [...parsedRepresentations],
+    };
+    const hasUserChoiceCsvMapperRepresentations = resolveHasUserChoiceParsedCsvMapper(selectedCsvMapper);
+    setHasUserChoiceCsvMapper(hasUserChoiceCsvMapperRepresentations);
   };
   return (
     <div style={{ height: '100%' }}>
@@ -228,7 +265,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
         />
       </Security>
       <div className="clearfix" />
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         {(
           externalReferencesEdges ? externalReferencesEdges.length > 0 : false
         ) ? (
@@ -306,6 +343,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
                               handleRemove={() => handleOpenDialog(externalReferenceEdge)
                               }
                               objectId={stixCoreObjectId}
+                              variant="inLine"
                             />
                           </Security>
                         </ListItemSecondaryAction>
@@ -370,6 +408,8 @@ StixCoreObjectExternalReferencesLinesContainerProps
                             isExternalReferenceAttachment={isFileAttached}
                             handleRemove={() => handleOpenDialog(externalReferenceEdge)
                             }
+                            objectId={stixCoreObjectId}
+                            variant="inLine"
                           />
                         </Security>
                       </ListItemSecondaryAction>
@@ -412,7 +452,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
                   textAlign: 'center',
                 }}
               >
-                {t_i18n('No entities of this type has been found.')}
+                {t_i18n(NO_DATA_WIDGET_MESSAGE)}
               </span>
             </div>
           )}
@@ -473,18 +513,18 @@ StixCoreObjectExternalReferencesLinesContainerProps
       </Dialog>
       <Formik
         enableReinitialize={true}
-        initialValues={{ connector_id: '' }}
+        initialValues={{ connector_id: '', configuration: '' }}
         validationSchema={importValidation(t_i18n)}
         onSubmit={onSubmitImport}
         onReset={handleCloseImport}
       >
-        {({ submitForm, handleReset, isSubmitting }) => (
+        {({ submitForm, handleReset, setFieldValue, isSubmitting, isValid }) => (
           <Form style={{ margin: '0 0 20px 0' }}>
             <Dialog
               PaperProps={{ elevation: 1 }}
               open={!!fileToImport}
               keepMounted={true}
-              onClose={handleCloseImport}
+              onClose={() => handleReset()}
               fullWidth={true}
             >
               <DialogTitle>{t_i18n('Launch an import')}</DialogTitle>
@@ -495,6 +535,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
                   label={t_i18n('Connector')}
                   fullWidth={true}
                   containerstyle={{ width: '100%' }}
+                  onChange={handleSelectConnector}
                 >
                   {data.connectorsForImport?.map((connector, i) => {
                     const disabled = !fileToImport
@@ -516,6 +557,38 @@ StixCoreObjectExternalReferencesLinesContainerProps
                     );
                   })}
                 </Field>
+                {(selectedConnector?.configurations?.length ?? 0) > 0
+                  ? <Field
+                      component={SelectField}
+                      variant="standard"
+                      name="configuration"
+                      label={t_i18n('Configuration')}
+                      fullWidth={true}
+                      containerstyle={{ marginTop: 20, width: '100%' }}
+                      onChange={(_: string, option: CsvMapperFieldOption) => onCsvMapperSelection(option)}
+                    >
+                    {(selectedConnector?.configurations ?? []).map((config) => {
+                      return (
+                        <MenuItem
+                          key={config.id}
+                          value={config.configuration}
+                        >
+                          {config.name}
+                        </MenuItem>
+                      );
+                    })}
+                  </Field> : <ManageImportConnectorMessage name={selectedConnector?.name }/>
+                }
+                {selectedConnector?.name === 'ImportCsv'
+                    && hasUserChoiceCsvMapper
+                    && (
+                      <ObjectMarkingField
+                        name="objectMarking"
+                        style={fieldSpacingContainerStyle}
+                        setFieldValue={setFieldValue}
+                      />
+                    )
+                }
               </DialogContent>
               <DialogActions>
                 <Button onClick={handleReset} disabled={isSubmitting}>
@@ -524,7 +597,7 @@ StixCoreObjectExternalReferencesLinesContainerProps
                 <Button
                   color="secondary"
                   onClick={submitForm}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !isValid || invalidCsvMapper || !selectedConnector}
                 >
                   {t_i18n('Create')}
                 </Button>
@@ -614,6 +687,11 @@ const StixCoreObjectExternalReferencesLines = createPaginationContainer(
           active
           connector_scope
           updated_at
+          configurations {
+            id
+            name,
+            configuration
+          }
         }
       }
     `,

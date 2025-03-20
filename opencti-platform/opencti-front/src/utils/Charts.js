@@ -2,7 +2,7 @@ import * as C from '@mui/material/colors';
 import { resolveLink } from './Entity';
 import { truncate } from './String';
 
-const colors = (temp) => [
+export const colors = (temp) => [
   C.red[temp],
   C.purple[temp],
   C.pink[temp],
@@ -31,6 +31,7 @@ const toolbarOptions = {
       columnDelimiter: ',',
       headerCategory: 'category',
       headerValue: 'value',
+      // eslint-disable-next-line @typescript-eslint/no-shadow
       dateFormatter(timestamp) {
         return new Date(timestamp).toDateString();
       },
@@ -38,6 +39,30 @@ const toolbarOptions = {
   },
 };
 
+/**
+ * A custom tooltip for ApexChart.
+ * This tooltip only display the label of the data it hovers.
+ *
+ * Why custom tooltip? To manage text color of the tooltip that cannot be done by
+ * the ApexChart API by default.
+ *
+ * @param {Theme} theme
+ */
+const simpleLabelTooltip = (theme) => ({ seriesIndex, w }) => (`
+  <div style="background: ${theme.palette.background.nav}; color: ${theme.palette.text.primary}; padding: 2px 6px; font-size: 12px">
+    ${w.config.labels[seriesIndex]}
+  </div>
+`);
+
+/**
+ * @param {Theme} theme
+ * @param {boolean} isTimeSeries
+ * @param {function} xFormatter
+ * @param {function} yFormatter
+ * @param {number | 'dataPoints'} tickAmount
+ * @param {boolean} dataLabels
+ * @param {boolean} legend
+ */
 export const lineChartOptions = (
   theme,
   isTimeSeries = false,
@@ -49,7 +74,7 @@ export const lineChartOptions = (
 ) => ({
   chart: {
     type: 'line',
-    background: 'transparent',
+    background: theme.palette.background.paper,
     toolbar: toolbarOptions,
     foreColor: theme.palette.text.secondary,
     width: '100%',
@@ -128,7 +153,7 @@ export const lineChartOptions = (
  * @param {boolean} isTimeSeries
  * @param {function} xFormatter
  * @param {function} yFormatter
- * @param {number} tickAmount
+ * @param {number | 'dataPoints'} tickAmount
  * @param {boolean} isStacked
  * @param {boolean} legend
  */
@@ -143,7 +168,7 @@ export const areaChartOptions = (
 ) => ({
   chart: {
     type: 'area',
-    background: 'transparent',
+    background: theme.palette.background.paper,
     toolbar: toolbarOptions,
     foreColor: theme.palette.text.secondary,
     stacked: isStacked,
@@ -231,10 +256,20 @@ export const areaChartOptions = (
   },
 });
 
+/**
+ * @param {Theme} theme
+ * @param {function} xFormatter
+ * @param {function} yFormatter
+ * @param {boolean} distributed
+ * @param {boolean} isTimeSeries
+ * @param {boolean} isStacked
+ * @param {boolean} legend
+ * @param {number | 'dataPoints'} tickAmount
+ */
 export const verticalBarsChartOptions = (
   theme,
-  xFormatter = null,
-  yFormatter = null,
+  xFormatter,
+  yFormatter,
   distributed = false,
   isTimeSeries = false,
   isStacked = false,
@@ -243,7 +278,7 @@ export const verticalBarsChartOptions = (
 ) => ({
   chart: {
     type: 'bar',
-    background: 'transparent',
+    background: theme.palette.background.paper,
     toolbar: toolbarOptions,
     foreColor: theme.palette.text.secondary,
     stacked: isStacked,
@@ -323,6 +358,20 @@ export const verticalBarsChartOptions = (
   },
 });
 
+/**
+ * @param {Theme} theme
+ * @param {boolean} adjustTicks
+ * @param {function} xFormatter
+ * @param {function} yFormatter
+ * @param {boolean} distributed
+ * @param {function} navigate
+ * @param {object[]} redirectionUtils
+ * @param {boolean} stacked
+ * @param {boolean} total
+ * @param {string[]} categories
+ * @param {boolean} legend
+ * @param {string} stackType
+ */
 export const horizontalBarsChartOptions = (
   theme,
   adjustTicks = false,
@@ -335,20 +384,25 @@ export const horizontalBarsChartOptions = (
   total = false,
   categories = null,
   legend = false,
+  stackType = 'normal',
 ) => ({
   events: ['xAxisLabelClick'],
   chart: {
     type: 'bar',
-    background: 'transparent',
+    background: theme.palette.background.paper,
     toolbar: toolbarOptions,
     foreColor: theme.palette.text.secondary,
     stacked,
+    stackType,
     width: '100%',
     height: '100%',
     events: {
       xAxisLabelClick: (event, chartContext, config) => {
         if (redirectionUtils) {
           const { labelIndex } = config;
+          if (redirectionUtils[labelIndex].name === 'Restricted') {
+            return;
+          }
           const entityType = redirectionUtils[labelIndex].entity_type;
           const link = resolveLink(entityType);
           if (link) {
@@ -403,6 +457,9 @@ export const horizontalBarsChartOptions = (
                 }
               }
             } else {
+              if (redirectionUtils[dataPointIndex].name === 'Restricted') {
+                return;
+              }
               const link = resolveLink(redirectionUtils[dataPointIndex].entity_type);
               if (link) {
                 const entityId = redirectionUtils[dataPointIndex].id;
@@ -418,7 +475,7 @@ export const horizontalBarsChartOptions = (
     mode: theme.palette.mode,
   },
   dataLabels: {
-    enabled: false,
+    enabled: stackType === '100%',
   },
   colors: [
     theme.palette.primary.main,
@@ -433,24 +490,33 @@ export const horizontalBarsChartOptions = (
     },
   },
   grid: {
+    show: stackType !== '100%',
     borderColor:
       theme.palette.mode === 'dark'
         ? 'rgba(255, 255, 255, .1)'
         : 'rgba(0, 0, 0, .1)',
     strokeDashArray: 3,
+    padding: {
+      right: 20,
+    },
   },
   legend: {
     show: legend,
+    showForSingleSeries: true,
     itemMargin: {
       horizontal: 5,
     },
   },
   tooltip: {
     theme: theme.palette.mode,
+    x: {
+      show: stackType !== '100%',
+    },
   },
   xaxis: {
     categories: categories ?? [],
     labels: {
+      show: stackType !== '100%',
       formatter: (value) => (xFormatter ? xFormatter(value) : value),
       style: {
         fontFamily: '"IBM Plex Sans", sans-serif',
@@ -459,10 +525,15 @@ export const horizontalBarsChartOptions = (
     axisBorder: {
       show: false,
     },
+    axisTicks: {
+      show: stackType !== '100%',
+    },
     tickAmount: adjustTicks ? 1 : undefined,
   },
   yaxis: {
+    show: stackType !== '100%',
     labels: {
+      show: stackType !== '100%',
       formatter: (value) => (yFormatter ? yFormatter(value) : value),
       style: {
         fontFamily: '"IBM Plex Sans", sans-serif',
@@ -495,24 +566,36 @@ export const horizontalBarsChartOptions = (
   },
 });
 
+/**
+ * @param {Theme} theme
+ * @param {function} xFormatter
+ * @param {string[]} labels
+ * @param {string[]} chartColors
+ * @param {boolean} legend
+ * @param {string} background
+ * @param {int} size
+ * @param {function} handleClick
+ */
 export const radarChartOptions = (
   theme,
   labels,
+  xFormatter = null,
   chartColors = [],
   legend = false,
-  offset = false,
+  background = theme.palette.background.paper,
+  size = undefined,
+  handleClick = undefined,
 ) => ({
   chart: {
     type: 'radar',
-    background: 'transparent',
+    background,
     toolbar: toolbarOptions,
-    offsetY: offset ? -20 : 0,
-    parentHeightOffset: 0,
     width: '100%',
     height: '100%',
-  },
-  events: {
-
+    events: {
+      click: () => handleClick(),
+      markerClick: () => handleClick(),
+    },
   },
   theme: {
     mode: theme.palette.mode,
@@ -569,9 +652,13 @@ export const radarChartOptions = (
   },
   yaxis: {
     show: false,
+    labels: {
+      formatter: (value) => (xFormatter ? xFormatter(value) : value),
+    },
   },
   plotOptions: {
     radar: {
+      size,
       polygons: {
         strokeColors:
           theme.palette.mode === 'dark'
@@ -587,82 +674,123 @@ export const radarChartOptions = (
   },
 });
 
+/**
+ * @param {Theme} theme
+ * @param {string[]} labels
+ * @param {function} formatter
+ * @param {string} legendPosition
+ * @param {string[]} chartColors
+ */
 export const polarAreaChartOptions = (
   theme,
   labels,
   formatter = null,
   legendPosition = 'bottom',
-) => ({
-  chart: {
-    type: 'polarArea',
-    background: 'transparent',
-    toolbar: toolbarOptions,
-    foreColor: theme.palette.text.secondary,
-    width: '100%',
-    height: '100%',
-  },
-  theme: {
-    mode: theme.palette.mode,
-  },
-  colors: colors(theme.palette.mode === 'dark' ? 400 : 600),
-  labels,
-  states: {
-    hover: {
-      filter: {
-        type: 'lighten',
-        value: 0.05,
+  chartColors = [],
+) => {
+  const temp = theme.palette.mode === 'dark' ? 400 : 600;
+  let chartFinalColors = chartColors;
+  if (chartFinalColors.length === 0) {
+    chartFinalColors = colors(temp);
+    if (labels.length === 2 && labels[0] === 'true') {
+      chartFinalColors = [C.green[temp], C.red[temp]];
+    } else if (labels.length === 2 && labels[0] === 'false') {
+      chartFinalColors = [C.red[temp], C.green[temp]];
+    }
+  }
+  return {
+    chart: {
+      type: 'polarArea',
+      background: theme.palette.background.paper,
+      toolbar: toolbarOptions,
+      foreColor: theme.palette.text.secondary,
+      width: '100%',
+      height: '100%',
+    },
+    theme: {
+      mode: theme.palette.mode,
+    },
+    colors: chartFinalColors,
+    labels,
+    states: {
+      hover: {
+        filter: {
+          type: 'lighten',
+          value: 0.05,
+        },
       },
     },
-  },
-  legend: {
-    show: true,
-    position: legendPosition,
-    floating: legendPosition === 'bottom',
-    fontFamily: '"IBM Plex Sans", sans-serif',
-  },
-  tooltip: {
-    theme: theme.palette.mode,
-  },
-  fill: {
-    opacity: 0.5,
-  },
-  yaxis: {
-    labels: {
-      formatter: (value) => (formatter ? formatter(value) : value),
-      style: {
-        fontFamily: '"IBM Plex Sans", sans-serif',
+    legend: {
+      show: true,
+      position: legendPosition,
+      floating: legendPosition === 'bottom',
+      fontFamily: '"IBM Plex Sans", sans-serif',
+    },
+    tooltip: {
+      theme: theme.palette.mode,
+      custom: simpleLabelTooltip(theme),
+    },
+    fill: {
+      opacity: 0.5,
+    },
+    yaxis: {
+      labels: {
+        formatter: (value) => (formatter ? formatter(value) : value),
+        style: {
+          fontFamily: '"IBM Plex Sans", sans-serif',
+        },
+      },
+      axisBorder: {
+        show: false,
       },
     },
-    axisBorder: {
-      show: false,
-    },
-  },
-  plotOptions: {
-    polarArea: {
-      rings: {
-        strokeWidth: 1,
-        strokeColor:
-          theme.palette.mode === 'dark'
-            ? 'rgba(255, 255, 255, .1)'
-            : 'rgba(0, 0, 0, .1)',
-      },
-      spokes: {
-        strokeWidth: 1,
-        connectorColors:
-          theme.palette.mode === 'dark'
-            ? 'rgba(255, 255, 255, .1)'
-            : 'rgba(0, 0, 0, .1)',
+    plotOptions: {
+      polarArea: {
+        rings: {
+          strokeWidth: 1,
+          strokeColor:
+            theme.palette.mode === 'dark'
+              ? 'rgba(255, 255, 255, .1)'
+              : 'rgba(0, 0, 0, .1)',
+        },
+        spokes: {
+          strokeWidth: 1,
+          connectorColors:
+            theme.palette.mode === 'dark'
+              ? 'rgba(255, 255, 255, .1)'
+              : 'rgba(0, 0, 0, .1)',
+        },
       },
     },
-  },
-});
+  };
+};
 
+/**
+ * @param {Theme} theme
+ * @param {string[]} labels
+ * @param {string} legendPosition
+ * @param {boolean} reversed
+ * @param {string[]} chartColors
+ * @param {boolean} displayLegend
+ * @param {boolean} displayLabels
+ * @param {boolean} displayValue
+ * @param {boolean} displayTooltip
+ * @param {number} size
+ * @param {boolean} withBackground
+ * @returns ApexOptions
+ */
 export const donutChartOptions = (
   theme,
   labels,
   legendPosition = 'bottom',
   reversed = false,
   chartColors = [],
+  displayLegend = true,
+  displayLabels = true,
+  displayValue = true,
+  displayTooltip = true,
+  size = 70,
+  withBackground = true,
 ) => {
   const temp = theme.palette.mode === 'dark' ? 400 : 600;
   let dataLabelsColors = labels.map(() => theme.palette.text.primary);
@@ -689,7 +817,7 @@ export const donutChartOptions = (
   return {
     chart: {
       type: 'donut',
-      background: 'transparent',
+      background: withBackground ? theme.palette.background.paper : 'transparent',
       toolbar: toolbarOptions,
       foreColor: theme.palette.text.secondary,
       width: '100%',
@@ -716,13 +844,18 @@ export const donutChartOptions = (
       width: 3,
       colors: [theme.palette.background.paper],
     },
+    tooltip: {
+      enabled: displayTooltip,
+      theme: theme.palette.mode,
+      custom: simpleLabelTooltip(theme),
+    },
     legend: {
-      show: true,
+      show: displayLegend,
       position: legendPosition,
       fontFamily: '"IBM Plex Sans", sans-serif',
     },
     dataLabels: {
-      enabled: true,
+      enabled: displayLabels,
       style: {
         fontSize: '10px',
         fontFamily: '"IBM Plex Sans", sans-serif',
@@ -739,23 +872,34 @@ export const donutChartOptions = (
     plotOptions: {
       pie: {
         donut: {
-          background: 'transparent',
-          size: '70%',
+          value: {
+            show: displayValue,
+          },
+          background: theme.palette.background.paper,
+          size: `${size}%`,
         },
       },
     },
   };
 };
 
+/**
+ *
+ * @param {Theme} theme
+ * @param {function} formatter
+ * @param {string} legendPosition
+ * @param {boolean} distributed
+ */
 export const treeMapOptions = (
   theme,
+  formatter = null,
   legendPosition = 'bottom',
   distributed = false,
 ) => {
   return {
     chart: {
       type: 'treemap',
-      background: 'transparent',
+      background: theme.palette.background.paper,
       toolbar: toolbarOptions,
       foreColor: theme.palette.text.secondary,
       width: '100%',
@@ -770,6 +914,11 @@ export const treeMapOptions = (
     ],
     fill: {
       opacity: 1,
+    },
+    yaxis: {
+      labels: {
+        formatter: (value) => (formatter ? formatter(value) : value),
+      },
     },
     states: {
       hover: {
@@ -813,6 +962,15 @@ export const treeMapOptions = (
   };
 };
 
+/**
+ * @param {Theme} theme
+ * @param {boolean} isTimeSeries
+ * @param {function} xFormatter
+ * @param {function} yFormatter
+ * @param {number | 'dataPoints'} tickAmount
+ * @param {boolean} isStacked
+ * @param {object[]} ranges
+ */
 export const heatMapOptions = (
   theme,
   isTimeSeries = false,
@@ -824,7 +982,7 @@ export const heatMapOptions = (
 ) => ({
   chart: {
     type: 'heatmap',
-    background: 'transparent',
+    background: theme.palette.background.paper,
     toolbar: toolbarOptions,
     foreColor: theme.palette.text.secondary,
     stacked: isStacked,

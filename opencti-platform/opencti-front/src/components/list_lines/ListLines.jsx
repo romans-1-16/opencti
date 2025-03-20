@@ -8,7 +8,7 @@ import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
-import { ArrowDropDown, ArrowDropUp, FileDownloadOutlined, LibraryBooksOutlined, SettingsOutlined, ViewListOutlined, ViewModuleOutlined } from '@mui/icons-material';
+import { ArrowDropDown, ArrowDropUp, FileDownloadOutlined, LibraryBooksOutlined, SettingsOutlined, ViewModuleOutlined } from '@mui/icons-material';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Checkbox from '@mui/material/Checkbox';
@@ -24,6 +24,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
+import { ListViewIcon, SublistViewIcon } from 'filigran-icon';
+import FiligranIcon from '../../private/components/common/FiligranIcon';
 import { ErrorBoundary } from '../../private/components/Error';
 import { UserContext } from '../../utils/hooks/useAuth';
 import Filters from '../../private/components/common/lists/Filters';
@@ -59,7 +61,6 @@ const styles = (theme) => ({
     display: 'flex',
     alignItems: 'center',
     gap: 10,
-    marginTop: -10,
     paddingBottom: 10,
     flexWrap: 'wrap',
   },
@@ -75,6 +76,7 @@ const styles = (theme) => ({
   },
   views: {
     marginTop: -5,
+    display: 'flex',
   },
   linesContainer: {
     margin: 0,
@@ -103,6 +105,7 @@ const styles = (theme) => ({
     alignItems: 'center',
   },
   headerItemText: {
+    marginRight: theme.spacing(1),
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -133,11 +136,7 @@ class ListLines extends Component {
   renderHeaderElement(field, label, width, isSortable) {
     const { classes, t, sortBy, orderAsc } = this.props;
     if (isSortable) {
-      const orderComponent = orderAsc ? (
-        <ArrowDropDown classes={{ root: classes.sortIcon }} />
-      ) : (
-        <ArrowDropUp classes={{ root: classes.sortIcon }} />
-      );
+      const orderComponent = orderAsc ? (<ArrowDropDown />) : (<ArrowDropUp />);
       return (
         <div
           key={field}
@@ -193,6 +192,7 @@ class ListLines extends Component {
       searchVariant,
       message,
       enableGraph,
+      enableSubEntityLines,
       availableEntityTypes,
       availableRelationshipTypes,
       availableRelationFilterTypes,
@@ -208,6 +208,7 @@ class ListLines extends Component {
       helpers,
       inline,
       additionalFilterKeys,
+      createButton,
     } = this.props;
     const exportDisabled = numberOfElements
       && ((selectedIds.length > export_max_size
@@ -228,6 +229,7 @@ class ListLines extends Component {
                 : classes.parameters
             }
           >
+
             {typeof handleSearch === 'function' && (
               <SearchInput
                 variant={searchVariant || 'small'}
@@ -235,6 +237,7 @@ class ListLines extends Component {
                 keyword={keyword}
               />
             )}
+
             {extraFields}
             {availableFilterKeys && availableFilterKeys.length > 0 && (
               <Filters
@@ -252,7 +255,9 @@ class ListLines extends Component {
               />
             )}
             <div className={classes.filler} />
+
             <div className={classes.views}>
+
               {numberOfElements && (
                 <div
                   style={
@@ -271,7 +276,7 @@ class ListLines extends Component {
                 <ToggleButtonGroup
                   size="small"
                   color="secondary"
-                  value={currentView || 'lines'}
+                  value={(!enableEntitiesView && currentView === 'entities') ? 'relationships' : currentView || 'lines'}
                   exclusive={true}
                   onChange={(_, value) => {
                     if (value && value === 'export') {
@@ -306,7 +311,7 @@ class ListLines extends Component {
                         </Tooltip>
                       </ToggleButton>
                   )}
-                  {enableEntitiesView && (
+                  {(enableEntitiesView || (!enableEntitiesView && currentView === 'entities') || currentView === 'relationships') && (
                     <ToggleButton
                       value="relationships"
                       aria-label="relationships"
@@ -315,7 +320,7 @@ class ListLines extends Component {
                         <RelationManyToMany
                           fontSize="small"
                           color={
-                            currentView === 'relationships' || !currentView
+                            currentView === 'relationships' || (!enableEntitiesView && currentView === 'entities') || !currentView
                               ? 'secondary'
                               : 'primary'
                           }
@@ -323,20 +328,12 @@ class ListLines extends Component {
                       </Tooltip>
                     </ToggleButton>
                   )}
-                  {typeof handleChangeView === 'function'
-                    && !enableEntitiesView && (
+                  {typeof handleChangeView === 'function' && !enableEntitiesView && currentView !== 'relationships' && currentView !== 'entities' && (
+                    <Tooltip title={t('Lines view')}>
                       <ToggleButton value="lines" aria-label="lines">
-                        <Tooltip title={t('Lines view')}>
-                          <ViewListOutlined
-                            fontSize="small"
-                            color={
-                              currentView === 'lines' || !currentView
-                                ? 'secondary'
-                                : 'primary'
-                            }
-                          />
-                        </Tooltip>
+                        <FiligranIcon icon={ListViewIcon} color='secondary' size='small'/>
                       </ToggleButton>
+                    </Tooltip>
                   )}
                   {typeof handleChangeView === 'function' && enableGraph && (
                     <ToggleButton value="graph" aria-label="graph">
@@ -369,6 +366,13 @@ class ListLines extends Component {
                           />
                         </Tooltip>
                       </ToggleButton>
+                  )}
+                  {typeof handleChangeView === 'function' && enableSubEntityLines && (
+                    <Tooltip title={t('Sub entity lines view')}>
+                      <ToggleButton value="subEntityLines" aria-label="subEntityLines">
+                        <FiligranIcon icon={SublistViewIcon} color='primary' size='small'/>
+                      </ToggleButton>
+                    </Tooltip>
                   )}
                   {handleSwitchRedirectionMode && (
                     <ToggleButton
@@ -429,6 +433,11 @@ class ListLines extends Component {
                   )}
                 </ToggleButtonGroup>
               )}
+              {/*
+                * Passing in createButton because cannot use hooks here.
+                * More permanent solution once FAB_REPLACEMENT is completed.
+                */}
+              {createButton}
             </div>
           </div>
         )}
@@ -442,9 +451,10 @@ class ListLines extends Component {
           availableRelationFilterTypes={availableRelationFilterTypes}
           redirection
           entityTypes={entityTypes}
-          restrictedFiltersConfig={{
-            filterRemoving: additionalFilterKeys,
-          }}
+          filtersRestrictions={additionalFilterKeys?.filtersRestrictions ?? undefined}
+          searchContext={searchContextFinal}
+          availableEntityTypes={availableEntityTypes}
+          availableRelationshipTypes={availableRelationshipTypes}
         />
         <ErrorBoundary key={keyword}>
           {message && (
@@ -634,7 +644,7 @@ class ListLines extends Component {
             });
             availableFilterKeys = uniq(Array.from(filterKeysMap.keys())); // keys of the entity type if availableFilterKeys is not specified
           }
-          if (additionalFilterKeys) availableFilterKeys = availableFilterKeys.concat(additionalFilterKeys);
+          if (additionalFilterKeys && additionalFilterKeys.filterKeys) availableFilterKeys = uniq(availableFilterKeys.concat(additionalFilterKeys.filterKeys));
           if (disableExport) {
             return this.renderContent(availableFilterKeys, entityTypes);
           }
@@ -690,6 +700,7 @@ ListLines.propTypes = {
   availableRelationFilterTypes: PropTypes.object,
   enableNestedView: PropTypes.bool,
   enableEntitiesView: PropTypes.bool,
+  enableSubEntityLines: PropTypes.bool,
   enableContextualView: PropTypes.bool,
   currentView: PropTypes.string,
   handleSwitchRedirectionMode: PropTypes.func,
@@ -700,8 +711,9 @@ ListLines.propTypes = {
   handleExportCsv: PropTypes.func,
   helpers: PropTypes.object,
   availableFilterKeys: PropTypes.array,
-  additionalFilterKeys: PropTypes.array,
+  additionalFilterKeys: PropTypes.object,
   entityTypes: PropTypes.array,
+  createButton: PropTypes.object,
 };
 
 export default compose(inject18n, withStyles(styles))(ListLines);

@@ -1,20 +1,17 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useEffect, useState } from 'react';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
-import makeStyles from '@mui/styles/makeStyles';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { FormikConfig } from 'formik/dist/types';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import CustomFileUploader from '@components/common/files/CustomFileUploader';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
 import ConfidenceField from '@components/common/form/ConfidenceField';
 import { useFormatter } from '../../../../components/i18n';
-import TextField from '../../../../components/TextField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
-import type { Theme } from '../../../../components/Theme';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { CountriesLinesPaginationQuery$variables } from './__generated__/CountriesLinesPaginationQuery.graphql';
 import { insertNode } from '../../../../utils/store';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
@@ -24,16 +21,16 @@ import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import { CountryCreationMutation, CountryCreationMutation$variables } from './__generated__/CountryCreationMutation.graphql';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
-
-const useStyles = makeStyles<Theme>((theme) => ({
-  buttons: {
-    marginTop: 20,
-    textAlign: 'right',
-  },
-  button: {
-    marginLeft: theme.spacing(2),
-  },
-}));
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
+import useHelper from '../../../../utils/hooks/useHelper';
+import useBulkCommit from '../../../../utils/hooks/useBulkCommit';
+import { splitMultilines } from '../../../../utils/String';
+import { handleErrorInForm } from '../../../../relay/environment';
+import BulkTextModal from '../../../../components/fields/BulkTextField/BulkTextModal';
+import ProgressBar from '../../../../components/ProgressBar';
+import BulkTextField from '../../../../components/fields/BulkTextField/BulkTextField';
+import BulkTextModalButton from '../../../../components/fields/BulkTextField/BulkTextModalButton';
 
 const countryMutation = graphql`
   mutation CountryCreationMutation($input: CountryAddInput!) {
@@ -41,6 +38,9 @@ const countryMutation = graphql`
       id
       standard_id
       name
+      representative {
+        main
+      }
       confidence
       description
       entity_type
@@ -53,12 +53,12 @@ const countryMutation = graphql`
 interface CountryAddInput {
   name: string;
   description: string;
-  confidence: number | undefined;
-  createdBy: Option | undefined;
+  confidence: number | null;
+  createdBy: Option | null;
   objectMarking: Option[];
   objectLabel: Option[];
   externalReferences: Option[];
-  file: File | undefined;
+  file: File | null;
 }
 
 interface CountryFormProps {
@@ -68,6 +68,8 @@ interface CountryFormProps {
   defaultCreatedBy?: { value: string; label: string };
   defaultMarkingDefinitions?: { value: string; label: string }[];
   inputValue?: string;
+  bulkModalOpen?: boolean;
+  onBulkModalClose: () => void;
 }
 
 const COUNTRY_TYPE = 'Country';
@@ -78,11 +80,15 @@ export const CountryCreationForm: FunctionComponent<CountryFormProps> = ({
   onCompleted,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  bulkModalOpen = false,
+  onBulkModalClose,
+  inputValue,
 }) => {
-  const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const [progressBarOpen, setProgressBarOpen] = useState(false);
+
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
   };
@@ -90,49 +96,77 @@ export const CountryCreationForm: FunctionComponent<CountryFormProps> = ({
     COUNTRY_TYPE,
     basicShape,
   );
-  const [commit] = useMutation<CountryCreationMutation>(countryMutation);
+
+  const [commit] = useApiMutation<CountryCreationMutation>(
+    countryMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Country')} ${t_i18n('successfully created')}` },
+  );
+  const {
+    bulkCommit,
+    bulkCount,
+    bulkCurrentCount,
+    BulkResult,
+    resetBulk,
+  } = useBulkCommit<CountryCreationMutation>({
+    commit,
+    relayUpdater: (store) => {
+      if (updater) {
+        updater(store, 'countryAdd');
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (bulkCount > 1) {
+      setProgressBarOpen(true);
+    }
+  }, [bulkCount]);
+
   const onSubmit: FormikConfig<CountryAddInput>['onSubmit'] = (
     values,
-    { setSubmitting, resetForm },
+    { setSubmitting, resetForm, setErrors },
   ) => {
-    const input: CountryCreationMutation$variables['input'] = {
-      name: values.name,
-      description: values.description,
-      confidence: parseInt(String(values.confidence), 10),
-      objectMarking: values.objectMarking.map(({ value }) => value),
-      objectLabel: values.objectLabel.map(({ value }) => value),
-      externalReferences: values.externalReferences.map(({ value }) => value),
-      createdBy: values.createdBy?.value,
-      file: values.file,
-    };
-    commit({
-      variables: {
-        input,
+    const allNames = splitMultilines(values.name);
+    const variables: CountryCreationMutation$variables[] = allNames.map((name) => ({
+      input: {
+        name,
+        description: values.description,
+        confidence: parseInt(String(values.confidence), 10),
+        objectMarking: values.objectMarking.map(({ value }) => value),
+        objectLabel: values.objectLabel.map(({ value }) => value),
+        externalReferences: values.externalReferences.map(({ value }) => value),
+        createdBy: values.createdBy?.value,
+        file: values.file,
       },
-      updater: (store) => {
-        if (updater) {
-          updater(store, 'countryAdd');
-        }
+    }));
+
+    bulkCommit({
+      variables,
+      onStepError: (error) => {
+        handleErrorInForm(error, setErrors);
       },
-      onCompleted: () => {
+      onCompleted: (total: number) => {
         setSubmitting(false);
-        resetForm();
-        if (onCompleted) {
-          onCompleted();
+        if (total < 2) {
+          resetForm();
+          onCompleted?.();
         }
       },
     });
   };
+
   const initialValues = useDefaultValues<CountryAddInput>(COUNTRY_TYPE, {
-    name: '',
+    name: inputValue ?? '',
     description: '',
-    confidence: undefined,
-    createdBy: defaultCreatedBy,
+    confidence: null,
+    createdBy: defaultCreatedBy ?? null,
     objectMarking: defaultMarkingDefinitions ?? [],
     objectLabel: [],
     externalReferences: [],
-    file: undefined,
+    file: null,
   });
+
   return (
     <Formik<CountryAddInput>
       initialValues={initialValues}
@@ -140,77 +174,112 @@ export const CountryCreationForm: FunctionComponent<CountryFormProps> = ({
       onSubmit={onSubmit}
       onReset={onReset}
     >
-      {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
-          <Field
-            component={TextField}
-            variant="standard"
-            name="name"
-            label={t_i18n('Name')}
-            fullWidth={true}
-            detectDuplicate={['Country']}
-          />
-          <Field
-            component={MarkdownField}
-            name="description"
-            label={t_i18n('Description')}
-            fullWidth={true}
-            multiline={true}
-            rows="4"
-            style={{ marginTop: 20 }}
-          />
-          <ConfidenceField
-            entityType="Country"
-            containerStyle={fieldSpacingContainerStyle}
-          />
-          <CreatedByField
-            name="createdBy"
-            style={{
-              marginTop: 20,
-              width: '100%',
+      {({ submitForm, handleReset, isSubmitting, setFieldValue, values, resetForm }) => (
+        <>
+          <BulkTextModal
+            open={bulkModalOpen}
+            onClose={onBulkModalClose}
+            onValidate={async (val) => {
+              await setFieldValue('name', val);
+              if (splitMultilines(val).length > 1) {
+                await setFieldValue('file', null);
+              }
             }}
-            setFieldValue={setFieldValue}
+            formValue={values.name}
           />
-          <ObjectLabelField
-            name="objectLabel"
-            style={fieldSpacingContainerStyle}
-            setFieldValue={setFieldValue}
-            values={values.objectLabel}
-          />
-          <ObjectMarkingField
-            name="objectMarking"
-            style={{
-              marginTop: 20,
-              width: '100%',
+          <ProgressBar
+            open={progressBarOpen}
+            value={(bulkCurrentCount / bulkCount) * 100}
+            label={`${bulkCurrentCount}/${bulkCount}`}
+            title={t_i18n('Create multiple entities')}
+            onClose={() => {
+              setProgressBarOpen(false);
+              resetForm();
+              resetBulk();
+              onCompleted?.();
             }}
-          />
-          <ExternalReferencesField
-            name="externalReferences"
-            style={fieldSpacingContainerStyle}
-            setFieldValue={setFieldValue}
-            values={values.externalReferences}
-          />
-          <CustomFileUploader setFieldValue={setFieldValue} />
-          <div className={classes.buttons}>
-            <Button
-              variant="contained"
-              onClick={handleReset}
-              disabled={isSubmitting}
-              classes={{ root: classes.button }}
+          >
+            <BulkResult variablesToString={(v) => v.input.name} />
+          </ProgressBar>
+          <Form>
+            <Field
+              component={BulkTextField}
+              variant="standard"
+              name="name"
+              label={t_i18n('Name')}
+              fullWidth={true}
+              detectDuplicate={['Country']}
+            />
+            <Field
+              component={MarkdownField}
+              name="description"
+              label={t_i18n('Description')}
+              fullWidth={true}
+              multiline={true}
+              rows="4"
+              style={fieldSpacingContainerStyle}
+            />
+            <ConfidenceField
+              entityType="Country"
+              containerStyle={fieldSpacingContainerStyle}
+            />
+            <CreatedByField
+              name="createdBy"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+            />
+            <ObjectLabelField
+              name="objectLabel"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+              values={values.objectLabel}
+            />
+            <ObjectMarkingField
+              name="objectMarking"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+            />
+            <ExternalReferencesField
+              name="externalReferences"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+              values={values.externalReferences}
+            />
+            <Field
+              component={CustomFileUploader}
+              name="file"
+              setFieldValue={setFieldValue}
+              disabled={splitMultilines(values.name).length > 1}
+              noFileSelectedLabel={splitMultilines(values.name).length > 1
+                ? t_i18n('File upload not allowed in bulk creation')
+                : undefined
+              }
+            />
+            <div style={{
+              marginTop: '20px',
+              textAlign: 'right',
+            }}
             >
-              {t_i18n('Cancel')}
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={submitForm}
-              disabled={isSubmitting}
-              classes={{ root: classes.button }}
-            >
-              {t_i18n('Create')}
-            </Button>
-          </div>
-        </Form>
+              <Button
+                variant="contained"
+                onClick={handleReset}
+                disabled={isSubmitting}
+                sx={{ marginLeft: 2 }}
+              >
+                {t_i18n('Cancel')}
+              </Button>
+              <Button
+                variant="contained"
+                color="secondary"
+                onClick={submitForm}
+                disabled={isSubmitting}
+                sx={{ marginLeft: 2 }}
+              >
+                {t_i18n('Create')}
+              </Button>
+            </div>
+          </Form>
+        </>
       )}
     </Formik>
   );
@@ -221,18 +290,29 @@ const CountryCreation = ({
 }: {
   paginationOptions: CountriesLinesPaginationQuery$variables;
 }) => {
+  const { isFeatureEnable } = useHelper();
   const { t_i18n } = useFormatter();
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const updater = (store: RecordSourceSelectorProxy) => insertNode(store, 'Pagination_countries', paginationOptions, 'countryAdd');
+
+  const CreateCountryControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Country' {...props} />
+  );
   return (
     <Drawer
       title={t_i18n('Create a country')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      header={<BulkTextModalButton onClick={() => setBulkOpen(true)} />}
+      controlledDial={isFABReplaced ? CreateCountryControlledDial : undefined}
     >
       {({ onClose }) => (
         <CountryCreationForm
           updater={updater}
           onCompleted={onClose}
           onReset={onClose}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
         />
       )}
     </Drawer>

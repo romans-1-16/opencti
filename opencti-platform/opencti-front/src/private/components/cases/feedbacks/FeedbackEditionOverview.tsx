@@ -4,6 +4,7 @@ import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import { FormikConfig } from 'formik/dist/types';
 import { GenericContext } from '@components/common/model/GenericContextModel';
+import useHelper from 'src/utils/hooks/useHelper';
 import { useFormatter } from '../../../../components/i18n';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import { convertAssignees, convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
@@ -16,13 +17,14 @@ import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEditor';
-import MarkdownField from '../../../../components/MarkdownField';
-import RatingField from '../../../../components/RatingField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
+import RatingField from '../../../../components/fields/RatingField';
 import CommitMessage from '../../common/form/CommitMessage';
 import ObjectAssigneeField from '../../common/form/ObjectAssigneeField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import FeedbackDeletion from './FeedbackDeletion';
 
 const feedbackMutationFieldPatch = graphql`
   mutation FeedbackEditionOverviewFieldPatchMutation(
@@ -65,6 +67,7 @@ const feedbackEditionOverviewFragment = graphql`
     description
     rating
     confidence
+    entity_type
     x_opencti_stix_ids
     createdBy {
       ... on Identity {
@@ -151,7 +154,7 @@ FeedbackEditionOverviewProps
   const feedbackData = useFragment(feedbackEditionOverviewFragment, feedbackRef);
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     x_opencti_workflow_id: Yup.object(),
     rating: Yup.number(),
@@ -229,8 +232,11 @@ FeedbackEditionOverviewProps
     objectAssignee: convertAssignees(feedbackData),
     x_opencti_workflow_id: convertStatus(t_i18n, feedbackData) as Option,
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   return (
-    <Formik
+    <Formik<FeedbackEditionFormValues>
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={feedbackValidator}
@@ -244,7 +250,7 @@ FeedbackEditionOverviewProps
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={feedbackData} />
           <Field
             component={TextField}
@@ -252,7 +258,6 @@ FeedbackEditionOverviewProps
             name="name"
             label={t_i18n('Name')}
             fullWidth={true}
-            style={fieldSpacingContainerStyle}
             onFocus={editor.changeFocus}
             onSubmit={handleSubmitField}
             helperText={
@@ -331,16 +336,24 @@ FeedbackEditionOverviewProps
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={feedbackData.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <FeedbackDeletion
+                  id={feedbackData.id}
+                />
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={feedbackData.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

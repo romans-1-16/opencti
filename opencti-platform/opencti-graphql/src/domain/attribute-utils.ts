@@ -1,9 +1,10 @@
 import {
   aliases,
   baseType,
-  created,
   createdAt,
   creators,
+  draftChange,
+  draftIds,
   entityLocationType,
   entityType,
   files,
@@ -22,13 +23,14 @@ import {
   xOpenctiStixIds,
   xOpenctiType
 } from '../schema/attribute-definition';
-import { xOpenctiLinkedTo } from '../schema/stixRefRelationship';
 
 export const INTERNAL_ATTRIBUTES = [
   // ID
   id.name,
   internalId.name,
   standardId.name,
+  draftIds.name,
+  draftChange.name,
   xOpenctiStixIds.name,
   iAliasedIds.name,
   // Auditing
@@ -36,7 +38,6 @@ export const INTERNAL_ATTRIBUTES = [
   updatedAt.name,
   modified.name,
   // Technical
-  created.name,
   entityType.name,
   parentTypes.name,
   entityLocationType.name,
@@ -62,10 +63,10 @@ export const INTERNAL_ATTRIBUTES = [
   'precision',
   'pattern_version',
   'connections',
+  'i_attributes',
   // X - Mitre
   'x_mitre_permissions_required',
   'x_mitre_detection',
-  'x_mitre_id',
   'x_opencti_graph_data',
   // X - OpenCTI
   xOpenctiAliases.name,
@@ -85,9 +86,10 @@ export const INTERNAL_ATTRIBUTES = [
   'decay_base_score_date',
   'decay_history',
   'decay_applied_rule',
+  // Opinions
+  'opinions_metrics'
 ];
 
 export const INTERNAL_REFS = [
-  xOpenctiLinkedTo.name,
   'objectOrganization'
 ];

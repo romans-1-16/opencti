@@ -5,19 +5,22 @@ import IngestionMenu from '@components/data/IngestionMenu';
 import IngestionCsvLines, { ingestionCsvLinesQuery } from '@components/data/ingestionCsv/IngestionCsvLines';
 import { IngestionCsvLinesPaginationQuery, IngestionCsvLinesPaginationQuery$variables } from '@components/data/ingestionCsv/__generated__/IngestionCsvLinesPaginationQuery.graphql';
 import { IngestionCsvLineDummy } from '@components/data/ingestionCsv/IngestionCsvLine';
-import IngestionCsvCreation from '@components/data/ingestionCsv/IngestionCsvCreation';
+import { IngestionCsvCreationContainer } from '@components/data/ingestionCsv/IngestionCsvCreation';
 import { useFormatter } from '../../../components/i18n';
 import useAuth from '../../../utils/hooks/useAuth';
 import { usePaginationLocalStorage } from '../../../utils/hooks/useLocalStorage';
 import { INGESTION_MANAGER } from '../../../utils/platformModulesHelper';
 import ListLines from '../../../components/list_lines/ListLines';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
-import { KNOWLEDGE_KNUPDATE } from '../../../utils/hooks/useGranted';
+import { INGESTION_SETINGESTIONS } from '../../../utils/hooks/useGranted';
 import Security from '../../../utils/Security';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'ingestionCsvs';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -28,6 +31,8 @@ const useStyles = makeStyles(() => ({
 const IngestionCsv = () => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('CSV Feeds | Ingestion | Data'));
   const { platformModuleHelpers } = useAuth();
   const {
     viewStorage,
@@ -42,6 +47,7 @@ const IngestionCsv = () => {
       symbol: '',
     },
   });
+
   const renderLines = () => {
     const { searchTerm, sortBy, orderAsc, numberOfElements } = viewStorage;
     const dataColumns = {
@@ -52,15 +58,20 @@ const IngestionCsv = () => {
       },
       uri: {
         label: 'URL',
-        width: '30%',
+        width: '25%',
         isSortable: true,
       },
       ingestion_running: {
-        label: 'Running',
-        width: '20%',
+        label: 'Status',
+        width: '15%',
         isSortable: false,
       },
-      current_state_date: {
+      last_execution_date: {
+        label: 'Last run',
+        width: '15%',
+        isSortable: false,
+      },
+      current_state_hash: {
         label: 'Current state',
         isSortable: false,
         width: '15%',
@@ -117,13 +128,20 @@ const IngestionCsv = () => {
       </div>
     );
   }
+
   return (
     <div className={classes.container}>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Data') }, { label: t_i18n('Ingestion') }, { label: t_i18n('CSV feeds'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Data') }, { label: t_i18n('Ingestion') }, { label: t_i18n('CSV feeds'), current: true }]} />
       <IngestionMenu/>
       {renderLines()}
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <IngestionCsvCreation paginationOptions={paginationOptions} />
+      <Security needs={[INGESTION_SETINGESTIONS]}>
+        <IngestionCsvCreationContainer
+          open={false}
+          handleClose={() => {
+          }}
+          paginationOptions={paginationOptions}
+          isDuplicated={false}
+        />
       </Security>
     </div>
   );

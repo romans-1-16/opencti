@@ -15,7 +15,7 @@ import { FormikConfig } from 'formik/dist/types';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import Filters from '../../common/lists/Filters';
-import { emptyFilterGroup, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, serializeFilterGroupForBackend, stixFilters } from '../../../../utils/filters/filtersUtils';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import ObjectMembersField from '../../common/form/ObjectMembersField';
@@ -35,6 +35,8 @@ interface StreamCollectionCreationForm {
   name: string
   description: string
 }
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -142,7 +144,7 @@ const StreamCollectionCreation: FunctionComponent<StreamCollectionCreationProps>
             setFieldValue,
             values,
           }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"
@@ -179,7 +181,7 @@ const StreamCollectionCreation: FunctionComponent<StreamCollectionCreationProps>
                   <ObjectMembersField
                     label={'Accessible for'}
                     style={fieldSpacingContainerStyle}
-                    helpertext={t_i18n('Let the field empty to grant all authenticated users')}
+                    helpertext={t_i18n('Leave the field empty to grant all authenticated users')}
                     multiple={true}
                     name="authorized_members"
                   />
@@ -190,31 +192,9 @@ const StreamCollectionCreation: FunctionComponent<StreamCollectionCreationProps>
                 gap: 1 }}
               >
                 <Filters
-                  availableFilterKeys={[
-                    'entity_type',
-                    'workflow_id',
-                    'objectAssignee',
-                    'objects',
-                    'objectMarking',
-                    'objectLabel',
-                    'creator_id',
-                    'createdBy',
-                    'priority',
-                    'severity',
-                    'x_opencti_score',
-                    'x_opencti_detection',
-                    'revoked',
-                    'confidence',
-                    'indicator_types',
-                    'pattern_type',
-                    'x_opencti_main_observable_type',
-                    'fromId',
-                    'toId',
-                    'fromTypes',
-                    'toTypes',
-                  ]}
+                  availableFilterKeys={stixFilters}
                   helpers={helpers}
-                  searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+                  searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering'] }}
                 />
               </Box>
               <FilterIconButton
@@ -222,6 +202,8 @@ const StreamCollectionCreation: FunctionComponent<StreamCollectionCreationProps>
                 helpers={helpers}
                 styleNumber={2}
                 redirection
+                searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+                entityTypes={['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering']}
               />
               <div className={classes.buttons}>
                 <Button

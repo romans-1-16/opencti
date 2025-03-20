@@ -15,6 +15,7 @@ enum CaseTemplatesOrdering {
   name
   description
   created
+  _score
 }
 
 type CaseTemplateConnection {
@@ -40,7 +41,7 @@ type Query {
 
 # Mutations
 input CaseTemplateAddInput {
-  name: String! @constraint(minLength: 2)
+  name: String! @constraint(minLength: 2, format: "not-blank")
   description: String
   created: DateTime
   tasks: [StixRef!]!
@@ -48,8 +49,8 @@ input CaseTemplateAddInput {
 
 type Mutation {
   caseTemplateAdd(input: CaseTemplateAddInput!): CaseTemplate @auth
-  caseTemplateDelete(id: ID!): ID @auth(for: [SETTINGS])
-  caseTemplateFieldPatch(id: ID!, input: [EditInput!]!, commitMessage: String, references: [String]): CaseTemplate @auth(for: [SETTINGS])
+  caseTemplateDelete(id: ID!): ID @auth(for: [SETTINGS_SETLABELS])
+  caseTemplateFieldPatch(id: ID!, input: [EditInput!]!, commitMessage: String, references: [String]): CaseTemplate @auth(for: [SETTINGS_SETLABELS])
   caseTemplateRelationAdd(id: ID!, input: StixRefRelationshipAddInput!): CaseTemplate @auth(for: [KNOWLEDGE_KNUPDATE])
   caseTemplateRelationDelete(id: ID!, toId: StixRef!, relationship_type: String!): CaseTemplate @auth(for: [KNOWLEDGE_KNUPDATE])
 }

@@ -1,8 +1,9 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
+import * as R from 'ramda';
 import { compose } from 'ramda';
 import { Link } from 'react-router-dom';
-import { graphql, createFragmentContainer } from 'react-relay';
+import { createFragmentContainer, graphql } from 'react-relay';
 import withStyles from '@mui/styles/withStyles';
 import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -10,15 +11,14 @@ import ListItemText from '@mui/material/ListItemText';
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import { MoreVert } from '@mui/icons-material';
 import Skeleton from '@mui/material/Skeleton';
-import * as R from 'ramda';
-import Chip from '@mui/material/Chip';
 import inject18n from '../../../../components/i18n';
 import ItemConfidence from '../../../../components/ItemConfidence';
 import StixCoreRelationshipPopover from '../../common/stix_core_relationships/StixCoreRelationshipPopover';
 import ItemIcon from '../../../../components/ItemIcon';
 import Security from '../../../../utils/Security';
 import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
+import ItemEntityType from '../../../../components/ItemEntityType';
+import { isEmptyField } from '../../../../utils/utils';
 
 const styles = (theme) => ({
   item: {
@@ -45,13 +45,6 @@ const styles = (theme) => ({
     height: '1em',
     backgroundColor: theme.palette.grey[700],
   },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
 });
 
 class IndicatorEntityLineComponent extends Component {
@@ -64,9 +57,11 @@ class IndicatorEntityLineComponent extends Component {
       node,
       paginationOptions,
       displayRelation,
+      entityId,
       entityLink,
     } = this.props;
-    const restricted = node.to === null;
+    const element = node.to?.id === entityId ? node.from : node.to;
+    const restricted = isEmptyField(element);
     const link = `${entityLink}/relations/${node.id}`;
     return (
       <ListItem
@@ -88,12 +83,8 @@ class IndicatorEntityLineComponent extends Component {
                   className={classes.bodyItem}
                   style={{ width: dataColumns.relationship_type.width }}
                 >
-                  <Chip
-                    variant="outlined"
-                    classes={{ root: classes.chipInList }}
-                    style={{ width: 120 }}
-                    color="primary"
-                    label={t(`relationship_${node.relationship_type}`)}
+                  <ItemEntityType
+                    entityType={node.relationship_type}
                   />
                 </div>
               )}
@@ -101,67 +92,14 @@ class IndicatorEntityLineComponent extends Component {
                 className={classes.bodyItem}
                 style={{ width: dataColumns.entity_type.width }}
               >
-                <Chip
-                  classes={{ root: classes.chipInList }}
-                  style={{
-                    width: 140,
-                    backgroundColor: hexToRGB(
-                      itemColor(
-                        // eslint-disable-next-line no-nested-ternary
-                        !restricted
-                          ? node.to.entity_type === 'stix_relation'
-                            || node.to.entity_type === 'stix-relation'
-                            ? node.to.parent_types[0]
-                            : node.to.entity_type
-                          : 'Restricted',
-                      ),
-                      0.08,
-                    ),
-                    color: itemColor(
-                      // eslint-disable-next-line no-nested-ternary
-                      !restricted
-                        ? node.to.entity_type === 'stix_relation'
-                          || node.to.entity_type === 'stix-relation'
-                          ? node.to.parent_types[0]
-                          : node.to.entity_type
-                        : 'Restricted',
-                    ),
-                    border: `1px solid ${itemColor(
-                      // eslint-disable-next-line no-nested-ternary
-                      !restricted
-                        ? node.to.entity_type === 'stix_relation'
-                          || node.to.entity_type === 'stix-relation'
-                          ? node.to.parent_types[0]
-                          : node.to.entity_type
-                        : 'Restricted',
-                    )}`,
-                  }}
-                  label={
-                    <>
-                      <ItemIcon
-                        variant="inline"
-                        type={
-                          // eslint-disable-next-line no-nested-ternary
-                          !restricted
-                            ? node.to.entity_type === 'stix_relation'
-                              || node.to.entity_type === 'stix-relation'
-                              ? node.to.parent_types[0]
-                              : node.to.entity_type
-                            : 'Restricted'
-                        }
-                      />
-                      {!restricted
-                        ? t(
-                          `entity_${
-                            node.to.entity_type === 'stix_relation'
-                              || node.to.entity_type === 'stix-relation'
-                              ? node.to.parent_types[0]
-                              : node.to.entity_type
-                          }`,
-                        )
-                        : t('Restricted')}
-                    </>
-                  }
+                <ItemEntityType
+                  entityType={element.entity_type === 'stix_relation'
+                    || element.entity_type === 'stix-relation'
+                    ? element.parent_types[0]
+                    : element.entity_type}
+                  isRestricted={restricted}
+                  size='large'
+                  showIcon
                 />
               </div>
               <div
@@ -170,12 +108,12 @@ class IndicatorEntityLineComponent extends Component {
               >
                 {/* eslint-disable-next-line no-nested-ternary */}
                 {!restricted
-                  ? node.to.entity_type === 'stix_relation'
-                    || node.to.entity_type === 'stix-relation'
-                    ? `${node.to.from.name} ${String.fromCharCode(8594)} ${
-                      node.to.to.name || node.to.to.observable_value
+                  ? element.entity_type === 'stix_relation'
+                    || element.entity_type === 'stix-relation'
+                    ? `${element.from.name} ${String.fromCharCode(8594)} ${
+                      element.to.name || element.to.observable_value
                     }`
-                    : node.to.name || node.to.observable_value
+                    : element.name || element.observable_value
                   : t('Restricted')}
               </div>
               <div
@@ -270,6 +208,241 @@ const IndicatorEntityLineFragment = createFragmentContainer(
         creators {
           id
           name
+        }
+        from {
+          ... on BasicObject {
+            id
+            entity_type
+            parent_types
+          }
+          ... on BasicRelationship {
+            id
+            entity_type
+            parent_types
+          }
+          ... on StixCoreObject {
+            created_at
+            updated_at
+          }
+          ... on StixCoreRelationship {
+            created_at
+            updated_at
+          }
+          ... on AttackPattern {
+            name
+            description
+          }
+          ... on Campaign {
+            name
+            description
+          }
+          ... on CourseOfAction {
+            name
+            description
+          }
+          ... on Individual {
+            name
+            description
+          }
+          ... on Organization {
+            name
+            description
+          }
+          ... on Sector {
+            name
+            description
+          }
+          ... on System {
+            name
+            description
+          }
+          ... on Indicator {
+            name
+            description
+          }
+          ... on Infrastructure {
+            name
+            description
+          }
+          ... on IntrusionSet {
+            name
+            description
+          }
+          ... on Position {
+            name
+            description
+          }
+          ... on City {
+            name
+            description
+          }
+          ... on AdministrativeArea {
+            name
+            description
+          }
+          ... on Country {
+            name
+            description
+          }
+          ... on Region {
+            name
+            description
+          }
+          ... on Malware {
+            name
+            description
+          }
+          ... on ThreatActor {
+            name
+            description
+          }
+          ... on Tool {
+            name
+            description
+          }
+          ... on Vulnerability {
+            name
+            description
+          }
+          ... on Incident {
+            name
+            description
+          }
+          ... on StixCyberObservable {
+            observable_value
+          }
+          ... on StixCoreRelationship {
+            from {
+              ... on AttackPattern {
+                name
+              }
+              ... on Campaign {
+                name
+              }
+              ... on CourseOfAction {
+                name
+              }
+              ... on Individual {
+                name
+              }
+              ... on Organization {
+                name
+              }
+              ... on Sector {
+                name
+              }
+              ... on System {
+                name
+              }
+              ... on Indicator {
+                name
+              }
+              ... on Infrastructure {
+                name
+              }
+              ... on IntrusionSet {
+                name
+              }
+              ... on Position {
+                name
+              }
+              ... on City {
+                name
+              }
+              ... on AdministrativeArea {
+                name
+              }
+              ... on Country {
+                name
+              }
+              ... on Region {
+                name
+              }
+              ... on Malware {
+                name
+              }
+              ... on ThreatActor {
+                name
+              }
+              ... on Tool {
+                name
+              }
+              ... on Vulnerability {
+                name
+              }
+              ... on Incident {
+                name
+              }
+              ... on StixCyberObservable {
+                observable_value
+              }
+            }
+            to {
+              ... on AttackPattern {
+                name
+              }
+              ... on Campaign {
+                name
+              }
+              ... on CourseOfAction {
+                name
+              }
+              ... on Individual {
+                name
+              }
+              ... on Organization {
+                name
+              }
+              ... on Sector {
+                name
+              }
+              ... on System {
+                name
+              }
+              ... on Indicator {
+                name
+              }
+              ... on Infrastructure {
+                name
+              }
+              ... on IntrusionSet {
+                name
+              }
+              ... on Position {
+                name
+              }
+              ... on City {
+                name
+              }
+              ... on AdministrativeArea {
+                name
+              }
+              ... on Country {
+                name
+              }
+              ... on Region {
+                name
+              }
+              ... on Malware {
+                name
+              }
+              ... on ThreatActor {
+                name
+              }
+              ... on Tool {
+                name
+              }
+              ... on Vulnerability {
+                name
+              }
+              ... on Incident {
+                name
+              }
+              ... on StixCyberObservable {
+                observable_value
+              }
+            }
+          }
         }
         to {
           ... on BasicObject {

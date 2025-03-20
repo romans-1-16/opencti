@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import * as PropTypes from 'prop-types';
-import { Link, Route, Switch, useParams } from 'react-router-dom';
+import { Link, Route, Routes, useParams, useLocation } from 'react-router-dom';
 import { graphql, usePreloadedQuery, useQueryLoader, useSubscription } from 'react-relay';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { useLocation } from 'react-router-dom-v5-compat';
 import makeStyles from '@mui/styles/makeStyles';
 import UserPopover from './UserPopover';
 import AccessesMenu from '../AccessesMenu';
@@ -20,6 +19,8 @@ import { useFormatter } from '../../../../components/i18n';
 import useAuth from '../../../../utils/hooks/useAuth';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   title: {
     float: 'left',
@@ -100,7 +101,7 @@ const RootUserComponent = ({ queryRef, userId, refetch }) => {
       {data ? (
         <div style={{ paddingRight: 200 }}>
           <AccessesMenu />
-          <Breadcrumbs variant="object" elements={[
+          <Breadcrumbs elements={[
             { label: t_i18n('Settings') },
             { label: t_i18n('Security') },
             { label: t_i18n('Users'), link: '/dashboard/settings/accesses/users' },
@@ -138,22 +139,20 @@ const RootUserComponent = ({ queryRef, userId, refetch }) => {
               />
             </Tabs>
           </Box>
-          <Switch>
+          <Routes>
             <Route
-              exact
-              path="/dashboard/settings/accesses/users/:userId"
-              render={(routeProps) => (
-                <User {...routeProps} data={data} refetch={refetch} />
-              )}
+              path="/"
+              element={
+                <User data={data} refetch={refetch} />
+              }
             />
             <Route
-              exact
-              path="/dashboard/settings/accesses/users/:userId/analytics"
-              render={(routeProps) => (
-                <UserAnalytics {...routeProps} data={data} refetch={refetch} />
+              path="/analytics"
+              element={ (
+                <UserAnalytics data={data} refetch={refetch} />
               )}
             />
-          </Switch>
+          </Routes>
         </div>
       ) : (
         <ErrorNotFound />

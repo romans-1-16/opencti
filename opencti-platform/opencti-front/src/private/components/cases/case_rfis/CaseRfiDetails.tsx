@@ -1,34 +1,28 @@
-import { ExpandLessOutlined, ExpandMoreOutlined } from '@mui/icons-material';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import makeStyles from '@mui/styles/makeStyles';
-import * as R from 'ramda';
-import React, { FunctionComponent, useState } from 'react';
+import React, { FunctionComponent } from 'react';
 import { graphql, useFragment } from 'react-relay';
-import { Link } from 'react-router-dom';
+import RelatedContainers from '@components/common/containers/related_containers/RelatedContainers';
+import Divider from '@mui/material/Divider';
 import ExpandableMarkdown from '../../../../components/ExpandableMarkdown';
 import { useFormatter } from '../../../../components/i18n';
-import ItemIcon from '../../../../components/ItemIcon';
-import ItemMarkings from '../../../../components/ItemMarkings';
 import ItemOpenVocab from '../../../../components/ItemOpenVocab';
 import type { Theme } from '../../../../components/Theme';
 import { CaseRfiDetails_case$key } from './__generated__/CaseRfiDetails_case.graphql';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
     position: 'relative',
+    display: 'flex',
+    flexFlow: 'column',
   },
   chip: {
     fontSize: 12,
@@ -39,70 +33,13 @@ const useStyles = makeStyles<Theme>((theme) => ({
     borderRadius: 4,
     margin: '0 5px 5px 0',
   },
-  item: {
-    height: 50,
-    minHeight: 50,
-    maxHeight: 50,
-    paddingRight: 0,
-  },
-  itemText: {
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    paddingRight: 10,
-  },
-  buttonExpand: {
-    position: 'absolute',
-    left: 0,
-    bottom: 0,
-    width: '100%',
-    height: 25,
-    color: theme.palette.primary.main,
-    backgroundColor:
-      theme.palette.mode === 'dark'
-        ? 'rgba(255, 255, 255, .1)'
-        : 'rgba(0, 0, 0, .1)',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    '&:hover': {
-      backgroundColor:
-        theme.palette.mode === 'dark'
-          ? 'rgba(255, 255, 255, .2)'
-          : 'rgba(0, 0, 0, .2)',
-    },
-  },
-  itemAuthor: {
-    width: 120,
-    minWidth: 120,
-    maxWidth: 120,
-    marginRight: 24,
-    marginLeft: 24,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  itemDate: {
-    width: 120,
-    minWidth: 120,
-    maxWidth: 120,
-    marginRight: 24,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  itemMarking: {
-    width: 110,
-    paddingRight: 20,
-  },
-  relatedContainers: {
-    paddingTop: 0,
-  },
 }));
 
 const CaseRfiDetailsFragment = graphql`
   fragment CaseRfiDetails_case on CaseRfi {
     id
     name
+    entity_type
     description
     created
     modified
@@ -128,36 +65,12 @@ const CaseRfiDetailsFragment = graphql`
     workflowEnabled
     relatedContainers(
       first: 10
-      orderBy: created
+      orderBy: modified
       orderMode: desc
-      types: ["Case-Rfi"]
+      types: ["Case", "Report", "Grouping"]
       viaTypes: ["Indicator", "Stix-Cyber-Observable"]
     ) {
-      edges {
-        node {
-          id
-          entity_type
-          ... on CaseRfi {
-            name
-            description
-            created
-            createdBy {
-              ... on Identity {
-                id
-                name
-                entity_type
-              }
-            }
-            objectMarking {
-              id
-              definition_type
-              definition
-              x_opencti_order
-              x_opencti_color
-            }
-          }
-        }
-      }
+      ...RelatedContainersFragment_container_connection
     }
   }
 `;
@@ -169,26 +82,19 @@ interface CaseRfiDetailsProps {
 const CaseRfiDetails: FunctionComponent<CaseRfiDetailsProps> = ({
   caseRfiData,
 }) => {
-  const { t_i18n, fsd } = useFormatter();
+  const { t_i18n } = useFormatter();
   const classes = useStyles();
-  const [expanded, setExpanded] = useState(false);
   const data = useFragment(CaseRfiDetailsFragment, caseRfiData);
-  const expandable = (data.relatedContainers?.edges ?? []).length > 5;
   const informationTypes = data.information_types ?? [];
-  const relatedContainers = R.take(
-    expanded ? 200 : 5,
-    data.relatedContainers?.edges ?? [],
-  ).filter(
-    (relatedContainerEdge) => relatedContainerEdge?.node?.id !== data.id,
-  );
+
   return (
     <div style={{ height: '100%' }}>
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3} style={{ marginBottom: 20 }}>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Information type')}
             </Typography>
@@ -202,7 +108,7 @@ const CaseRfiDetails: FunctionComponent<CaseRfiDetailsProps> = ({
               ))
               : '-'}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Priority')}
             </Typography>
@@ -214,7 +120,7 @@ const CaseRfiDetails: FunctionComponent<CaseRfiDetailsProps> = ({
               displayMode="chip"
             />
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Severity')}
             </Typography>
@@ -226,7 +132,7 @@ const CaseRfiDetails: FunctionComponent<CaseRfiDetailsProps> = ({
               displayMode="chip"
             />
           </Grid>
-          <Grid item={true} xs={12}>
+          <Grid item xs={12}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Description')}
             </Typography>
@@ -237,67 +143,12 @@ const CaseRfiDetails: FunctionComponent<CaseRfiDetailsProps> = ({
             )}
           </Grid>
         </Grid>
-        <Typography variant="h3" gutterBottom={true}>
-          {t_i18n('Correlated cases')}
-        </Typography>
-        <List classes={{ root: classes.relatedContainers }}>
-          {relatedContainers.length > 0
-            ? relatedContainers.map((relatedContainerEdge) => {
-              const relatedContainer = relatedContainerEdge?.node;
-              return (
-                <ListItem
-                  key={data.id}
-                  dense={true}
-                  button={true}
-                  classes={{ root: classes.item }}
-                  divider={true}
-                  component={Link}
-                  to={`/dashboard/cases/rfis/${relatedContainer?.id}`}
-                >
-                  <ListItemIcon>
-                    <ItemIcon type={relatedContainer?.entity_type} />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <div className={classes.itemText}>
-                        {relatedContainer?.name}
-                      </div>
-                      }
-                  />
-                  <div className={classes.itemAuthor}>
-                    {R.pathOr('', ['createdBy', 'name'], relatedContainer)}
-                  </div>
-                  <div className={classes.itemDate}>
-                    {fsd(relatedContainer?.created)}
-                  </div>
-                  <div className={classes.itemMarking}>
-                    <ItemMarkings
-                      variant="inList"
-                      markingDefinitions={
-                          relatedContainer?.objectMarking ?? []
-                        }
-                      limit={1}
-                    />
-                  </div>
-                </ListItem>
-              );
-            })
-            : '-'}
-        </List>
-        {expandable && (
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => setExpanded(!expanded)}
-            classes={{ root: classes.buttonExpand }}
-          >
-            {expanded ? (
-              <ExpandLessOutlined fontSize="small" />
-            ) : (
-              <ExpandMoreOutlined fontSize="small" />
-            )}
-          </Button>
-        )}
+        <Divider style={{ marginTop: 30 }} />
+        <RelatedContainers
+          relatedContainers={data.relatedContainers}
+          containerId={data.id}
+          entityType={data.entity_type}
+        />
       </Paper>
     </div>
   );

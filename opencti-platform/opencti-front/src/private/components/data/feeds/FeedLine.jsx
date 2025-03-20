@@ -14,7 +14,9 @@ import Skeleton from '@mui/material/Skeleton';
 import FeedPopover from './FeedPopover';
 import inject18n from '../../../../components/i18n';
 import FilterIconButton from '../../../../components/FilterIconButton';
-import { deserializeFilterGroupForFrontend } from '../../../../utils/filters/filtersUtils';
+import { deserializeFilterGroupForFrontend, isFilterGroupNotEmpty } from '../../../../utils/filters/filtersUtils';
+import { TAXIIAPI_SETCOLLECTIONS } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
 
 const Transition = React.forwardRef((props, ref) => (
   <Slide direction="up" ref={ref} {...props} />
@@ -59,7 +61,7 @@ const styles = (theme) => ({
 
 class FeedLineLineComponent extends Component {
   render() {
-    const { classes, node, dataColumns, paginationOptions } = this.props;
+    const { classes, node, dataColumns, paginationOptions, t } = this.props;
     const filters = deserializeFilterGroupForFrontend(node.filters);
     return (
       <ListItem
@@ -86,7 +88,7 @@ class FeedLineLineComponent extends Component {
                 className={classes.bodyItem}
                 style={{ width: dataColumns.feed_types.width }}
               >
-                {node.feed_types.join(', ')}
+                {node.feed_types.map((type) => t(`entity_${type}`)).join(', ')}
               </div>
               <div
                 className={classes.bodyItem}
@@ -98,23 +100,27 @@ class FeedLineLineComponent extends Component {
                 className={classes.bodyItem}
                 style={{ width: dataColumns.columns.width }}
               >
-                {node.feed_attributes.map((n) => n.attribute).join(', ')}
+                {node.feed_attributes.map((n) => n.attribute).join(`${node.separator} `)}
               </div>
               <div
                 className={classes.filtersItem}
                 style={{ width: dataColumns.filters.width }}
               >
-                <FilterIconButton
-                  filters={filters}
-                  styleNumber={3}
-                  dataColumns={dataColumns}
-                />
+                {isFilterGroupNotEmpty(filters)
+                  ? <FilterIconButton
+                      filters={filters}
+                      styleNumber={3}
+                      dataColumns={dataColumns}
+                    />
+                  : '-'}
               </div>
             </>
           }
         />
         <ListItemSecondaryAction>
-          <FeedPopover feedId={node.id} paginationOptions={paginationOptions} />
+          <Security needs={[TAXIIAPI_SETCOLLECTIONS]}>
+            <FeedPopover feedId={node.id} paginationOptions={paginationOptions} />
+          </Security>
         </ListItemSecondaryAction>
       </ListItem>
     );
@@ -128,6 +134,7 @@ FeedLineLineComponent.propTypes = {
   me: PropTypes.object,
   classes: PropTypes.object,
   fd: PropTypes.func,
+  t: PropTypes.func,
 };
 
 const FeedLineFragment = createFragmentContainer(FeedLineLineComponent, {
@@ -135,6 +142,7 @@ const FeedLineFragment = createFragmentContainer(FeedLineLineComponent, {
     fragment FeedLine_node on Feed {
       id
       name
+      separator
       rolling_time
       filters
       include_header

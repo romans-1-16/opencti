@@ -1,6 +1,6 @@
-import React, { Component } from 'react';
+import React, { useEffect } from 'react';
 import * as PropTypes from 'prop-types';
-import { Route, withRouter } from 'react-router-dom';
+import { Route, Routes, useParams } from 'react-router-dom';
 import { graphql } from 'react-relay';
 import { QueryRenderer, requestSubscription } from '../../../../relay/environment';
 import Dashboard from './Dashboard';
@@ -30,65 +30,62 @@ const dashboardQuery = graphql`
   }
 `;
 
-class RootDashboard extends Component {
-  constructor(props) {
-    super(props);
-    const {
-      match: {
-        params: { workspaceId },
-      },
-    } = props;
-    this.sub = requestSubscription({
+const RootDashboard = () => {
+  const { workspaceId } = useParams();
+
+  useEffect(() => {
+    const sub = requestSubscription({
       subscription,
       variables: { id: workspaceId },
     });
-  }
 
-  componentWillUnmount() {
-    this.sub.dispose();
-  }
+    return () => {
+      sub.dispose();
+    };
+  }, [workspaceId]);
 
-  render() {
-    const {
-      match: {
-        params: { workspaceId },
-      },
-    } = this.props;
-    return (
-      <div data-testid="dashboard-details-page">
-        <QueryRenderer
-          query={dashboardQuery}
-          variables={{ id: workspaceId }}
-          render={({ props }) => {
-            if (props) {
-              if (props.workspace) {
-                return (
+  return (
+    <div
+      data-testid="dashboard-details-page"
+      style={{
+        overflow: 'auto',
+        marginRight: -20,
+        paddingRight: 20,
+        paddingTop: 5,
+      }}
+    >
+      <QueryRenderer
+        query={dashboardQuery}
+        variables={{ id: workspaceId }}
+        render={({ props }) => {
+          if (props) {
+            if (props.workspace) {
+              return (
+                <Routes>
                   <Route
-                    exact
-                    path="/dashboard/workspaces/dashboards/:workspaceId"
-                    render={(routeProps) => (
+                    path="/"
+                    element={
                       <Dashboard
-                        {...routeProps}
                         workspace={props.workspace}
                         settings={props.settings}
                       />
-                    )}
+                        }
                   />
-                );
-              }
-              return <ErrorNotFound />;
+                </Routes>
+              );
             }
-            return <Loader />;
-          }}
-        />
-      </div>
-    );
-  }
-}
+            return <ErrorNotFound/>;
+          }
+          return <Loader/>;
+        }}
+      />
+    </div>
+  );
+};
 
 RootDashboard.propTypes = {
   children: PropTypes.node,
-  match: PropTypes.object,
+  params: PropTypes.object,
 };
 
-export default withRouter(RootDashboard);
+export default RootDashboard;

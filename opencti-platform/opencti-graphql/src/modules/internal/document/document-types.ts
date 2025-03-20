@@ -3,6 +3,7 @@ import type { BasicStoreEntity } from '../../../types/store';
 export interface BasicStoreEntityDocument extends BasicStoreEntity {
   size: number
   lastModified: Date
+  lastModifiedSinceMin: Date
   metaData: {
     entity_id?: string
     mimetype: string
@@ -10,5 +11,6 @@ export interface BasicStoreEntityDocument extends BasicStoreEntity {
     description?: string
     inCarousel?: boolean
     filename?: string
+    file_markings?: string[]
   }
 }

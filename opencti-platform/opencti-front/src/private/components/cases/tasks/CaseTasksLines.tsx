@@ -10,7 +10,7 @@ import Typography from '@mui/material/Typography';
 import makeStyles from '@mui/styles/makeStyles';
 import { Form, Formik } from 'formik';
 import React, { FunctionComponent, MutableRefObject, useState } from 'react';
-import { graphql, PreloadedQuery, useMutation } from 'react-relay';
+import { graphql, PreloadedQuery } from 'react-relay';
 import { GridTypeMap } from '@mui/material';
 import Drawer from '@components/common/drawer/Drawer';
 import { useFormatter } from '../../../../components/i18n';
@@ -27,11 +27,12 @@ import { CaseTasksLine } from './CaseTasksLine';
 import { tasksDataColumns } from './TasksLine';
 import { CaseTasksLines_data$key } from './__generated__/CaseTasksLines_data.graphql';
 import { CaseTasksLinesQuery, CaseTasksLinesQuery$variables } from './__generated__/CaseTasksLinesQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '-5px 0 0 0',
     padding: 0,
     borderRadius: 4,
@@ -55,48 +56,48 @@ const useStyles = makeStyles<Theme>((theme) => ({
 }));
 
 export const caseTasksLinesQuery = graphql`
-    query CaseTasksLinesQuery(
-        $count: Int
-        $filters: FilterGroup
-        $cursor: ID
-        $orderBy: TasksOrdering
-        $orderMode: OrderingMode
-    ) {
-        ...CaseTasksLines_data
-        @arguments(
-            count: $count
-            filters: $filters
-            cursor: $cursor
-            orderBy: $orderBy
-            orderMode: $orderMode
-        )
-    }
+  query CaseTasksLinesQuery(
+    $count: Int
+    $filters: FilterGroup
+    $cursor: ID
+    $orderBy: TasksOrdering
+    $orderMode: OrderingMode
+  ) {
+    ...CaseTasksLines_data
+    @arguments(
+      count: $count
+      filters: $filters
+      cursor: $cursor
+      orderBy: $orderBy
+      orderMode: $orderMode
+    )
+  }
 `;
 
 const caseTasksLinesFragment = graphql`
-    fragment CaseTasksLines_data on Query
-    @argumentDefinitions(
-        count: { type: "Int", defaultValue: 25 }
-        filters: { type: "FilterGroup" }
-        cursor: { type: "ID" }
-        orderBy: { type: "TasksOrdering" }
-        orderMode: { type: "OrderingMode", defaultValue: desc }
-    )
-    @refetchable(queryName: "TasksRefetch") {
-        tasks(
-            first: $count
-            filters: $filters
-            after: $cursor
-            orderBy: $orderBy
-            orderMode: $orderMode
-        ) @connection(key: "Pagination_tasks") {
-            edges {
-                node {
-                    ...CaseTasksLine_data
-                }
-            }
+  fragment CaseTasksLines_data on Query
+  @argumentDefinitions(
+    count: { type: "Int", defaultValue: 25 }
+    filters: { type: "FilterGroup" }
+    cursor: { type: "ID" }
+    orderBy: { type: "TasksOrdering" }
+    orderMode: { type: "OrderingMode", defaultValue: desc }
+  )
+  @refetchable(queryName: "TasksRefetch") {
+    tasks(
+      first: $count
+      filters: $filters
+      after: $cursor
+      orderBy: $orderBy
+      orderMode: $orderMode
+    ) @connection(key: "Pagination_tasks") {
+      edges {
+        node {
+          ...CaseTasksLine_data
         }
+      }
     }
+  }
 `;
 
 interface CaseTasksLinesProps {
@@ -108,6 +109,7 @@ interface CaseTasksLinesProps {
   orderAsc: boolean | undefined;
   handleSort?: (field: string, order: boolean) => void;
   containerRef: MutableRefObject<GridTypeMap | null>;
+  enableReferences: boolean;
 }
 
 const CaseTasksLines: FunctionComponent<CaseTasksLinesProps> = ({
@@ -119,6 +121,7 @@ const CaseTasksLines: FunctionComponent<CaseTasksLinesProps> = ({
   orderAsc,
   handleSort,
   containerRef,
+  enableReferences,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
@@ -126,7 +129,7 @@ const CaseTasksLines: FunctionComponent<CaseTasksLinesProps> = ({
   const [openCaseTemplate, setOpenCaseTemplate] = useState(false);
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
-  const [commit] = useMutation(caseSetTemplateQuery);
+  const [commit] = useApiMutation(caseSetTemplateQuery);
   const { data } = usePreloadedPaginationFragment<CaseTasksLinesQuery,
   CaseTasksLines_data$key>({
     queryRef,
@@ -245,7 +248,7 @@ const CaseTasksLines: FunctionComponent<CaseTasksLinesProps> = ({
         />
       </Drawer>
       <div className="clearfix"/>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <ListLines
           sortBy={sortBy}
           orderAsc={orderAsc}
@@ -262,6 +265,7 @@ const CaseTasksLines: FunctionComponent<CaseTasksLinesProps> = ({
             entityId={caseId}
             paginationOptions={tasksFilters}
             containerRef={containerRef}
+            enableReferences={enableReferences}
           />
         </ListLines>
       </Paper>

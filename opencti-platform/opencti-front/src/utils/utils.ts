@@ -8,6 +8,8 @@ export const isEmptyField = <T>(
   field: T | null | undefined,
 ): field is null | undefined => !isNotEmptyField(field);
 
+export const isNilField = <T>(field: T | null | undefined) => field === null || field === undefined;
+
 export const copyToClipboard = (t: (text: string) => string, text: string) => {
   navigator.clipboard.writeText(text);
   MESSAGING$.notifySuccess(t('Copied to clipboard'));
@@ -39,24 +41,64 @@ export const deleteElementByValue = (obj: Record<string, string>, val: string) =
 
 export const getFileUri = (id: string) => {
   const encodedFilePath = encodeURIComponent(id);
-  const imageView = `${APP_BASE_PATH}/storage/view/${encodedFilePath}`;
-  return imageView;
+  return `${APP_BASE_PATH}/storage/view/${encodedFilePath}`;
 };
 
-export const readFileContent = (file: File): Promise<unknown> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+export const generateUniqueItemsArray = <T>(submittedArray: IterableIterator<T> | Array<T>) => Array.from(new Set(submittedArray));
 
-    reader.onload = (event) => {
-      try {
-        const jsonContent = JSON.parse(event.target?.result as string);
-        resolve(jsonContent);
-      } catch (error) {
-        reject(error);
-      }
-    };
+export const getCurrentTab = (locationPath: string, entityId: string, entityTypePath: string) => {
+  if (locationPath.includes(`${entityTypePath}/${entityId}/knowledge`)) return `${entityTypePath}/${entityId}/knowledge`;
+  if (locationPath.includes(`${entityTypePath}/${entityId}/content`)) return `${entityTypePath}/${entityId}/content`;
+  return locationPath;
+};
 
-    reader.onerror = (error) => reject(error);
-    reader.readAsText(file);
-  });
+export const getPaddingRight = (locationPath: string, entityId: string, entityTypePath: string, applyKnowledgePadding = true) => {
+  let paddingRight = 0;
+  if (entityId) {
+    if (
+      locationPath.includes(
+        `${entityTypePath}/${entityId}/entities`,
+      )
+      || locationPath.includes(
+        `${entityTypePath}/${entityId}/observables`,
+      )
+    ) {
+      paddingRight = 250;
+    }
+    if (
+      applyKnowledgePadding && locationPath.includes(
+        `${entityTypePath}/${entityId}/knowledge`,
+      )
+    ) {
+      paddingRight = 200;
+    }
+    if (
+      locationPath.includes(
+        `${entityTypePath}/${entityId}/content`,
+      )
+    ) {
+      paddingRight = 350;
+    }
+    if (
+      locationPath.includes(
+        `${entityTypePath}/${entityId}/content/mapping`,
+      )
+      || locationPath.includes(
+        `${entityTypePath}/${entityId}/content/suggested_mapping`,
+      )
+    ) {
+      paddingRight = 0;
+    }
+  }
+  return paddingRight;
+};
+
+export const throttle = (callback: (...a: unknown[]) => unknown, wait: number) => {
+  let timeoutId: number;
+  return (...args: unknown[]) => {
+    window.clearTimeout(timeoutId);
+    timeoutId = window.setTimeout(() => {
+      callback(...args);
+    }, wait);
+  };
 };

@@ -1,11 +1,10 @@
-import { withFilter } from 'graphql-subscriptions';
 import * as R from 'ramda';
 import { BUS_TOPICS, ENABLED_DEMO_MODE, logApp } from '../config/conf';
 import { AuthenticationFailure } from '../config/errors';
 import passport, { PROVIDERS } from '../config/providers';
 import { batchLoader } from '../database/middleware';
 import { internalLoadById } from '../database/middleware-loader';
-import { fetchEditContext, pubSubAsyncIterator } from '../database/redis';
+import { fetchEditContext } from '../database/redis';
 import { applicationSession, findSessions, findUserSessions, killSession, killUserSessions } from '../database/session';
 import { addRole } from '../domain/grant';
 import {
@@ -15,10 +14,13 @@ import {
   authenticateUser,
   batchCreator,
   batchRolesForUsers,
+  batchUserEffectiveConfidenceLevel,
   bookmarks,
+  buildCompleteUser,
   deleteBookmark,
   findAll,
   findAllMembers,
+  findAllSystemMembers,
   findAssignees,
   findById,
   findCapabilities,
@@ -50,16 +52,20 @@ import {
   userGroupsPaginated,
   userIdDeleteRelation,
   userOrganizationsPaginated,
+  userOrganizationsPaginatedWithoutInferences,
   userRenewToken,
   userWithOrigin
 } from '../domain/user';
-import withCancel from '../graphql/subscriptionWrapper';
+import { subscribeToInstanceEvents, subscribeToUserEvents } from '../graphql/subscriptionWrapper';
 import { publishUserAction } from '../listener/UserActionListener';
+import { findById as findDraftById } from '../modules/draftWorkspace/draftWorkspace-domain';
 import { findById as findWorskpaceById } from '../modules/workspace/workspace-domain';
 import { ENTITY_TYPE_USER } from '../schema/internalObject';
 import { executionContext, REDACTED_USER } from '../utils/access';
+import { getNotifiers } from '../modules/notifier/notifier-domain';
 
 const rolesUsersLoader = batchLoader(batchRolesForUsers);
+const usersConfidenceLoader = batchLoader(batchUserEffectiveConfidenceLevel);
 const creatorLoader = batchLoader(batchCreator);
 
 const userResolvers = {
@@ -74,6 +80,7 @@ const userResolvers = {
     assignees: (_, args, context) => findAssignees(context, context.user, args),
     participants: (_, args, context) => findParticipants(context, context.user, args),
     members: (_, args, context) => findAllMembers(context, context.user, args),
+    systemMembers: () => findAllSystemMembers(),
     sessions: () => findSessions(),
     capabilities: (_, args, context) => findCapabilities(context, context.user, args),
     bookmarks: (_, args, context) => bookmarks(context, context.user, args),
@@ -82,9 +89,11 @@ const userResolvers = {
     roles: (current, args, context) => rolesUsersLoader.load(current.id, context, context.user, args),
     groups: (current, args, context) => userGroupsPaginated(context, context.user, current.id, args),
     objectOrganization: (current, args, context) => userOrganizationsPaginated(context, context.user, current.id, args),
+    objectAssignedOrganization: (current, args, context) => userOrganizationsPaginatedWithoutInferences(context, context.user, current.id, args),
     editContext: (current) => fetchEditContext(current.id),
     sessions: (current) => findUserSessions(current.id),
-    effective_confidence_level: (current, args, context) => getUserEffectiveConfidenceLevel(current.id, context),
+    effective_confidence_level: (current, args, context) => usersConfidenceLoader.load(current, context, context.user),
+    personal_notifiers: (current, _, context) => getNotifiers(context, context.user, current.personal_notifiers),
   },
   Member: {
     name: (current, _, context) => {
@@ -93,15 +102,26 @@ const userResolvers = {
       }
       return (ENABLED_DEMO_MODE && context.user.id !== current.id) ? REDACTED_USER.name : current.name;
     },
+    effective_confidence_level: (current, _, context) => {
+      if (current.entity_type === ENTITY_TYPE_USER) {
+        return getUserEffectiveConfidenceLevel(current, context);
+      }
+      return null;
+    },
   },
   MeUser: {
     language: (current) => current.language ?? 'auto',
     unit_system: (current) => current.unit_system ?? 'auto',
+    submenu_show_icons: (current) => current.submenu_show_icons ?? false,
+    submenu_auto_collapse: (current) => current.submenu_auto_collapse ?? true,
+    monochrome_labels: (current) => current.monochrome_labels ?? false,
     groups: (current, args, context) => userGroupsPaginated(context, context.user, current.id, args),
     objectOrganization: (current, args, context) => userOrganizationsPaginated(context, context.user, current.id, args),
     default_dashboards: (current, _, context) => findDefaultDashboards(context, context.user, current),
     default_dashboard: (current, _, context) => findWorskpaceById(context, context.user, current.default_dashboard),
-    effective_confidence_level: (current, args, context) => getUserEffectiveConfidenceLevel(current.id, context),
+    draftContext: (current, _, context) => findDraftById(context, context.user, current.draft_context),
+    effective_confidence_level: (current, args, context) => getUserEffectiveConfidenceLevel(current, context),
+    personal_notifiers: (current, _, context) => getNotifiers(context, context.user, current.personal_notifiers),
   },
   UserSession: {
     user: (session, _, context) => creatorLoader.load(session.user_id, context, context.user),
@@ -138,7 +158,7 @@ const userResolvers = {
         const { user, provider } = await new Promise((resolve) => {
           passport.authenticate(auth.provider, {}, (err, authUser, info) => {
             if (err || info) {
-              logApp.warn(err, { info, provider: auth.provider });
+              logApp.warn('Token authenticate error', { cause: err, info, provider: auth.provider });
             }
             resolve({ user: authUser, provider: auth.provider });
           })({ body });
@@ -228,20 +248,22 @@ const userResolvers = {
     bookmarkDelete: (_, { id }, context) => deleteBookmark(context, context.user, id),
   },
   Subscription: {
+    me: {
+      resolve: /* v8 ignore next */ (payload, _, context) => {
+        return buildCompleteUser(context, payload.instance);
+      },
+      subscribe: /* v8 ignore next */ (_, __, context) => {
+        const bus = BUS_TOPICS[ENTITY_TYPE_USER];
+        return subscribeToUserEvents(context, [bus.EDIT_TOPIC]);
+      },
+    },
     user: {
       resolve: /* v8 ignore next */ (payload) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        userEditContext(context, context.user, id);
-        const filtering = withFilter(
-          () => pubSubAsyncIterator(BUS_TOPICS[ENTITY_TYPE_USER].EDIT_TOPIC),
-          (payload) => {
-            if (!payload) return false; // When disconnect, an empty payload is dispatched.
-            return payload.user.id !== context.user.id && payload.instance.id === id;
-          }
-        )(_, { id }, context);
-        return withCancel(filtering, () => {
-          userCleanContext(context, context.user, id);
-        });
+        const preFn = () => userEditContext(context, context.user, id);
+        const cleanFn = () => userCleanContext(context, context.user, id);
+        const bus = BUS_TOPICS[ENTITY_TYPE_USER];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ENTITY_TYPE_USER, preFn, cleanFn });
       },
     },
   },

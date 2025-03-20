@@ -501,18 +501,17 @@ class StixCoreRelationshipCreationFromRelation extends Component {
     return (
       <UserContext.Consumer>
         {({ schema }) => {
-          const relationshipTypes = R.filter(
+          const relationshipTypes = R.uniq(resolveRelationsTypes(
+            fromEntity.parent_types.includes('Stix-Cyber-Observable')
+              ? 'observable'
+              : fromEntity.entity_type,
+            toEntity.entity_type,
+            schema.schemaRelationsTypesMapping,
+          ).filter(
             (n) => R.isNil(allowedRelationshipTypes)
                     || allowedRelationshipTypes.length === 0
                     || allowedRelationshipTypes.includes(n),
-            resolveRelationsTypes(
-              R.includes('Stix-Cyber-Observable', fromEntity.parent_types)
-                ? 'observable'
-                : fromEntity.entity_type,
-              toEntity.entity_type,
-              schema.schemaRelationsTypesMapping,
-            ),
-          );
+          ));
           return (
             <>
               <div className={classes.header}>
@@ -565,7 +564,7 @@ class StixCoreRelationshipCreationFromRelation extends Component {
       <div>
         {variant === 'inLine' ? (
           <IconButton
-            color="secondary"
+            color="primary"
             aria-label="Label"
             onClick={this.handleOpen.bind(this)}
             style={{ float: 'left', margin: '-15px 0 0 -2px' }}
@@ -576,7 +575,7 @@ class StixCoreRelationshipCreationFromRelation extends Component {
         ) : (
           <Fab
             onClick={this.handleOpen.bind(this)}
-            color="secondary"
+            color="primary"
             aria-label="Add"
             className={
               paddingRight

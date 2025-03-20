@@ -1,30 +1,15 @@
 import React from 'react';
 import { graphql } from 'react-relay';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import makeStyles from '@mui/styles/makeStyles';
-import { useTheme } from '@mui/styles';
-import { useNavigate } from 'react-router-dom-v5-compat';
-import Chart from '../charts/Chart';
 import { QueryRenderer } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
-import { itemColor } from '../../../../utils/Colors';
-import { horizontalBarsChartOptions } from '../../../../utils/Charts';
-import { simpleNumberFormat } from '../../../../utils/Number';
-import { defaultValue } from '../../../../utils/Graph';
 import { buildFiltersAndOptionsForWidgets } from '../../../../utils/filters/filtersUtils';
+import WidgetContainer from '../../../../components/dashboard/WidgetContainer';
+import WidgetNoData from '../../../../components/dashboard/WidgetNoData';
+import WidgetHorizontalBars from '../../../../components/dashboard/WidgetHorizontalBars';
+import useDistributionGraphData from '../../../../utils/hooks/useDistributionGraphData';
+import Loader, { LoaderVariant } from '../../../../components/Loader';
 
-const useStyles = makeStyles(() => ({
-  paper: {
-    height: '100%',
-    margin: '10px 0 0 0',
-    padding: 0,
-    borderRadius: 4,
-  },
-}));
-
-const stixRelationshipsHorizontalBarsDistributionQuery = graphql`
+export const stixRelationshipsHorizontalBarsDistributionQuery = graphql`
   query StixRelationshipsHorizontalBarsDistributionQuery(
     $field: String!
     $operation: StatsOperation!
@@ -75,145 +60,42 @@ const stixRelationshipsHorizontalBarsDistributionQuery = graphql`
       value
       entity {
         ... on BasicObject {
+          id
           entity_type
         }
         ... on BasicRelationship {
+          id
           entity_type
         }
-        ... on AttackPattern {
-          name
-          description
-          x_mitre_id
+        ... on StixObject {
+          representative {
+            main
+          }
         }
-        ... on Campaign {
-          name
-          description
+        ... on StixRelationship {
+          representative {
+            main
+          }
         }
-        ... on CourseOfAction {
-          name
-          description
-        }
-        ... on Individual {
-          name
-          description
-        }
-        ... on Organization {
-          name
-          description
-        }
-        ... on Sector {
-          name
-          description
-        }
-        ... on System {
-          name
-          description
-        }
-        ... on Indicator {
-          name
-          description
-        }
-        ... on Infrastructure {
-          name
-          description
-        }
-        ... on IntrusionSet {
-          name
-          description
-        }
-        ... on Position {
-          name
-          description
-        }
-        ... on City {
-          name
-          description
-        }
-        ... on Country {
-          name
-          description
-        }
-        ... on Region {
-          name
-          description
-        }
-        ... on Malware {
-          name
-          description
-        }
-        ... on ThreatActor {
-          name
-          description
-        }
-        ... on Tool {
-          name
-          description
-        }
-        ... on Vulnerability {
-          name
-          description
-        }
-        ... on Incident {
-          name
-          description
-        }
-        ... on Event {
-          name
-          description
-        }
-        ... on Channel {
-          name
-          description
-        }
-        ... on Narrative {
-          name
-          description
-        }
-        ... on Language {
-          name
-        }
-        ... on DataComponent {
-          name
-        }
-        ... on DataSource {
-          name
-        }
-        ... on Case {
-          name
-        }
-        ... on Report {
-          name
-        }
-        ... on StixCyberObservable {
-          observable_value
+        # use colors when available
+        ... on Label {
+          color
         }
         ... on MarkingDefinition {
-          definition_type
-          definition
+          x_opencti_color
         }
-        ... on KillChainPhase {
-          kill_chain_name
-          phase_name
-        }
+        # objects without representative
         ... on Creator {
           name
         }
-        ... on Report {
+        ... on Group {
           name
         }
-        ... on Grouping {
-          name
-        }
-        ... on Note {
-          attribute_abstract
-          content
-        }
-        ... on Opinion {
-          opinion
-        }
-        ... on Label {
-          value
-          color
+        ... on Status {
+          template {
+            name
+            color
+          }
         }
       }
     }
@@ -226,29 +108,25 @@ const StixRelationshipsHorizontalBars = ({
   withoutTitle,
   height,
   field,
+  isWidget = true,
   startDate,
   endDate,
-  dateAttribute,
   dataSelection,
+  fromId,
+  relationshipType,
   parameters = {},
   withExportPopover = false,
   isReadOnly = false,
 }) => {
-  const classes = useStyles();
-  const theme = useTheme();
   const { t_i18n } = useFormatter();
-  const navigate = useNavigate();
+  const { buildWidgetProps } = useDistributionGraphData();
   const renderContent = () => {
     let selection = {};
     let filtersAndOptions;
-    let dataSelectionDateAttribute = 'created_at';
     if (dataSelection) {
       // eslint-disable-next-line prefer-destructuring
       selection = dataSelection[0];
       filtersAndOptions = buildFiltersAndOptionsForWidgets(selection.filters);
-      dataSelectionDateAttribute = selection.date_attribute && selection.date_attribute.length > 0
-        ? selection.date_attribute
-        : 'created_at';
     }
     const finalField = selection.attribute || field || 'entity_type';
     const variables = {
@@ -256,7 +134,10 @@ const StixRelationshipsHorizontalBars = ({
       operation: 'count',
       startDate,
       endDate,
-      dateAttribute: dateAttribute || dataSelectionDateAttribute,
+      fromId,
+      toTypes: !isWidget ? ['Stix-Core-Object'] : null,
+      relationship_type: !isWidget ? relationshipType : null,
+      dateAttribute: selection.date_attribute ?? 'created_at',
       limit: selection.number ?? 10,
       filters: filtersAndOptions?.filters,
       isTo: selection.isTo,
@@ -273,118 +154,34 @@ const StixRelationshipsHorizontalBars = ({
             && props.stixRelationshipsDistribution
             && props.stixRelationshipsDistribution.length > 0
           ) {
-            const data = props.stixRelationshipsDistribution.map((n) => {
-              let color = selection.attribute.endsWith('_id')
-                ? itemColor(n.entity.entity_type)
-                : itemColor(n.label);
-              if (n.entity?.color) {
-                color = theme.palette.mode === 'light' && n.entity.color === '#ffffff'
-                  ? '#000000'
-                  : n.entity.color;
-              }
-              if (n.entity?.x_opencti_color) {
-                color = theme.palette.mode === 'light'
-                && n.entity.x_opencti_color === '#ffffff'
-                  ? '#000000'
-                  : n.entity.x_opencti_color;
-              }
-              if (n.entity?.template?.color) {
-                color = theme.palette.mode === 'light'
-                && n.entity.template.color === '#ffffff'
-                  ? '#000000'
-                  : n.entity.template.color;
-              }
-              return {
-                x: finalField.endsWith('_id')
-                  ? defaultValue(n.entity)
-                  : n.label,
-                y: n.value,
-                fillColor: color,
-              };
-            });
-            const chartData = [{ name: t_i18n('Number of relationships'), data }];
-            const redirectionUtils = finalField.endsWith('_id')
-              ? props.stixRelationshipsDistribution.map((n) => ({
-                id: n.label,
-                entity_type: n.entity.entity_type,
-              }))
-              : null;
+            const { series, redirectionUtils } = buildWidgetProps(props.stixRelationshipsDistribution, selection, 'Number of relationships');
             return (
-              <Chart
-                options={horizontalBarsChartOptions(
-                  theme,
-                  true,
-                  simpleNumberFormat,
-                  null,
-                  false,
-                  navigate,
-                  redirectionUtils,
-                )}
-                series={chartData}
-                type="bar"
-                width="100%"
-                height="100%"
-                withExportPopover={withExportPopover}
-                isReadOnly={isReadOnly}
+              <WidgetHorizontalBars
+                series={series}
+                distributed={parameters.distributed}
+                withExport={withExportPopover}
+                readonly={isReadOnly}
+                redirectionUtils={redirectionUtils}
               />
             );
           }
           if (props) {
-            return (
-              <div style={{ display: 'table', height: '100%', width: '100%' }}>
-                <span
-                  style={{
-                    display: 'table-cell',
-                    verticalAlign: 'middle',
-                    textAlign: 'center',
-                  }}
-                >
-                  {t_i18n('No entities of this type has been found.')}
-                </span>
-              </div>
-            );
+            return <WidgetNoData />;
           }
-          return (
-            <div style={{ display: 'table', height: '100%', width: '100%' }}>
-              <span
-                style={{
-                  display: 'table-cell',
-                  verticalAlign: 'middle',
-                  textAlign: 'center',
-                }}
-              >
-                <CircularProgress size={40} thickness={2} />
-              </span>
-            </div>
-          );
+          return <Loader variant={LoaderVariant.inElement} />;
         }}
       />
     );
   };
   return (
-    <div style={{ height: height || '100%' }}>
-      {!withoutTitle && (
-        <Typography
-          variant="h4"
-          gutterBottom={true}
-          style={{
-            margin: variant !== 'inLine' ? '0 0 10px 0' : '-10px 0 10px -7px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {parameters.title || title || t_i18n('Relationships distribution')}
-        </Typography>
-      )}
-      {variant !== 'inLine' ? (
-        <Paper classes={{ root: classes.paper }} variant="outlined">
-          {renderContent()}
-        </Paper>
-      ) : (
-        renderContent()
-      )}
-    </div>
+    <WidgetContainer
+      height={height}
+      title={parameters.title ?? title ?? t_i18n('Distribution of entities')}
+      variant={variant}
+      withoutTitle={withoutTitle}
+    >
+      {renderContent()}
+    </WidgetContainer>
   );
 };
 

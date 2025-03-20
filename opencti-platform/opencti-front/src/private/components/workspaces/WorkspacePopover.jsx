@@ -4,24 +4,32 @@ import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Dialog from '@mui/material/Dialog';
+import Box from '@mui/material/Box';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import PropTypes from 'prop-types';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
+import PublicDashboardCreationForm from './dashboards/public_dashboards/PublicDashboardCreationForm';
+import Drawer from '../common/drawer/Drawer';
 import { useFormatter } from '../../../components/i18n';
 import { QueryRenderer } from '../../../relay/environment';
 import WorkspaceEditionContainer from './WorkspaceEditionContainer';
 import Security from '../../../utils/Security';
-import { EXPLORE_EXUPDATE_EXDELETE } from '../../../utils/hooks/useGranted';
+import { EXPLORE_EXUPDATE, EXPLORE_EXUPDATE_EXDELETE, EXPLORE_EXUPDATE_PUBLISH, INVESTIGATION_INUPDATE_INDELETE } from '../../../utils/hooks/useGranted';
 import Transition from '../../../components/Transition';
 import { deleteNode, insertNode } from '../../../utils/store';
 import handleExportJson from './workspaceExportHandler';
 import WorkspaceDuplicationDialog from './WorkspaceDuplicationDialog';
+import useApiMutation from '../../../utils/hooks/useApiMutation';
+import { useGetCurrentUserAccessRight } from '../../../utils/authorizedMembers';
+import stopEvent from '../../../utils/domEvent';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -47,29 +55,49 @@ const WorkspacePopover = ({ workspace, paginationOptions }) => {
   const navigate = useNavigate();
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+
   const [anchorEl, setAnchorEl] = useState(null);
   const [displayDelete, setDisplayDelete] = useState(false);
   const [displayEdit, setDisplayEdit] = useState(false);
   const [displayDuplicate, setDisplayDuplicate] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
-  const handleOpen = (event) => setAnchorEl(event.currentTarget);
-  const handleClose = () => setAnchorEl(null);
-  const handleOpenDelete = () => {
-    setDisplayDelete(true);
-    handleClose();
+
+  const handleOpen = (event) => {
+    stopEvent(event);
+    setAnchorEl(event.currentTarget);
   };
-  const handleCloseDelete = () => setDisplayDelete(false);
-  const handleCloseDuplicate = () => {
+
+  const handleClose = (event) => {
+    stopEvent(event);
+    setAnchorEl(null);
+  };
+
+  const handleOpenDelete = (event) => {
+    setDisplayDelete(true);
+    handleClose(event);
+  };
+
+  const handleCloseDelete = (event) => {
+    stopEvent(event);
+    setDisplayDelete(false);
+  };
+
+  const handleCloseDuplicate = (event) => {
+    if (event) stopEvent(event);
     setDisplayDuplicate(false);
   };
-  const [commit] = useMutation(WorkspacePopoverDeletionMutation);
+
+  const [commit] = useApiMutation(WorkspacePopoverDeletionMutation);
+
   const updater = (store) => {
     if (paginationOptions) {
       insertNode(store, 'Pagination_workspaces', paginationOptions, 'workspaceDuplicate');
     }
   };
-  const submitDelete = () => {
+
+  const submitDelete = (event) => {
+    stopEvent(event);
     setDeleting(true);
     commit({
       variables: { id },
@@ -80,9 +108,9 @@ const WorkspacePopover = ({ workspace, paginationOptions }) => {
       },
       onCompleted: () => {
         setDeleting(false);
-        handleClose();
+        handleClose(event);
         if (paginationOptions) {
-          handleCloseDelete();
+          handleCloseDelete(event);
         } else {
           navigate(`/dashboard/workspaces/${type}s`);
         }
@@ -90,45 +118,112 @@ const WorkspacePopover = ({ workspace, paginationOptions }) => {
     });
   };
 
-  const handleOpenEdit = () => {
+  const handleOpenEdit = (event) => {
     setDisplayEdit(true);
-    handleClose();
+    handleClose(event);
   };
-  const handleDashboardDuplication = () => {
+
+  const handleDashboardDuplication = (event) => {
     setDisplayDuplicate(true);
-    handleClose();
+    handleClose(event);
   };
 
   const handleCloseEdit = () => setDisplayEdit(false);
-  const userCanManage = workspace.currentUserAccessRight === 'admin';
-  const userCanEdit = userCanManage || workspace.currentUserAccessRight === 'edit';
-  if (!userCanEdit) {
+
+  const { canManage, canEdit } = useGetCurrentUserAccessRight(workspace.currentUserAccessRight);
+  if (!canEdit && workspace.type !== 'dashboard') {
     return <></>;
   }
+
+  const goToPublicDashboards = (event) => {
+    stopEvent(event);
+
+    const filter = {
+      mode: 'and',
+      filterGroups: [],
+      filters: [{
+        key: 'dashboard_id',
+        values: [workspace.id],
+        mode: 'or',
+        operator: 'eq',
+      }],
+    };
+    navigate(`/dashboard/workspaces/dashboards_public?filters=${JSON.stringify(filter)}`);
+  };
+
+  // -- Creation public dashboard --
+  const [displayCreate, setDisplayCreate] = useState(false);
+
+  const handleOpenCreation = (event) => {
+    setDisplayCreate(true);
+    handleClose(event);
+  };
+
+  const handleCloseCreate = () => {
+    setDisplayCreate(false);
+  };
+
+  const handleExport = (event) => {
+    stopEvent(event);
+    handleExportJson(workspace);
+  };
+
   return (
     <div className={classes.container}>
       <IconButton
         onClick={handleOpen}
         aria-haspopup="true"
-        size="large"
+        size="medium"
         style={{ marginTop: 3 }}
         color="primary"
-        data-testid="popover"
+        aria-label={t_i18n('Workspace popover of actions')}
       >
         <MoreVert />
       </IconButton>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
-        {workspace.type === 'dashboard' && (
-        <>
-          <MenuItem onClick={handleDashboardDuplication}>{t_i18n('Duplicate')}</MenuItem>
-          <MenuItem onClick={() => handleExportJson(workspace)}>{t_i18n('Export')}</MenuItem>
-        </>
-        )}
-        <Security needs={[EXPLORE_EXUPDATE_EXDELETE]} hasAccess={userCanManage}>
-          <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose} aria-label="Workspace menu">
+        <Security needs={[EXPLORE_EXUPDATE]} hasAccess={canEdit}>
+          <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
         </Security>
+        {workspace.type === 'dashboard' && (
+          <Box>
+            <Security needs={[EXPLORE_EXUPDATE]} hasAccess={canEdit}>
+              <MenuItem onClick={handleDashboardDuplication}>{t_i18n('Duplicate')}</MenuItem>
+            </Security>
+            <Security needs={[EXPLORE_EXUPDATE]} hasAccess={canEdit}>
+              <MenuItem onClick={handleExport}>{t_i18n('Export')}</MenuItem>
+            </Security>
+            <Security needs={[EXPLORE_EXUPDATE_EXDELETE]} hasAccess={canManage}>
+              <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+            </Security>
+            <Box>
+              <MenuItem onClick={goToPublicDashboards}>
+                {t_i18n('View associated public dashboards')}
+              </MenuItem>
+              <Security needs={[EXPLORE_EXUPDATE_PUBLISH]} hasAccess={canManage}>
+                <MenuItem onClick={handleOpenCreation}>{t_i18n('Create a public dashboard')}</MenuItem>
+              </Security>
+            </Box>
+          </Box>
+        )}
+        {workspace.type === 'investigation' && (
+          <Security needs={[INVESTIGATION_INUPDATE_INDELETE]} hasAccess={canManage}>
+            <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+          </Security>
+        )}
       </Menu>
+      <Drawer
+        title={t_i18n('Create a public dashboard')}
+        open={displayCreate}
+        onClose={handleCloseCreate}
+      >
+        {({ onClose }) => (
+          <PublicDashboardCreationForm
+            onClose={handleCloseCreate}
+            onCompleted={onClose}
+            dashboard_id={workspace.id || undefined}
+          />
+        )}
+      </Drawer>
       <WorkspaceDuplicationDialog
         workspace={workspace}
         displayDuplicate={displayDuplicate}
@@ -147,7 +242,9 @@ const WorkspacePopover = ({ workspace, paginationOptions }) => {
       >
         <DialogContent>
           <DialogContentText>
-            {t_i18n('Do you want to delete this workspace?')}
+            {workspace.type === 'investigation'
+              ? t_i18n('Do you want to delete this investigation?')
+              : t_i18n('Do you want to delete this dashboard?')}
           </DialogContentText>
         </DialogContent>
         <DialogActions>

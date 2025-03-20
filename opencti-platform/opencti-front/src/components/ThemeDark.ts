@@ -1,3 +1,4 @@
+import { buttonClasses } from '@mui/material/Button';
 import type { ExtendedThemeOptions } from './Theme';
 import { fileUri } from '../relay/environment';
 import LogoText from '../static/images/logo_text_dark.png';
@@ -28,15 +29,29 @@ const ThemeDark = (
   borderRadius: 4,
   palette: {
     mode: 'dark',
-    common: { white: '#ffffff' },
+    common: { white: '#ffffff', grey: '#7A7C85', lightGrey: '#ffffffb3' },
     error: {
       main: '#f44336',
       dark: '#c62828',
     },
-    success: { main: '#03A847' },
+    warn: {
+      main: '#ffa726',
+    },
+    dangerZone: { main: '#f6685e', light: '#fbc2be', dark: '#f44336', contrastText: 'black', text: { primary: '#fbc2be' } },
+    success: { main: '#03a847' },
     primary: { main: primary || THEME_DARK_DEFAULT_PRIMARY },
     secondary: { main: secondary || THEME_DARK_DEFAULT_SECONDARY },
+    border: {
+      primary: hexToRGB((primary || THEME_DARK_DEFAULT_PRIMARY), 0.3),
+      secondary: hexToRGB((secondary || THEME_DARK_DEFAULT_SECONDARY), 0.3),
+      pagination: hexToRGB('#ffffff', 0.5),
+    },
+    pagination: {
+      main: '#ffffff',
+    },
     chip: { main: '#ffffff' },
+    ai: { main: '#9575cd', light: '#d1c4e9', dark: '#673ab7', contrastText: 'black', text: { primary: '#9575cd' } },
+    xtmhub: { main: '#0FBCFF', light: '#00F1BD' },
     ee: {
       main: EE_COLOR,
       contrastText: '#ffffff',
@@ -55,6 +70,7 @@ const ThemeDark = (
     fontFamily: '"IBM Plex Sans", sans-serif',
     body2: {
       fontSize: '0.8rem',
+      lineHeight: '1.2rem',
     },
     body1: {
       fontSize: '0.9rem',
@@ -67,7 +83,7 @@ const ThemeDark = (
       padding: 0,
       fontWeight: 400,
       fontSize: 22,
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     h2: {
       margin: '0 0 10px 0',
@@ -75,17 +91,17 @@ const ThemeDark = (
       fontWeight: 500,
       fontSize: 16,
       textTransform: 'uppercase',
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     h3: {
       margin: '0 0 10px 0',
       padding: 0,
-      color: '#bebebe',
       fontWeight: 400,
       fontSize: 13,
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     h4: {
+      height: 15,
       margin: '0 0 10px 0',
       padding: 0,
       textTransform: 'uppercase',
@@ -103,7 +119,7 @@ const ThemeDark = (
       fontWeight: 400,
       fontSize: 18,
       color: primary || THEME_DARK_DEFAULT_PRIMARY,
-      fontFamily: '"Geoligica", sans-serif',
+      fontFamily: '"Geologica", sans-serif',
     },
     subtitle2: {
       fontWeight: 400,
@@ -116,6 +132,24 @@ const ThemeDark = (
       defaultProps: {
         TransitionProps: {
           unmountOnExit: true,
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          [`&.${buttonClasses.outlined}.${buttonClasses.sizeSmall}`]: {
+            padding: '4px 9px',
+          },
+          '&.icon-outlined': {
+            borderColor: hexToRGB('#ffffff', 0.15),
+            padding: 7,
+            minWidth: 0,
+            '&:hover': {
+              borderColor: hexToRGB('#ffffff', 0.15),
+              backgroundColor: hexToRGB('#ffffff', 0.05),
+            },
+          },
         },
       },
     },
@@ -271,9 +305,11 @@ const ThemeDark = (
         root: {
           '&.Mui-selected': {
             boxShadow: `2px 0 ${primary || THEME_DARK_DEFAULT_PRIMARY} inset`,
+            backgroundColor: `${hexToRGB(primary || THEME_DARK_DEFAULT_PRIMARY, 0.24)}`,
           },
           '&.Mui-selected:hover': {
             boxShadow: `2px 0 ${primary || THEME_DARK_DEFAULT_PRIMARY} inset`,
+            backgroundColor: `${hexToRGB(primary || THEME_DARK_DEFAULT_PRIMARY, 0.32)}`,
           },
         },
       },

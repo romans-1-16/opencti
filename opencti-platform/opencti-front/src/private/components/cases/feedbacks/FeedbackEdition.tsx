@@ -1,13 +1,14 @@
 import React, { FunctionComponent } from 'react';
-import { useMutation } from 'react-relay';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import { feedbackEditionOverviewFocus } from './FeedbackEditionOverview';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import FeedbackEditionContainer, { feedbackEditionQuery } from './FeedbackEditionContainer';
 import { FeedbackEditionContainerQuery } from './__generated__/FeedbackEditionContainerQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
 const FeedbackEdition: FunctionComponent<{ feedbackId: string }> = ({ feedbackId }) => {
-  const [commit] = useMutation(feedbackEditionOverviewFocus);
+  const [commit] = useApiMutation(feedbackEditionOverviewFocus);
   const handleClose = () => {
     commit({
       variables: {
@@ -24,11 +25,12 @@ const FeedbackEdition: FunctionComponent<{ feedbackId: string }> = ({ feedbackId
     <>
       {queryRef && (
         <React.Suspense
-          fallback={<Loader variant={LoaderVariant.inElement} />}
+          fallback={<Loader variant={LoaderVariant.inline} />}
         >
           <FeedbackEditionContainer
             queryRef={queryRef}
             handleClose={handleClose}
+            controlledDial={EditEntityControlledDial}
           />
         </React.Suspense>
       )}

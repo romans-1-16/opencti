@@ -1,34 +1,46 @@
 import React, { FunctionComponent, useState } from 'react';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import { FormikConfig } from 'formik/dist/types';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import useHelper from 'src/utils/hooks/useHelper';
+import { GroupingsLinesPaginationQuery$variables } from '@components/analyses/__generated__/GroupingsLinesPaginationQuery.graphql';
+import AuthorizedMembersField from '@components/common/form/AuthorizedMembersField';
+import Typography from '@mui/material/Typography';
+import AccordionDetails from '@mui/material/AccordionDetails';
 import { handleErrorInForm } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import ObjectLabelField from '../../common/form/ObjectLabelField';
 import CreatedByField from '../../common/form/CreatedByField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { useFormatter } from '../../../../components/i18n';
 import { insertNode } from '../../../../utils/store';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
-import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import { Option } from '../../common/form/ReferenceField';
 import { GroupingCreationMutation, GroupingCreationMutation$variables } from './__generated__/GroupingCreationMutation.graphql';
-import { GroupingsLinesPaginationQuery$variables } from './__generated__/GroupingsLinesPaginationQuery.graphql';
 import type { Theme } from '../../../../components/Theme';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
-import RichTextField from '../../../../components/RichTextField';
+import RichTextField from '../../../../components/fields/RichTextField';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
+import { useDynamicSchemaCreationValidation, useIsMandatoryAttribute, yupShapeConditionalRequired } from '../../../../utils/hooks/useEntitySettings';
+import useGranted, { KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS } from '../../../../utils/hooks/useGranted';
+import Security from '../../../../utils/Security';
+import { Accordion, AccordionSummary } from '../../../../components/Accordion';
+import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -45,10 +57,13 @@ const groupingMutation = graphql`
       id
       standard_id
       name
+      representative {
+        main
+      }
       description
       entity_type
       parent_types
-      ...GroupingLine_node
+      ...GroupingsLine_node
     }
   }
 `;
@@ -66,6 +81,7 @@ interface GroupingAddInput {
   objectLabel: Option[];
   externalReferences: { value: string }[];
   file: File | undefined;
+  authorized_members: { value: string, accessRight: string }[] | undefined;
 }
 
 interface GroupingFormProps {
@@ -87,23 +103,36 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
   defaultConfidence,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  inputValue,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const history = useHistory();
+  const navigate = useNavigate();
   const [mapAfter, setMapAfter] = useState<boolean>(false);
-  const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+  const { mandatoryAttributes } = useIsMandatoryAttribute(GROUPING_TYPE);
+  const canEditAuthorizedMembers = useGranted([KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS]);
+  const isEnterpriseEdition = useEnterpriseEdition();
+
+  const basicShape = yupShapeConditionalRequired({
+    name: Yup.string().trim().min(2),
     confidence: Yup.number().nullable(),
-    context: Yup.string().required(t_i18n('This field is required')),
+    context: Yup.string(),
     description: Yup.string().nullable(),
     content: Yup.string().nullable(),
-  };
-  const groupingValidator = useSchemaCreationValidation(
-    GROUPING_TYPE,
+    createdBy: Yup.object().nullable(),
+    objectMarking: Yup.array().nullable(),
+    file: Yup.mixed().nullable(),
+    authorized_members: Yup.array().nullable(),
+  }, mandatoryAttributes);
+  const validator = useDynamicSchemaCreationValidation(
+    mandatoryAttributes,
     basicShape,
   );
-  const [commit] = useMutation<GroupingCreationMutation>(groupingMutation);
+  const [commit] = useApiMutation<GroupingCreationMutation>(
+    groupingMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Grouping')} ${t_i18n('successfully created')}` },
+  );
   const onSubmit: FormikConfig<GroupingAddInput>['onSubmit'] = (
     values,
     { setSubmitting, setErrors, resetForm },
@@ -119,6 +148,12 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
       objectLabel: values.objectLabel.map((v) => v.value),
       externalReferences: values.externalReferences.map(({ value }) => value),
       file: values.file,
+      ...(isEnterpriseEdition && canEditAuthorizedMembers && values.authorized_members && {
+        authorized_members: values.authorized_members.map(({ value, accessRight }) => ({
+          id: value,
+          access_right: accessRight,
+        })),
+      }),
     };
     commit({
       variables: {
@@ -140,8 +175,8 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
           onClose();
         }
         if (mapAfter) {
-          history.push(
-            `/dashboard/analyses/groupings/${response.groupingAdd?.id}/knowledge/content`,
+          navigate(
+            `/dashboard/analyses/groupings/${response.groupingAdd?.id}/content/mapping`,
           );
         }
       },
@@ -149,7 +184,7 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
   };
 
   const initialValues = useDefaultValues(GROUPING_TYPE, {
-    name: '',
+    name: inputValue ?? '',
     confidence: defaultConfidence,
     context: '',
     description: '',
@@ -159,24 +194,30 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
     objectLabel: [],
     externalReferences: [],
     file: undefined,
+    authorized_members: undefined,
   });
-
+  if (!canEditAuthorizedMembers) {
+    delete initialValues.authorized_members;
+  }
   return (
-    <Formik
+    <Formik<GroupingAddInput>
       initialValues={initialValues}
-      validationSchema={groupingValidator}
+      validationSchema={validator}
+      validateOnChange={false} // Validation will occur on submission, required fields all have *'s
+      validateOnBlur={false} // Validation will occur on submission, required fields all have *'s
       onSubmit={onSubmit}
       onReset={onClose}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             name="name"
             label={t_i18n('Name')}
+            required={mandatoryAttributes.includes('name')}
             detectDuplicate={['Grouping']}
-            fullWidth
-            askAi
+            fullWidth={true}
+            askAi={true}
           />
           <ConfidenceField
             entityType="Grouping"
@@ -186,6 +227,7 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
             label={t_i18n('Context')}
             type="grouping-context-ov"
             name="context"
+            required={mandatoryAttributes.includes('context')}
             multiple={false}
             containerStyle={fieldSpacingContainerStyle}
             onChange={setFieldValue}
@@ -194,16 +236,18 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
             component={MarkdownField}
             name="description"
             label={t_i18n('Description')}
+            required={mandatoryAttributes.includes('description')}
             fullWidth={true}
             multiline={true}
             rows="4"
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
             askAi={true}
           />
           <Field
             component={RichTextField}
             name="content"
             label={t_i18n('Content')}
+            required={mandatoryAttributes.includes('content')}
             fullWidth={true}
             style={{
               ...fieldSpacingContainerStyle,
@@ -214,26 +258,55 @@ export const GroupingCreationForm: FunctionComponent<GroupingFormProps> = ({
           />
           <CreatedByField
             name="createdBy"
+            required={mandatoryAttributes.includes('createdBy')}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
           />
           <ObjectLabelField
             name="objectLabel"
+            required={mandatoryAttributes.includes('objectLabel')}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
             values={values.objectLabel}
           />
           <ObjectMarkingField
             name="objectMarking"
+            required={mandatoryAttributes.includes('objectMarking')}
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
+            required={mandatoryAttributes.includes('externalReferences')}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
             values={values.externalReferences}
           />
           <CustomFileUploader setFieldValue={setFieldValue} />
+          {isEnterpriseEdition && (
+            <Security
+              needs={[KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS]}
+            >
+              <div style={fieldSpacingContainerStyle}>
+                <Accordion >
+                  <AccordionSummary id="accordion-panel">
+                    <Typography>{t_i18n('Advanced options')}</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Field
+                      name={'authorized_members'}
+                      component={AuthorizedMembersField}
+                      containerstyle={{ marginTop: 20 }}
+                      showAllMembersLine
+                      canDeactivate
+                      disabled={isSubmitting}
+                      addMeUserWithAdminRights
+                    />
+                  </AccordionDetails>
+                </Accordion>
+              </div>
+            </Security>
+          )}
           <div className={classes.buttons}>
             <Button
               variant="contained"
@@ -279,11 +352,17 @@ const GroupingCreation = ({
   paginationOptions: GroupingsLinesPaginationQuery$variables;
 }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const updater = (store: RecordSourceSelectorProxy) => insertNode(store, 'Pagination_groupings', paginationOptions, 'groupingAdd');
+  const CreateGroupingControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Grouping' {...props} />
+  );
   return (
     <Drawer
       title={t_i18n('Create a grouping')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateGroupingControlledDial : undefined}
     >
       <GroupingCreationForm updater={updater} />
     </Drawer>

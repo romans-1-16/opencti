@@ -60,6 +60,7 @@ const threatActorIndividualEditionBiographicsFragment = graphql`
       measure
     }
     confidence
+    entity_type
     objectMarking {
       id
       definition_type
@@ -97,8 +98,20 @@ ThreatActorIndividualEditionBiographicsComponentProps
     hair_color: Yup.string()
       .nullable()
       .typeError(t_i18n('The value must be a string')),
-    weight: Yup.array(),
-    height: Yup.array(),
+    weight: Yup.array().of(
+      Yup.object().shape({
+        measure: Yup.number().required(t_i18n('This field is required')),
+        date_seen: Yup.date().required(t_i18n('This field is required'))
+          .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
+      }),
+    ),
+    height: Yup.array().of(
+      Yup.object().shape({
+        measure: Yup.number().required(t_i18n('This field is required')),
+        date_seen: Yup.date().required(t_i18n('This field is required'))
+          .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
+      }),
+    ),
   };
   const threatActorIndividualValidator = useSchemaEditionValidation(
     'Threat-Actor-Individual',
@@ -166,7 +179,7 @@ ThreatActorIndividualEditionBiographicsComponentProps
           dirty,
         }) => (
           <div>
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <AlertConfidenceForEntity entity={threatActorIndividual} />
               <OpenVocabField
                 name="eye_color"

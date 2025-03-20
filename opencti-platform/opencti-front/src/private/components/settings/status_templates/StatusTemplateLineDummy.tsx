@@ -10,6 +10,8 @@ import IconButton from '@mui/material/IconButton';
 import type { Theme } from '../../../../components/Theme';
 import { DataColumnsType } from './StatusTemplateLine';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -69,12 +71,23 @@ StatusTemplateLineDummyProps
                 height="100%"
               />
             </div>
+            <div
+              className={classes.bodyItem}
+              style={{ width: dataColumns.usages.width }}
+            >
+              <Skeleton
+                animation="wave"
+                variant="rectangular"
+                width="90%"
+                height="100%"
+              />
+            </div>
           </div>
         }
       />
       <ListItemSecondaryAction classes={{ root: classes.itemIconDisabled }}>
         <IconButton disabled={true} aria-haspopup="true" size="large">
-          <MoreVert />
+          <MoreVert/>
         </IconButton>
       </ListItemSecondaryAction>
     </ListItem>

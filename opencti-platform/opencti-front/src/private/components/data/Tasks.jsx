@@ -10,7 +10,10 @@ import useAuth from '../../../utils/hooks/useAuth';
 import { TASK_MANAGER } from '../../../utils/platformModulesHelper';
 import ProcessingMenu from './ProcessingMenu';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -20,6 +23,8 @@ const useStyles = makeStyles(() => ({
 
 const Tasks = () => {
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Tasks | Processing | Data'));
   const classes = useStyles();
   const { platformModuleHelpers } = useAuth();
   const optionsInProgress = {
@@ -55,8 +60,10 @@ const Tasks = () => {
     );
   }
   return (
-    <div className={classes.container}>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Data') }, { label: t_i18n('Processing') }, { label: t_i18n('Tasks'), current: true }]} />
+    <div className={classes.container}
+      data-testid='processing-tasks-page'
+    >
+      <Breadcrumbs elements={[{ label: t_i18n('Data') }, { label: t_i18n('Processing') }, { label: t_i18n('Tasks'), current: true }]} />
       <ProcessingMenu />
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('In progress tasks')}

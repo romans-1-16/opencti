@@ -25,6 +25,7 @@ interface FormAuthorizedMembersProps {
   ) => void;
   owner?: Creator;
   canDeactivate?: boolean;
+  showAllMembersLine?: boolean;
 }
 
 const FormAuthorizedMembers = ({
@@ -34,8 +35,10 @@ const FormAuthorizedMembers = ({
   onSubmit,
   owner,
   canDeactivate,
+  showAllMembersLine,
 }: FormAuthorizedMembersProps) => {
   const { t_i18n } = useFormatter();
+
   return (
     <Formik<FormAuthorizedMembersInputs>
       enableReinitialize
@@ -60,13 +63,16 @@ const FormAuthorizedMembers = ({
           <DialogTitle>{t_i18n('Manage access restriction')}</DialogTitle>
           <DialogContent>
             <Form>
-              <Field
-                name="authorizedMembers"
-                component={AuthorizedMembersField}
-                owner={owner}
-                showAllMembersLine
-                canDeactivate={canDeactivate}
-              />
+              {open && ( // To trigger form initialization correctly (because removed from DOM)
+                <Field
+                  name="authorizedMembers"
+                  component={AuthorizedMembersField}
+                  owner={owner}
+                  showAllMembersLine={showAllMembersLine}
+                  canDeactivate={canDeactivate}
+                  addMeUserWithAdminRights
+                />
+              )}
             </Form>
           </DialogContent>
           <DialogActions>

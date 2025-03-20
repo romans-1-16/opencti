@@ -1,6 +1,5 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import { withRouter } from 'react-router-dom';
 import { graphql, createFragmentContainer } from 'react-relay';
 import StixCoreObjectOrStixCoreRelationshipContainers from '../../common/containers/StixCoreObjectOrStixCoreRelationshipContainers';
 
@@ -16,6 +15,7 @@ class OrganizationAnalysisComponent extends Component {
           />
         ) : (
           <StixCoreObjectOrStixCoreRelationshipContainers
+            stixDomainObjectOrStixCoreRelationship={organization}
             authorId={organization.id}
             viewAs={viewAs}
           />
@@ -46,4 +46,4 @@ const OrganizationAnalysis = createFragmentContainer(
   },
 );
 
-export default withRouter(OrganizationAnalysis);
+export default OrganizationAnalysis;

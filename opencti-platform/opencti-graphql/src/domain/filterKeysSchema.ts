@@ -9,7 +9,7 @@ import type {
   NumericAttribute,
   RefAttribute,
   StringAttribute,
-  VocabAttribute
+  VocabAttribute,
 } from '../schema/attribute-definition';
 import { schemaRelationsRefDefinition } from '../schema/schema-relationsRef';
 import { isStixCoreObject } from '../schema/stixCoreObject';
@@ -28,23 +28,23 @@ import {
   MEMBERS_ORGANIZATION_FILTER,
   MEMBERS_USER_FILTER,
   OBJECT_CONTAINS_FILTER,
+  REPRESENTATIVE_FILTER,
   TYPE_FILTER,
-  WORKFLOW_FILTER
+  WORKFLOW_FILTER,
 } from '../utils/filtering/filtering-constants';
 import { ABSTRACT_STIX_CORE_OBJECT, INPUT_GRANTED_REFS, isAbstract } from '../schema/general';
 import { getEntityFromCache } from '../database/cache';
 import type { BasicStoreSettings } from '../types/settings';
 import { executionContext, SYSTEM_USER } from '../utils/access';
 import { ENTITY_TYPE_GROUP, ENTITY_TYPE_HISTORY, ENTITY_TYPE_SETTINGS, ENTITY_TYPE_STATUS_TEMPLATE, ENTITY_TYPE_USER } from '../schema/internalObject';
-import { isEmptyField } from '../database/utils';
 import { ENTITY_HASHED_OBSERVABLE_ARTIFACT } from '../schema/stixCyberObservable';
 import { ENTITY_TYPE_IDENTITY_INDIVIDUAL, ENTITY_TYPE_IDENTITY_SECTOR, ENTITY_TYPE_IDENTITY_SYSTEM, isStixObjectAliased } from '../schema/stixDomainObject';
 import { ENTITY_TYPE_MALWARE_ANALYSIS } from '../modules/malwareAnalysis/malwareAnalysis-types';
-import { isBasicRelationship, isStixRelationship } from '../schema/stixRelationship';
+import { isBasicRelationship, isStixRelationship, isStixRelationshipExceptRef } from '../schema/stixRelationship';
 import { ENTITY_TYPE_LABEL, ENTITY_TYPE_MARKING_DEFINITION } from '../schema/stixMetaObject';
 import { ENTITY_TYPE_IDENTITY_ORGANIZATION } from '../modules/organization/organization-types';
 
-type FilterDefinition = {
+export type FilterDefinition = {
   filterKey: string
   type: string // possible values: boolean, date, integer, float, string, id, vocabulary, text, enum, object, nested
   label: string // filter key translation in English
@@ -237,17 +237,6 @@ const completeFilterDefinitionMapWithSpecialKeys = (
       subEntityTypes,
       elementsForFilterValuesSearch: ['reliability_ov'],
     });
-    // 'contains' is not only for containers, but might be used in any sro or sco as in "contained inside"
-    if (isStixCoreObject(type) || isStixRelationship(type)) {
-      filterDefinitionsMap.set(OBJECT_CONTAINS_FILTER, {
-        filterKey: OBJECT_CONTAINS_FILTER,
-        type: 'id',
-        label: 'Contains',
-        multiple: true,
-        subEntityTypes,
-        elementsForFilterValuesSearch: [],
-      });
-    }
     // Alias (handle both 'aliases' and 'x_opencti_aliases' attributes
     if (isStixObjectAliased(type)) {
       filterDefinitionsMap.set(ALIAS_FILTER, {
@@ -270,6 +259,17 @@ const completeFilterDefinitionMapWithSpecialKeys = (
         elementsForFilterValuesSearch: [ENTITY_TYPE_STATUS_TEMPLATE],
       });
     }
+  }
+  if (isStixCoreObject(type) || isStixRelationship(type)) {
+    // 'contains' is not only for containers, but might be used in any sro, sco or relationship as in "contained inside"
+    filterDefinitionsMap.set(OBJECT_CONTAINS_FILTER, {
+      filterKey: OBJECT_CONTAINS_FILTER,
+      type: 'id',
+      label: 'Contains',
+      multiple: true,
+      subEntityTypes,
+      elementsForFilterValuesSearch: [],
+    });
   }
   if (type === ENTITY_TYPE_HISTORY) {
     // add context filters
@@ -319,7 +319,7 @@ const completeFilterDefinitionMapWithSpecialKeys = (
       label: 'Related entity',
       multiple: true,
       subEntityTypes,
-      elementsForFilterValuesSearch: [ABSTRACT_STIX_CORE_OBJECT],
+      elementsForFilterValuesSearch: [ABSTRACT_STIX_CORE_OBJECT, ENTITY_TYPE_USER, ENTITY_TYPE_GROUP],
     });
     // add members filters
     filterDefinitionsMap.set(MEMBERS_USER_FILTER, {
@@ -345,6 +345,16 @@ const completeFilterDefinitionMapWithSpecialKeys = (
       multiple: true,
       subEntityTypes,
       elementsForFilterValuesSearch: [ENTITY_TYPE_IDENTITY_ORGANIZATION],
+    });
+  }
+  if (isStixRelationshipExceptRef(type)) {
+    filterDefinitionsMap.set(WORKFLOW_FILTER, {
+      filterKey: WORKFLOW_FILTER,
+      type: 'id',
+      label: 'Status',
+      multiple: false,
+      subEntityTypes,
+      elementsForFilterValuesSearch: [ENTITY_TYPE_STATUS_TEMPLATE],
     });
   }
 };
@@ -375,8 +385,8 @@ export const generateFilterKeysSchema = async () => {
   const filterKeysSchema: Map<string, Map<string, FilterDefinition>> = new Map();
   const context = executionContext('filterKeysSchema');
   const settings = await getEntityFromCache<BasicStoreSettings>(context, SYSTEM_USER, ENTITY_TYPE_SETTINGS);
-  const isNotEnterpriseEdition = isEmptyField(settings.enterprise_edition);
-  // A. build filterKeysSchema map
+  const isNotEnterpriseEdition = settings.valid_enterprise_edition !== true;
+  // A. build filterKeysSchema map for each entity type
   const registeredTypes = schemaAttributesDefinition.getRegisteredTypes();
   registeredTypes.forEach((type) => {
     const filterDefinitionsMap: Map<string, FilterDefinition> = new Map(); // map that will contain the filterKeys schema for the entity type
@@ -384,7 +394,8 @@ export const generateFilterKeysSchema = async () => {
     handleRemoveSpecialKeysFromFilterDefinitionsMap(filterDefinitionsMap, type, isNotEnterpriseEdition);
     filterKeysSchema.set(type, filterDefinitionsMap);
   });
-  // B. add connectedToId special key (for instance triggers)
+  // B. add special types
+  // connectedToId special key (for instance triggers)
   filterKeysSchema.set('Instance', new Map([[CONNECTED_TO_INSTANCE_FILTER, {
     filterKey: CONNECTED_TO_INSTANCE_FILTER,
     type: 'id',
@@ -392,6 +403,15 @@ export const generateFilterKeysSchema = async () => {
     multiple: true,
     subEntityTypes: [],
     elementsForFilterValuesSearch: [ABSTRACT_STIX_CORE_OBJECT],
+  }]]));
+  // representative (for streams, triggers, playbooks)
+  filterKeysSchema.set('Stix-Filtering', new Map([[REPRESENTATIVE_FILTER, {
+    filterKey: REPRESENTATIVE_FILTER,
+    type: 'string',
+    label: 'Representation',
+    multiple: true,
+    subEntityTypes: [],
+    elementsForFilterValuesSearch: [],
   }]]));
   // C. transform the filterKeysSchema map in { key, values }[]
   const flattenFilterKeysSchema: { entity_type: string, filters_schema: { filterDefinition: FilterDefinition, filterKey: string }[] }[] = [];

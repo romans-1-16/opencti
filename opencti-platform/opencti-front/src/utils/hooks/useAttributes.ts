@@ -3,6 +3,8 @@ import useAuth from './useAuth';
 
 const ignoredAttributes = [
   'id',
+  'draft_ids',
+  'draft_change',
   'parent_types',
   'base_type',
   'internal_id',
@@ -23,6 +25,7 @@ const ignoredAttributes = [
   'importFiles',
   'startup_info',
   'creator_id',
+  'opinions_metrics',
 ];
 
 const workbenchAttributes = [
@@ -46,6 +49,7 @@ const ignoredAttributesInFeeds = [
   'spec_version',
   'extensions',
   'importFiles',
+  'opinions_metrics',
 ];
 
 const ignoredAttributesInDashboards = [
@@ -66,6 +70,7 @@ const ignoredAttributesInDashboards = [
   'published',
   'content',
   'content_mapping',
+  'opinions_metrics',
 ];
 
 // TODO check the attribute type from backend
@@ -170,6 +175,34 @@ export const containerTypes = [
   'Observed-Data',
 ];
 
+export const typesWithFintelTemplates = [
+  'Report',
+  'Grouping',
+  'Case-Incident',
+  'Case-Rfi',
+  'Case-Rft',
+];
+
+export const aliasedTypes = [
+  'Attack-Pattern',
+  'Campaign',
+  'Infrastructure',
+  'Intrusion-Set',
+  'Malware',
+  'Threat-Actor',
+  'Threat-Actor-Individual',
+  'Threat-Actor-Group',
+  'Tool',
+  'Incident',
+  'Channel',
+  'Language',
+  'Event',
+  'Narrative',
+  'Data-Component',
+  'Data-Source',
+  'Vocabulary',
+];
+
 const useAttributes = () => {
   const vocabularies = useVocabularyCategory();
   const { sdos, scos } = useAuth().schema;
@@ -194,6 +227,8 @@ const useAttributes = () => {
     typesContainers,
     vocabularyAttributes: vocabularies.fields,
     containerTypes,
+    typesWithFintelTemplates,
+    aliasedTypes,
   };
 };
 

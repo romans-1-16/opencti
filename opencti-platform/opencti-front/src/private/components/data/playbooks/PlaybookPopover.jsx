@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -25,13 +25,16 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
 import makeStyles from '@mui/styles/makeStyles';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import { commitMutation, QueryRenderer } from '../../../../relay/environment';
 import PlaybookEdition, { playbookMutationFieldPatch } from './PlaybookEdition';
 import { deleteNode } from '../../../../utils/store';
 import { useFormatter } from '../../../../components/i18n';
 import Transition from '../../../../components/Transition';
+import stopEvent from '../../../../utils/domEvent';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -51,7 +54,6 @@ const playbookEditionQuery = graphql`
       name
       playbook_running
       playbook_definition
-      ...PlaybookEdition_playbook
     }
   }
 `;
@@ -69,24 +71,45 @@ const PlaybookPopover = (props) => {
   const [starting, setStarting] = useState(false);
   const [displayStop, setDisplayStop] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const handleOpenUpdate = () => {
+  const handleOpen = (event) => {
+    stopEvent(event);
+    setAnchorEl(event.currentTarget);
+  };
+  const handleClose = (event) => {
+    stopEvent(event);
     setAnchorEl(null);
+  };
+  const handleOpenUpdate = (event) => {
     setDisplayUpdate(true);
+    handleClose(event);
   };
-  const handleOpenDelete = () => {
-    setAnchorEl(null);
+  const handleOpenDelete = (event) => {
     setDisplayDelete(true);
+    handleClose(event);
   };
-  const handleOpenStart = () => {
-    setAnchorEl(null);
+  const handleCloseDelete = (event) => {
+    stopEvent(event);
+    setDisplayDelete(false);
+  };
+  const handleOpenStart = (event) => {
     setDisplayStart(true);
+    handleClose(event);
   };
-  const handleOpenStop = () => {
-    setAnchorEl(null);
+  const handleCloseStart = (event) => {
+    setDisplayStart(false);
+    stopEvent(event);
+  };
+  const handleOpenStop = (event) => {
     setDisplayStop(true);
+    handleClose(event);
   };
-  const submitDelete = () => {
+  const handleCloseStop = (event) => {
+    setDisplayStop(false);
+    stopEvent(event);
+  };
+  const submitDelete = (event) => {
     setDeleting(true);
+    stopEvent(event);
     commitMutation({
       mutation: playbookPopoverDeletionMutation,
       variables: {
@@ -111,8 +134,9 @@ const PlaybookPopover = (props) => {
       },
     });
   };
-  const submitStart = () => {
+  const submitStart = (event) => {
     setStarting(true);
+    stopEvent(event);
     commitMutation({
       mutation: playbookMutationFieldPatch,
       variables: {
@@ -125,8 +149,9 @@ const PlaybookPopover = (props) => {
       },
     });
   };
-  const submitStop = () => {
+  const submitStop = (event) => {
     setStopping(true);
+    stopEvent(event);
     commitMutation({
       mutation: playbookMutationFieldPatch,
       variables: {
@@ -142,9 +167,8 @@ const PlaybookPopover = (props) => {
   return (
     <div className={classes.container}>
       <IconButton
-        onClick={(event) => setAnchorEl(event.currentTarget)}
+        onClick={handleOpen}
         aria-haspopup="true"
-        style={{ marginTop: 3 }}
         size="large"
         color="primary"
       >
@@ -153,7 +177,7 @@ const PlaybookPopover = (props) => {
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
+        onClose={handleClose}
       >
         {running ? (
           <MenuItem onClick={handleOpenStop}>{t_i18n('Stop')}</MenuItem>
@@ -192,7 +216,7 @@ const PlaybookPopover = (props) => {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDisplayDelete(false)} disabled={deleting}>
+          <Button onClick={handleCloseDelete} disabled={deleting}>
             {t_i18n('Cancel')}
           </Button>
           <Button color="secondary" onClick={submitDelete} disabled={deleting}>
@@ -213,7 +237,7 @@ const PlaybookPopover = (props) => {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDisplayStart(false)} disabled={starting}>
+          <Button onClick={handleCloseStart} disabled={starting}>
             {t_i18n('Cancel')}
           </Button>
           <Button onClick={submitStart} color="secondary" disabled={starting}>
@@ -234,7 +258,7 @@ const PlaybookPopover = (props) => {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDisplayStop(false)} disabled={stopping}>
+          <Button onClick={handleCloseStop} disabled={stopping}>
             {t_i18n('Cancel')}
           </Button>
           <Button onClick={submitStop} color="secondary" disabled={stopping}>

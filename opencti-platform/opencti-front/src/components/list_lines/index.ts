@@ -1,6 +1,6 @@
 import React, { FunctionComponent, ReactElement, ReactNode } from 'react';
-import { Option } from '../../private/components/common/form/ReferenceField';
-import { FilterGroup } from '../../utils/filters/filtersUtils';
+import { Option } from '@components/common/form/ReferenceField';
+import { FilterGroup } from '../../utils/filters/filtersHelpers-types';
 
 export interface DataColumn {
   isSortable: boolean;
@@ -18,14 +18,15 @@ export enum OrderMode {
 }
 
 export interface PaginationOptions {
-  toId?: string | string[];
-  fromId?: string[];
-  toTypes?: string[];
-  fromTypes?: string[];
-  search?: string;
-  orderBy?: string | null;
-  orderMode?: OrderMode;
-  filters?: FilterGroup;
+  toId?: string | string[]
+  fromId?: string[]
+  toTypes?: string[]
+  fromTypes?: string[]
+  search?: string | null
+  orderBy?: string | null
+  orderMode?: OrderMode | null
+  filters?: FilterGroup
+  pageSize?: string
 }
 
 export type ListLines = FunctionComponent<unknown>;

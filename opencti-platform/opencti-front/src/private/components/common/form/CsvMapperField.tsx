@@ -9,6 +9,8 @@ import AutocompleteField from '../../../../components/AutocompleteField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import ItemIcon from '../../../../components/ItemIcon';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   icon: {
     paddingTop: 4,
@@ -24,11 +26,13 @@ const useStyles = makeStyles(() => ({
   },
 }));
 
+export type CsvMapperFieldOption = Option & { representations: { attributes: { key: string, default_values: { name: string }[] | string[] }[] }[] };
 interface CsvMapperFieldComponentProps {
   name: string;
   isOptionEqualToValue: (option: Option, value: Option) => boolean;
-  onChange?: (name: string, value: Option) => void;
+  onChange?: (name: string, value: CsvMapperFieldOption) => void;
   queryRef: PreloadedQuery<CsvMapperFieldSearchQuery>
+  required?: boolean;
 }
 
 export const csvMapperQuery = graphql`
@@ -38,6 +42,14 @@ export const csvMapperQuery = graphql`
         node {
           id
           name
+          representations {
+            attributes {
+              key
+              default_values {
+                name
+              }
+            }
+          }
         }
       }
     }
@@ -49,6 +61,7 @@ const CsvMapperField: FunctionComponent<CsvMapperFieldComponentProps> = ({
   isOptionEqualToValue,
   name,
   queryRef,
+  required = false,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
@@ -56,6 +69,7 @@ const CsvMapperField: FunctionComponent<CsvMapperFieldComponentProps> = ({
   const csvMappersPreloaded = (data?.csvMappers?.edges || []).map(({ node }) => ({
     value: node.id,
     label: node.name,
+    representations: node.representations,
   }));
   return (
     <>
@@ -68,6 +82,7 @@ const CsvMapperField: FunctionComponent<CsvMapperFieldComponentProps> = ({
           variant: 'standard',
           label: t_i18n('CSV Mappers'),
         }}
+        required={required}
         noOptionsText={t_i18n('No available options')}
         options={csvMappersPreloaded}
         isOptionEqualToValue={isOptionEqualToValue}

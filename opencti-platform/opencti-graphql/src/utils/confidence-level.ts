@@ -1,17 +1,28 @@
 import type { AuthUser } from '../types/user';
 import { cropNumber } from './math';
-import { isEmptyField } from '../database/utils';
-import { FunctionalError, LockTimeoutError } from '../config/errors';
+import { isEmptyField, isNotEmptyField } from '../database/utils';
+import { FunctionalError } from '../config/errors';
 import { logApp } from '../config/conf';
 import { schemaAttributesDefinition } from '../schema/schema-attributes';
-import { type Filter, type FilterGroup, FilterMode, FilterOperator } from '../generated/graphql';
-import { isFilterGroupNotEmpty } from './filtering/filtering-utils';
 import { isBypassUser } from './access';
+import type { Group } from '../types/group';
+import { RELATION_EXTERNAL_REFERENCE, RELATION_OBJECT_LABEL } from '../schema/stixRefRelationship';
+import { INPUT_EXTERNAL_REFS, INPUT_LABELS } from '../schema/general';
 
 type ObjectWithConfidence = {
   id: string,
   entity_type: string,
   confidence?: number | null
+};
+
+type ConfidenceSource = {
+  type: 'Group' | 'User' | 'Bypass',
+  object: Group | AuthUser | null
+};
+
+type ConfidenceOverride = {
+  entity_type: string;
+  max_confidence: number;
 };
 
 export const computeUserEffectiveConfidenceLevel = (user: AuthUser) => {
@@ -26,26 +37,10 @@ export const computeUserEffectiveConfidenceLevel = (user: AuthUser) => {
     };
   }
 
-  // if user has a specific confidence level, it overrides everything and we return it
-  if (user.user_confidence_level) {
-    return {
-      // we make sure the levels are cropped in between 0-100
-      // other values were possibly injected in octi <6.0 though API calls
-      max_confidence: cropNumber(user.user_confidence_level.max_confidence, 0, 100),
-      overrides: (user.user_confidence_level.overrides ?? []).map((override) => ({
-        max_confidence: cropNumber(override.max_confidence, 0, 100),
-        entity_type: override.entity_type,
-      })),
-      source: {
-        type: 'User',
-        object: user,
-      },
-    };
-  }
-
   // otherwise we get all groups for this user, and select the highest max_confidence found
   let maxLevel = null;
-  let source = null;
+  let source: ConfidenceSource | null = null;
+  const overridesMap = new Map<string, { max_confidence: number, source: ConfidenceSource }>();
   if (user.groups) {
     for (let i = 0; i < user.groups.length; i += 1) {
       // groups were not migrated when introducing group_confidence_level, so group_confidence_level might be null
@@ -57,40 +52,67 @@ export const computeUserEffectiveConfidenceLevel = (user: AuthUser) => {
           object: user.groups[i]
         };
       }
+      const groupOverrides = user.groups[i].group_confidence_level?.overrides ?? [];
+      for (let j = 0; j < groupOverrides.length; j += 1) {
+        const { entity_type, max_confidence } = groupOverrides[j];
+        if (!overridesMap.has(entity_type) || (overridesMap.get(entity_type)?.max_confidence ?? 0) < max_confidence) {
+          overridesMap.set(entity_type, { max_confidence, source: { object: user.groups[i], type: 'Group' } });
+        }
+      }
     }
   }
 
-  if (maxLevel !== null) {
-    return {
-      max_confidence: cropNumber(maxLevel, 0, 100),
-      // TODO: handle overrides and their sources
-      overrides: [],
-      source,
-    };
+  if (isNotEmptyField(user.user_confidence_level?.max_confidence)) {
+    maxLevel = user.user_confidence_level?.max_confidence;
+    // source only tells where max_confidence comes, not the overrides (TODO: add sources for each override?)
+    source = { type: 'User', object: user };
+    // discard any overrides info from the group, user definition takes priority over groups
+    overridesMap.clear();
   }
 
-  // finally, if this user has no effective confidence level, we can return null
-  return null;
+  if (isNotEmptyField(user.user_confidence_level?.overrides) && user.user_confidence_level?.overrides) {
+    // for each user override, overridesMap.set
+    (user.user_confidence_level.overrides as ConfidenceOverride[]).forEach(({ entity_type, max_confidence }) => {
+      // user's overrides overwrite any override set at the groups level
+      overridesMap.set(entity_type, { max_confidence, source: { object: user, type: 'User' } });
+    });
+  }
+
+  // turn map into array
+  const overrides = Array.from(overridesMap.entries())
+    .map(([key, value]) => ({ entity_type: key, max_confidence: value.max_confidence, source: value.source }));
+
+  // note that a user cannot have only overrides
+  if (isEmptyField(maxLevel)) {
+    return null;
+  }
+
+  return {
+    max_confidence: cropNumber(maxLevel as number, 0, 100),
+    overrides,
+    source,
+  };
 };
 
-const capInputConfidenceWithUserMaxConfidence = (userMaxConfidence: number, inputConfidence?: number | null) => {
+const capInputConfidenceWithUserMaxConfidence = (overrideMaxConfidence: number, inputConfidence?: number | null) => {
   const input = cropNumber(inputConfidence ?? 100, 0, 100); // input always untrusted, crop in 0-100
-  return Math.min(userMaxConfidence, input); // will always equal userMaxConfidence if no inputConfidence
+  return Math.min(overrideMaxConfidence, input); // will always equal userMaxConfidence if no inputConfidence
 };
 
 /**
  * Assert the confidence control on an input object from create operations
  * Returns the confidence to apply on the resulting element.
  */
-export const controlCreateInputWithUserConfidence = <T extends ObjectWithConfidence>(user: AuthUser, inputElement: T) => {
-  if (isEmptyField(user.effective_confidence_level?.max_confidence)) {
-    // using LockTimeoutError allows us to leverage the worker infinite auto-retry, so that connectors and feeds won't lose messages
-    // this is a configuration error that might appear when upgrading to 6.X, but shall disappear in future when everyone has confidence level set up.
-    throw LockTimeoutError({ user_id: user.id }, 'User has no effective max confidence level and cannot create this element');
+export const controlCreateInputWithUserConfidence = <T extends ObjectWithConfidence>(user: AuthUser, inputElement: T, type: string) => {
+  const hasMaxConfidence = isNotEmptyField(user.effective_confidence_level?.max_confidence);
+  const override = user.effective_confidence_level?.overrides?.find((e) => e.entity_type === type);
+  if (!hasMaxConfidence && !override) {
+    throw FunctionalError('User has no effective max confidence level and cannot create this element', { user_id: user.id });
   }
   const userMaxConfidence = user.effective_confidence_level?.max_confidence as number;
+  const overrideMaxConfidence = override?.max_confidence ?? userMaxConfidence;
   const inputConfidence = inputElement.confidence;
-  const confidenceLevelToApply = capInputConfidenceWithUserMaxConfidence(userMaxConfidence, inputConfidence);
+  const confidenceLevelToApply = capInputConfidenceWithUserMaxConfidence(overrideMaxConfidence, inputConfidence);
   return {
     confidenceLevelToApply,
   };
@@ -101,14 +123,17 @@ export const controlCreateInputWithUserConfidence = <T extends ObjectWithConfide
  * Returns a flag to know if the confidences match properly, plus the confidence to apply on the resulting element.
  */
 export const controlUpsertInputWithUserConfidence = <T extends ObjectWithConfidence>(user: AuthUser, inputElementOrPatch: T, existingElement: T) => {
-  if (isEmptyField(user.effective_confidence_level?.max_confidence)) {
-    throw LockTimeoutError({ user_id: user.id, element_id: existingElement.id }, 'User has no effective max confidence level and cannot upsert this element');
+  const hasMaxConfidence = isNotEmptyField(user.effective_confidence_level?.max_confidence);
+  const override = user.effective_confidence_level?.overrides?.find((e) => e.entity_type === existingElement.entity_type);
+  if (!hasMaxConfidence && !override) {
+    throw FunctionalError('User has no effective max confidence level and cannot upsert this element', { user_id: user.id, element_id: existingElement.id });
   }
-  const userMaxConfidence = user.effective_confidence_level?.max_confidence as number;
-  const confidenceLevelToApply = capInputConfidenceWithUserMaxConfidence(userMaxConfidence, inputElementOrPatch.confidence);
-  const existing = cropNumber(existingElement.confidence ?? 0, 0, 100);
-  const isConfidenceMatch = confidenceLevelToApply >= existing; // always true if no existingConfidence
-  const isConfidenceUpper = confidenceLevelToApply > existing;
+  const userMaxConfidence = user.effective_confidence_level?.max_confidence;
+  const overrideMaxConfidence = (override?.max_confidence ?? userMaxConfidence) as number; // thanks to our if clause, we know one of them is defined
+  const confidenceLevelToApply = capInputConfidenceWithUserMaxConfidence(overrideMaxConfidence, inputElementOrPatch.confidence);
+  const existingConfidenceLevel = cropNumber(existingElement.confidence ?? 0, 0, 100);
+  const isConfidenceMatch = confidenceLevelToApply >= existingConfidenceLevel; // always true if no existingConfidence
+  const isConfidenceUpper = confidenceLevelToApply > existingConfidenceLevel;
 
   return {
     confidenceLevelToApply,
@@ -127,16 +152,19 @@ export const controlUserConfidenceAgainstElement = <T extends ObjectWithConfiden
     return true; // no confidence to check, it's ok
   }
 
-  if (isEmptyField(user.effective_confidence_level?.max_confidence)) {
+  const hasMaxConfidence = isNotEmptyField(user.effective_confidence_level?.max_confidence);
+  const override = user.effective_confidence_level?.overrides?.find((e) => e.entity_type === existingElement.entity_type);
+  if (!hasMaxConfidence && !override) {
     if (noThrow) {
       return false;
     }
-    throw LockTimeoutError({ user_id: user.id, element_id: existingElement.id }, 'User has no effective max confidence level and cannot update this element');
+    throw FunctionalError('User has no effective max confidence level and cannot update this element', { user_id: user.id, element_id: existingElement.id });
   }
 
   const userMaxConfidence = user.effective_confidence_level?.max_confidence as number;
-  const existing = cropNumber(existingElement.confidence ?? 0, 0, 100);
-  const isConfidenceMatch = userMaxConfidence >= existing; // always true if no existingConfidence
+  const overrideMaxConfidence = override?.max_confidence ?? userMaxConfidence;
+  const existingConfidenceLevel = cropNumber(existingElement.confidence ?? 0, 0, 100);
+  const isConfidenceMatch = overrideMaxConfidence >= existingConfidenceLevel; // always true if no existingConfidence
 
   // contrary to upsert (where we might still update fields that were empty even if confidence control is negative)
   // a user cannot update an object without the right confidence
@@ -144,7 +172,7 @@ export const controlUserConfidenceAgainstElement = <T extends ObjectWithConfiden
     if (noThrow) {
       return false;
     }
-    throw FunctionalError('User effective max confidence level is insufficient to update this element', { user_id: user.id, element_id: existingElement.id });
+    throw FunctionalError('User effective max confidence level is insufficient to update this element', { user_id: user.id, element_id: existingElement.id, doc_code: 'INSUFFICIENT_CONFIDENCE_LEVEL' });
   }
 
   return true; // ok
@@ -161,11 +189,14 @@ type UpdateInput = {
  *   2) if the element has no confidence, we make sure it has one after update (fallback to user's level)
  */
 export const adaptUpdateInputsConfidence = <T extends ObjectWithConfidence>(user: AuthUser, inputs: UpdateInput | UpdateInput[], element: T) => {
-  if (isEmptyField(user.effective_confidence_level?.max_confidence)) {
-    throw LockTimeoutError({ user_id: user.id, element_id: element.id }, 'User has no effective max confidence level and cannot update this element');
+  const hasMaxConfidence = isNotEmptyField(user.effective_confidence_level?.max_confidence);
+  const override = user.effective_confidence_level?.overrides?.find((e) => e.entity_type === element.entity_type);
+  if (!hasMaxConfidence && !override) {
+    throw FunctionalError('User has no effective max confidence level and cannot update this element', { user_id: user.id, element_id: element.id });
   }
   const inputsArray = Array.isArray(inputs) ? inputs : [inputs];
   const userMaxConfidenceLevel = user.effective_confidence_level?.max_confidence as number;
+  const overrideMaxConfidence = override?.max_confidence ?? userMaxConfidenceLevel;
   let hasConfidenceInput = false;
 
   // cap confidence change with user's confidence
@@ -173,13 +204,13 @@ export const adaptUpdateInputsConfidence = <T extends ObjectWithConfidence>(user
     const keysArray = Array.isArray(input.key) ? input.key : [input.key];
     if (keysArray.includes('confidence')) {
       const newValue = parseInt(input.value[0], 10);
-      if (userMaxConfidenceLevel < newValue) {
-        logApp.warn('Object confidence cannot be updated above user\'s max confidence level, the value has been capped.', { user_id: user.id, element_id: element.id });
+      if (overrideMaxConfidence < newValue) {
+        logApp.info('Object confidence cannot be updated above user\'s max confidence level, the value has been capped.', { user_id: user.id, element_id: element.id });
       }
       hasConfidenceInput = true;
       return {
         ...input,
-        value: [Math.min(userMaxConfidenceLevel, newValue).toString()]
+        value: [Math.min(overrideMaxConfidence, newValue).toString()]
       };
     }
     return input;
@@ -189,53 +220,21 @@ export const adaptUpdateInputsConfidence = <T extends ObjectWithConfidence>(user
   // then we force the element confidence to the user's confidence
   const hasConfidenceAttribute = schemaAttributesDefinition.getAttribute(element.entity_type, 'confidence');
   if (hasConfidenceAttribute && isEmptyField(element.confidence) && inputsArray.length > 0 && !hasConfidenceInput) {
-    newInputs.push({ key: 'confidence', value: [userMaxConfidenceLevel.toString()] });
+    newInputs.push({ key: 'confidence', value: [overrideMaxConfidence.toString()] });
   }
 
   return newInputs;
 };
 
 /**
- * Narrow the input filter with a AND on the user's max confidence.
- * Result filter will filter out any element without the required confidence (+ input filter).
+ * Determine if a ref relationship is concerned by confidence level.
+ * A user can add external references and labels even with a lower confidence level.
+ *
+ * @param refType The type of the ref relationship
+ * @returns True if the confidence should be checked on the ref.
  */
-export const adaptFiltersWithUserConfidence = (user: AuthUser, filters: FilterGroup): FilterGroup => {
-  if (isEmptyField(user.effective_confidence_level?.max_confidence)) {
-    throw LockTimeoutError({ user_id: user.id }, 'User has no effective max confidence level and cannot run this filter');
-  }
-  const userMaxConfidenceLevel = user.effective_confidence_level?.max_confidence as number;
-
-  // we will filter to get only elements that have...
-  // ... no confidence attribute (no control to do)
-  const entitiesWithoutConfidence: Filter = {
-    key: [
-      'entity_type'
-    ],
-    operator: FilterOperator.NotEq,
-    values: ['Stix-Domain-Object', 'Stix-Relationship'] // only types with confidence judging from schema
-  };
-  // ... a confidence level lower or equal to the user's level
-  const userConfidenceFilter: Filter = {
-    key: ['confidence'],
-    operator: FilterOperator.Lte,
-    values: [userMaxConfidenceLevel]
-  };
-  // ... or no confidence level at all (might happen when inserting data with the API with version <6.0, we consider zero)
-  const nilConfidenceFilter: Filter = {
-    key: ['confidence'],
-    operator: FilterOperator.Nil,
-    values: [],
-  };
-  const orFilterGroup: FilterGroup = {
-    mode: FilterMode.Or,
-    filters: [entitiesWithoutConfidence, userConfidenceFilter, nilConfidenceFilter,],
-    filterGroups: [],
-  };
-
-  // nest: this filter AND the input filters
-  return {
-    mode: FilterMode.And,
-    filters: [],
-    filterGroups: isFilterGroupNotEmpty(filters) ? [orFilterGroup, filters] : [orFilterGroup],
-  };
+export const shouldCheckConfidenceOnRefRelationship = (refType: string) => {
+  const checkRelationRef = ![RELATION_EXTERNAL_REFERENCE, RELATION_OBJECT_LABEL].includes(refType);
+  const checkInputRefName = ![INPUT_EXTERNAL_REFS, INPUT_LABELS].includes(refType);
+  return checkInputRefName && checkRelationRef;
 };

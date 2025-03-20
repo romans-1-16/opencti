@@ -1,4 +1,3 @@
-import { withFilter } from 'graphql-subscriptions';
 import { BUS_TOPICS } from '../config/conf';
 import {
   addStixCoreRelationship,
@@ -17,8 +16,8 @@ import {
   stixCoreRelationshipsMultiTimeSeries,
   stixCoreRelationshipsNumber
 } from '../domain/stixCoreRelationship';
-import { fetchEditContext, pubSubAsyncIterator } from '../database/redis';
-import withCancel from '../graphql/subscriptionWrapper';
+import { fetchEditContext } from '../database/redis';
+import { subscribeToInstanceEvents } from '../graphql/subscriptionWrapper';
 import { batchLoader, stixLoadByIdStringify, timeSeriesRelations } from '../database/middleware';
 import { ABSTRACT_STIX_CORE_RELATIONSHIP, INPUT_CREATED_BY, INPUT_GRANTED_REFS, INPUT_KILLCHAIN, INPUT_LABELS } from '../schema/general';
 import { elBatchIds } from '../database/engine';
@@ -107,9 +106,9 @@ const stixCoreRelationshipResolvers = {
       restrictionOrganizationDelete: ({ organizationId }) => removeOrganizationRestriction(context, context.user, id, organizationId),
     }),
     stixCoreRelationshipAdd: (_, { input }, context) => addStixCoreRelationship(context, context.user, input),
-    stixCoreRelationshipsExportAsk: (_, args, context) => stixCoreRelationshipsExportAsk(context, context.user, args),
-    stixCoreRelationshipsExportPush: (_, { entity_id, entity_type, file, listFilters }, context) => {
-      return stixCoreObjectsExportPush(context, context.user, entity_id, entity_type, file, listFilters);
+    stixCoreRelationshipsExportAsk: (_, { input }, context) => stixCoreRelationshipsExportAsk(context, context.user, input),
+    stixCoreRelationshipsExportPush: (_, { entity_id, entity_type, file, file_markings, listFilters }, context) => {
+      return stixCoreObjectsExportPush(context, context.user, entity_id, entity_type, file, file_markings, listFilters);
     },
     stixCoreRelationshipDelete: (_, { fromId, toId, relationship_type: relationshipType }, context) => {
       return stixCoreRelationshipDeleteByFromAndTo(context, context.user, fromId, toId, relationshipType);
@@ -119,17 +118,10 @@ const stixCoreRelationshipResolvers = {
     stixCoreRelationship: {
       resolve: /* v8 ignore next */ (payload) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        stixCoreRelationshipEditContext(context, context.user, id);
-        const filtering = withFilter(
-          () => pubSubAsyncIterator(BUS_TOPICS[ABSTRACT_STIX_CORE_RELATIONSHIP].EDIT_TOPIC),
-          (payload) => {
-            if (!payload) return false; // When disconnected, an empty payload is dispatched.
-            return payload.user.id !== context.user.id && payload.instance.id === id;
-          }
-        )(_, { id }, context);
-        return withCancel(filtering, () => {
-          stixCoreRelationshipCleanContext(context, context.user, id);
-        });
+        const preFn = () => stixCoreRelationshipEditContext(context, context.user, id);
+        const cleanFn = () => stixCoreRelationshipCleanContext(context, context.user, id);
+        const bus = BUS_TOPICS[ABSTRACT_STIX_CORE_RELATIONSHIP];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ABSTRACT_STIX_CORE_RELATIONSHIP, preFn, cleanFn });
       },
     },
   },

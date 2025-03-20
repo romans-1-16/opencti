@@ -1,7 +1,19 @@
-import React, { Suspense, lazy } from 'react';
-import { Switch, Redirect } from 'react-router-dom';
-import { BoundaryRoute } from '../Error';
-import { KNOWLEDGE_KNUPDATE, MODULES, SETTINGS, SETTINGS_SETACCESSES, TAXIIAPI_SETCSVMAPPERS } from '../../../utils/hooks/useGranted';
+import React, { lazy, Suspense } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import useHelper from '../../../utils/hooks/useHelper';
+import { boundaryWrapper } from '../Error';
+import useGranted, {
+  BYPASS,
+  CSVMAPPERS,
+  INGESTION,
+  INGESTION_SETINGESTIONS,
+  KNOWLEDGE,
+  KNOWLEDGE_KNASKIMPORT,
+  KNOWLEDGE_KNUPDATE,
+  MODULES,
+  SETTINGS_SETACCESSES,
+  TAXIIAPI,
+} from '../../../utils/hooks/useGranted';
 import Loader from '../../../components/Loader';
 
 const CsvMappers = lazy(() => import('./CsvMappers'));
@@ -18,157 +30,182 @@ const Feed = lazy(() => import('./Feed'));
 const Sync = lazy(() => import('./Sync'));
 const IngestionRss = lazy(() => import('./IngestionRss'));
 const IngestionTaxiis = lazy(() => import('./IngestionTaxiis'));
+const IngestionTaxiiCollections = lazy(() => import('./IngestionTaxiiCollections'));
 const Playbooks = lazy(() => import('./Playbooks'));
 const RootPlaybook = lazy(() => import('./playbooks/Root'));
 const RootImport = lazy(() => import('./import/Root'));
+const Management = lazy(() => import('./Management'));
 
 const Root = () => {
+  const { isFeatureEnable } = useHelper();
+  const isRightMenuManagementEnable = isFeatureEnable('DATA_MANAGEMENT_RIGHT_MENU');
+
+  const isGrantedToKnowledge = useGranted([KNOWLEDGE]);
+  const isGrantedToIngestion = useGranted([MODULES, INGESTION, INGESTION_SETINGESTIONS]);
+  const isGrantedToImport = useGranted([KNOWLEDGE_KNASKIMPORT]);
+  const isGrantedToProcessing = useGranted([KNOWLEDGE_KNUPDATE, SETTINGS_SETACCESSES, CSVMAPPERS]);
+  const isGrantedToSharing = useGranted([TAXIIAPI]);
+  const isGrantedToManage = useGranted([BYPASS]);
+
+  let redirect = null;
+  if (isGrantedToKnowledge) {
+    redirect = 'entities';
+  } else if (isGrantedToIngestion) {
+    redirect = 'ingestion';
+  } else if (isGrantedToImport) {
+    redirect = 'import';
+  } else if (isGrantedToProcessing) {
+    redirect = 'processing';
+  } else if (isGrantedToSharing) {
+    redirect = 'sharing';
+  } else if (isGrantedToManage) {
+    redirect = 'restriction';
+  }
+
+  const isConnectorReader = useGranted([MODULES]);
+
   return (
     <Suspense fallback={<Loader />}>
-      <Switch>
-        <BoundaryRoute
-          exact
-          path="/dashboard/data"
-          render={() => <Redirect to="/dashboard/data/entities" />}
+      <Routes>
+        <Route
+          path="/"
+          element={<Navigate to={`/dashboard/data/${redirect}`} replace={true} />}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/entities"
-          component={Entities}
+        <Route
+          path="/entities"
+          element={boundaryWrapper(Entities)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/relationships"
-          component={Relationships}
+        <Route
+          path="/relationships"
+          element={boundaryWrapper(Relationships)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/ingestion"
-          render={() => (
+        <Route
+          path="/ingestion"
+          element={
             <Security
-              needs={[SETTINGS]}
+              needs={[INGESTION]}
               placeholder={(
                 <Security
                   needs={[MODULES]}
                   placeholder={(
-                    <Redirect to="/dashboard" />
+                    <Navigate to="/dashboard" />
                   )}
                 >
-                  <Redirect to="/dashboard/data/ingestion/connectors" />
+                  <Navigate to="/dashboard/data/ingestion/connectors" />
                 </Security>
               )}
             >
-              <Redirect to="/dashboard/data/ingestion/sync" />
+              <Navigate to={isConnectorReader ? '/dashboard/data/ingestion/connectors' : '/dashboard/data/ingestion/sync'} />
             </Security>
-          )}
+          }
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/ingestion/sync"
-          component={Sync}
+        <Route
+          path="/ingestion/sync"
+          element={boundaryWrapper(Sync)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/ingestion/rss"
-          component={IngestionRss}
+        <Route
+          path="/ingestion/rss"
+          element={boundaryWrapper(IngestionRss)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/ingestion/taxii"
-          component={IngestionTaxiis}
+        <Route
+          path="/ingestion/taxii"
+          element={boundaryWrapper(IngestionTaxiis)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/ingestion/csv"
-          component={IngestionCsv}
+        <Route
+          path="/ingestion/collection"
+          element={boundaryWrapper(IngestionTaxiiCollections)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/ingestion/connectors"
-          component={Connectors}
+        <Route
+          path="/ingestion/csv"
+          element={boundaryWrapper(IngestionCsv)}
         />
-        <BoundaryRoute
-          path="/dashboard/data/ingestion/connectors/:connectorId"
-          render={(routeProps) => <RootConnector {...routeProps} />}
+        <Route
+          path="/ingestion/connectors"
+          element={boundaryWrapper(Connectors)}
         />
-        <BoundaryRoute
-          path="/dashboard/data/import"
-          component={RootImport}
+        <Route
+          path="/ingestion/connectors/:connectorId"
+          element={<RootConnector />}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/sharing"
-          render={() => <Redirect to="/dashboard/data/sharing/streams" />}
+        <Route
+          path="/import/*"
+          element={boundaryWrapper(RootImport)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/sharing/streams"
-          component={Stream}
+        <Route
+          path="/sharing"
+          element={<Navigate to="/dashboard/data/sharing/streams" replace={true} />}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/sharing/feeds"
-          component={Feed}
+        <Route
+          path="/sharing/streams"
+          element={boundaryWrapper(Stream)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/sharing/taxii"
-          component={Taxii}
+        <Route
+          path="/sharing/feeds"
+          element={boundaryWrapper(Feed)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/processing"
-          render={() => (
+        <Route
+          path="/sharing/taxii"
+          element={boundaryWrapper(Taxii)}
+        />
+        <Route
+          path="/processing"
+          element={
             <Security
               needs={[SETTINGS_SETACCESSES]}
               placeholder={(
                 <Security
-                  needs={[TAXIIAPI_SETCSVMAPPERS]}
-                  placeholder={<Redirect to="/dashboard/data/processing/tasks" />}
+                  needs={[CSVMAPPERS]}
+                  placeholder={<Navigate to="/dashboard/data/processing/tasks" />}
                 >
-                  <Redirect to="/dashboard/data/processing/csv_mapper" />
+                  <Navigate to="/dashboard/data/processing/csv_mapper" />
                 </Security>
               )}
             >
-              <Redirect to="/dashboard/data/processing/automation" />
+              <Navigate to="/dashboard/data/processing/automation" />
             </Security>
-          )}
+          }
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/processing/automation"
-          component={Playbooks}
+        <Route
+          path="/processing/automation"
+          element={boundaryWrapper(Playbooks)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/processing/automation/:playbookId"
-          component={RootPlaybook}
+        <Route
+          path="/processing/automation/:playbookId"
+          element={boundaryWrapper(RootPlaybook)}
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/processing/csv_mapper"
-          render={() => (
+        <Route
+          path="/processing/csv_mapper"
+          element={
             <Security
-              needs={[TAXIIAPI_SETCSVMAPPERS]}
-              placeholder={<Redirect to="/dashboard" />}
+              needs={[CSVMAPPERS]}
+              placeholder={<Navigate to="/dashboard" />}
             >
               <CsvMappers/>
             </Security>
-          )}
+          }
         />
-        <BoundaryRoute
-          exact
-          path="/dashboard/data/processing/tasks"
-          render={() => (
+        <Route
+          path="/processing/tasks"
+          element={
             <Security
               needs={[KNOWLEDGE_KNUPDATE]}
-              placeholder={<Redirect to="/dashboard" />}
+              placeholder={<Navigate to="/dashboard" />}
             >
               <Tasks />
             </Security>
-          )}
+          }
         />
-      </Switch>
+        {isRightMenuManagementEnable && (
+        <Route
+          path="/restriction"
+          element={<Navigate to="/dashboard/data/restriction/restricted" replace={true} />}
+        />
+        )}
+        <Route
+          path="/restriction/*"
+          element={boundaryWrapper(Management)}
+        />
+      </Routes>
     </Suspense>
   );
 };

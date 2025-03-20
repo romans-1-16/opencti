@@ -98,7 +98,7 @@ class StatusField extends Component {
 
   searchStatuses() {
     fetchQuery(statusFieldStatusesSearchQuery, {
-      first: 10,
+      first: 100,
       filters: this.props.type
         ? {
           mode: 'and',
@@ -123,17 +123,21 @@ class StatusField extends Component {
             type: n.node.type,
           })),
         )(data);
+        statuses.sort((a, b) => {
+          return a.type < b.type ? -1 : 1;
+        });
         this.setState({ statuses: R.union(this.state.statuses, statuses) });
       });
   }
 
   render() {
-    const { t, name, style, classes, onChange, helpertext, type } = this.props;
+    const { t, name, style, classes, onChange, helpertext, type, required } = this.props;
     return (
       <Field
         component={AutocompleteField}
         style={style}
         name={name}
+        required={required}
         textfieldprops={{
           variant: 'standard',
           label: t('Status'),
@@ -146,7 +150,7 @@ class StatusField extends Component {
         groupBy={type ? undefined : (option) => option.type}
         onChange={typeof onChange === 'function' ? onChange.bind(this) : null}
         renderOption={(props, option) => (
-          <li {...props}>
+          <li {...props} key={option.value}>
             <div className={classes.icon}>
               <Avatar
                 variant="square"

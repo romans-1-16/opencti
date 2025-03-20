@@ -3,13 +3,13 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import React, { useMemo } from 'react';
-import { Link, Route, Switch, useParams } from 'react-router-dom';
+import { Link, Route, Routes, useParams, useLocation } from 'react-router-dom';
 import { graphql, useSubscription } from 'react-relay';
 import { GraphQLSubscriptionConfig } from 'relay-runtime';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { useLocation } from 'react-router-dom-v5-compat';
+import StixCoreObjectContentRoot from '@components/common/stix_core_objects/StixCoreObjectContentRoot';
 import { QueryRenderer } from '../../../../relay/environment';
 import Loader from '../../../../components/Loader';
 import ErrorNotFound from '../../../../components/ErrorNotFound';
@@ -23,6 +23,11 @@ import DataComponentKnowledge from './DataComponentKnowledge';
 import { RootDataComponentSubscription } from './__generated__/RootDataComponentSubscription.graphql';
 import { useFormatter } from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import { getCurrentTab, getPaddingRight } from '../../../../utils/utils';
+import Security from '../../../../utils/Security';
+import DataComponentEdition from './DataComponentEdition';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const subscription = graphql`
   subscription RootDataComponentSubscription($id: ID!) {
@@ -43,6 +48,10 @@ const dataComponentQuery = graphql`
   query RootDataComponentQuery($id: String!) {
     dataComponent(id: $id) {
       id
+      draftVersion {
+        draft_id
+        draft_operation
+      }
       standard_id
       entity_type
       name
@@ -53,6 +62,7 @@ const dataComponentQuery = graphql`
       ...FileExportViewer_entity
       ...FileExternalReferencesViewer_entity
       ...WorkbenchFileViewer_entity
+      ...StixCoreObjectContent_stixCoreObject
     }
     connectorsForImport {
       ...FileManager_connectorsImport
@@ -76,6 +86,8 @@ const RootDataComponent = () => {
   );
   useSubscription(subConfig);
   const location = useLocation();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const { t_i18n } = useFormatter();
   return (
     <>
@@ -86,17 +98,10 @@ const RootDataComponent = () => {
           if (props) {
             if (props.dataComponent) {
               const { dataComponent } = props;
+              const paddingRight = getPaddingRight(location.pathname, dataComponent.id, '/dashboard/techniques/data_components', false);
               return (
-                <div
-                  style={{
-                    paddingRight: location.pathname.includes(
-                      `/dashboard/techniques/data_components/${dataComponent.id}/knowledge`,
-                    )
-                      ? 200
-                      : 0,
-                  }}
-                >
-                  <Breadcrumbs variant="object" elements={[
+                <div style={{ paddingRight }}>
+                  <Breadcrumbs elements={[
                     { label: t_i18n('Techniques') },
                     { label: t_i18n('Data components'), link: '/dashboard/techniques/data_components' },
                     { label: dataComponent.name, current: true },
@@ -106,31 +111,36 @@ const RootDataComponent = () => {
                     entityType="Data-Component"
                     stixDomainObject={props.dataComponent}
                     PopoverComponent={
-                      <DataComponentPopover dataComponentId={dataComponentId} />
+                      <DataComponentPopover dataComponentId={dataComponentId}/>
                     }
+                    EditComponent={isFABReplaced && (
+                      <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                        <DataComponentEdition dataComponentId={dataComponent.id} />
+                      </Security>
+                    )}
                     noAliases={true}
                   />
                   <Box
                     sx={{
                       borderBottom: 1,
                       borderColor: 'divider',
-                      marginBottom: 4,
+                      marginBottom: 3,
                     }}
                   >
                     <Tabs
-                      value={
-                        location.pathname.includes(
-                          `/dashboard/techniques/data_components/${dataComponent.id}/knowledge`,
-                        )
-                          ? `/dashboard/techniques/data_components/${dataComponent.id}/knowledge`
-                          : location.pathname
-                      }
+                      value={getCurrentTab(location.pathname, dataComponent.id, '/dashboard/arsenal/techniques')}
                     >
                       <Tab
                         component={Link}
                         to={`/dashboard/techniques/data_components/${dataComponent.id}`}
                         value={`/dashboard/techniques/data_components/${dataComponent.id}`}
                         label={t_i18n('Overview')}
+                      />
+                      <Tab
+                        component={Link}
+                        to={`/dashboard/techniques/data_components/${dataComponent.id}/content`}
+                        value={`/dashboard/techniques/data_components/${dataComponent.id}/content`}
+                        label={t_i18n('Content')}
                       />
                       <Tab
                         component={Link}
@@ -146,47 +156,45 @@ const RootDataComponent = () => {
                       />
                     </Tabs>
                   </Box>
-                  <Switch>
+                  <Routes>
                     <Route
-                      exact
-                      path="/dashboard/techniques/data_components/:dataComponentId"
-                      render={(routeProps: any) => (
-                        <DataComponent {...routeProps} data={dataComponent} />
-                      )}
+                      path="/"
+                      element={
+                        <DataComponent dataComponentData={dataComponent}/>
+                      }
                     />
                     <Route
-                      path="/dashboard/techniques/data_components/:dataComponentId/knowledge"
-                      render={(routeProps: any) => (
-                        <DataComponentKnowledge
-                          {...routeProps}
-                          data={dataComponent}
+                      path="/knowledge/*"
+                      element={
+                        <DataComponentKnowledge data={dataComponent}/>
+                      }
+                    />
+                    <Route
+                      path="/content/*"
+                      element={
+                        <StixCoreObjectContentRoot
+                          stixCoreObject={dataComponent}
                         />
-                      )}
+                      }
                     />
                     <Route
-                      exact
-                      path="/dashboard/techniques/data_components/:dataComponentId/files"
-                      render={(routeProps: any) => (
+                      path="/files"
+                      element={
                         <FileManager
-                          {...routeProps}
                           id={dataComponentId}
                           connectorsImport={props.connectorsForImport}
                           connectorsExport={props.connectorsForExport}
                           entity={dataComponent}
                         />
-                      )}
+                      }
                     />
                     <Route
-                      exact
-                      path="/dashboard/techniques/data_components/:dataComponentId/history"
-                      render={(routeProps: any) => (
-                        <StixCoreObjectHistory
-                          {...routeProps}
-                          stixCoreObjectId={dataComponentId}
-                        />
-                      )}
+                      path="/history"
+                      element={
+                        <StixCoreObjectHistory stixCoreObjectId={dataComponentId}/>
+                      }
                     />
-                  </Switch>
+                  </Routes>
                 </div>
               );
             }

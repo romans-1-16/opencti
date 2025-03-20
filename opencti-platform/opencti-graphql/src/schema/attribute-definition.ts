@@ -1,5 +1,6 @@
 import { ENTITY_TYPE_USER } from './internalObject';
 import { ABSTRACT_BASIC_OBJECT, ABSTRACT_BASIC_RELATIONSHIP } from './general';
+import { getDraftOperations } from '../modules/draftWorkspace/draftOperations';
 
 export const shortMapping = {
   type: 'text',
@@ -36,13 +37,20 @@ type BasicDefinition = {
   isFilterable: boolean // If attribute can be used as a filter key in the UI
   editDefault: boolean // TO CHECK ?????
   update?: boolean // If attribute can be updated (null = true)
+  featureFlag?: string // if attribute is on feature flag, null by default
+};
+
+export type MappingDefinition = AttributeDefinition & {
+  associatedFilterKeys?: { key: string, label: string }[] // filter key and their label, to add if key is different from: 'parentAttributeName.nestedAttributeName'
 };
 
 type BasicObjectDefinition = BasicDefinition & {
-  mappings: (
-    { associatedFilterKeys?: { key: string, label: string }[] } // filter key and their label, to add if key is different from: 'parentAttributeName.nestedAttributeName'
-    & AttributeDefinition
-  )[],
+  mappings: MappingDefinition[],
+  // if the object attribute can be used for sorting, we need to know how
+  sortBy?: {
+    path: string // path leading to the value that serves for sorting
+    type: string // type of this value, copied for convenience from corresponding mapping (checked at registration)
+  }
 };
 export type DateAttribute = { type: 'date' } & BasicDefinition;
 export type BooleanAttribute = { type: 'boolean' } & BasicDefinition;
@@ -65,6 +73,14 @@ export type AttributeDefinition = NumericAttribute | DateAttribute | BooleanAttr
 export const shortStringFormats = ['id', 'short', 'enum', 'vocabulary'];
 export const longStringFormats = ['text', 'json'];
 
+// -- Type guards TS --
+export const isNumericAttribute = (attribute: AttributeDefinition): attribute is NumericAttribute => attribute.type === 'numeric';
+export const isDateAttribute = (attribute: AttributeDefinition): attribute is DateAttribute => attribute.type === 'date';
+export const isBooleanAttribute = (attribute: AttributeDefinition): attribute is BooleanAttribute => attribute.type === 'boolean';
+export const isStringAttribute = (attribute: AttributeDefinition): attribute is StringAttribute => attribute.type === 'string';
+export const isComplexAttribute = (attribute: AttributeDefinition): attribute is ComplexAttribute => attribute.type === 'object';
+export const isRefAttribute = (attribute: AttributeDefinition): attribute is RefAttribute => attribute.type === 'ref';
+
 // -- GLOBAL --
 export const id: AttributeDefinition = {
   name: 'id',
@@ -78,6 +94,71 @@ export const id: AttributeDefinition = {
   upsert: false,
   isFilterable: false,
   entityTypes: [ABSTRACT_BASIC_OBJECT, ABSTRACT_BASIC_RELATIONSHIP]
+};
+
+export const draftIds: AttributeDefinition = {
+  name: 'draft_ids',
+  label: 'Draft ids',
+  type: 'string',
+  format: 'id',
+  update: false,
+  mandatoryType: 'no',
+  multiple: true,
+  editDefault: false,
+  upsert: false,
+  isFilterable: false,
+  entityTypes: [ABSTRACT_BASIC_OBJECT, ABSTRACT_BASIC_RELATIONSHIP],
+  featureFlag: 'DRAFT_WORKSPACE'
+};
+
+export const draftContext: AttributeDefinition = {
+  name: 'draft_context',
+  label: 'Current draft context',
+  type: 'string',
+  format: 'short',
+  mandatoryType: 'no',
+  multiple: false,
+  editDefault: false,
+  upsert: false,
+  isFilterable: false,
+  featureFlag: 'DRAFT_WORKSPACE'
+};
+
+export const draftChange: AttributeDefinition = {
+  name: 'draft_change',
+  label: 'Draft change',
+  type: 'object',
+  format: 'standard',
+  update: false,
+  mandatoryType: 'no',
+  editDefault: false,
+  multiple: false,
+  upsert: false,
+  isFilterable: true,
+  featureFlag: 'DRAFT_WORKSPACE',
+  mappings: [
+    { name: 'draft_operation', label: 'Draft operation', type: 'string', format: 'enum', values: getDraftOperations(), mandatoryType: 'external', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'draft_updates_patch', label: 'Draft update patch', type: 'string', format: 'json', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: false },
+  ]
+};
+
+export const iAttributes: AttributeDefinition = {
+  name: 'i_attributes',
+  label: 'Attributes',
+  type: 'object',
+  format: 'standard',
+  update: false,
+  mandatoryType: 'no',
+  editDefault: false,
+  multiple: true,
+  upsert: false,
+  isFilterable: false,
+  mappings: [
+    { name: 'name', label: 'Attribute name', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
+    { name: 'updated_at', label: 'Updated at', type: 'date', editDefault: false, mandatoryType: 'no', multiple: false, upsert: false, isFilterable: true },
+    { name: 'confidence', label: 'Confidence', type: 'numeric', precision: 'integer', mandatoryType: 'no', editDefault: false, multiple: false, upsert: false, isFilterable: true },
+    { name: 'user_id', label: 'Last modifier', type: 'string', format: 'id', entityTypes: [ENTITY_TYPE_USER], editDefault: false, mandatoryType: 'no', multiple: false, upsert: false, isFilterable: false },
+  ]
 };
 
 export const internalId: AttributeDefinition = {
@@ -99,7 +180,7 @@ export const creators: AttributeDefinition = {
   label: 'Creators',
   type: 'string',
   format: 'id',
-  update: false,
+  update: true,
   entityTypes: [ENTITY_TYPE_USER],
   mandatoryType: 'no',
   editDefault: false,
@@ -148,11 +229,12 @@ export const files: AttributeDefinition = {
   mappings: [
     id,
     { name: 'name', label: 'Name', type: 'string', format: 'short', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
-    { name: 'description', label: 'Name', type: 'string', format: 'text', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
+    { name: 'description', label: 'Description', type: 'string', format: 'text', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
     { name: 'version', label: 'Version', type: 'date', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
     { name: 'mime_type', label: 'Mime type', type: 'string', format: 'short', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
     { name: 'inCarousel', label: 'Include in carousel', type: 'boolean', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'order', label: 'Order in carousel', type: 'numeric', precision: 'integer', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'file_markings', label: 'Markings', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: true, upsert: true, isFilterable: true },
   ]
 };
 
@@ -172,6 +254,17 @@ export const authorizedMembers: AttributeDefinition = {
     { name: 'entity_type', label: 'Entity type', type: 'string', format: 'short', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: false },
     { name: 'access_right', label: 'Access right', type: 'string', format: 'short', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: false },
   ]
+};
+
+export const authorizedMembersActivationDate : AttributeDefinition = {
+  name: 'authorized_members_activation_date',
+  label: 'Authorized members activation date',
+  type: 'date',
+  mandatoryType: 'no',
+  editDefault: false,
+  multiple: false,
+  upsert: false,
+  isFilterable: false,
 };
 
 export const authorizedAuthorities: AttributeDefinition = {
@@ -282,6 +375,24 @@ export const errors: AttributeDefinition = {
     { name: 'error', label: 'Error', type: 'string', format: 'text', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
     { name: 'source', label: 'Source', type: 'string', format: 'text', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
     { name: 'timestamp', label: 'Timestamp', type: 'date', editDefault: false, mandatoryType: 'no', multiple: true, upsert: true, isFilterable: true },
+  ]
+};
+
+export const opinionsMetrics: AttributeDefinition = {
+  name: 'opinions_metrics',
+  label: 'Opinion metrics',
+  type: 'object',
+  format: 'standard',
+  mandatoryType: 'no',
+  editDefault: false,
+  multiple: false,
+  upsert: true,
+  isFilterable: true,
+  mappings: [
+    { name: 'mean', label: 'Opinions mean', type: 'numeric', precision: 'float', editDefault: false, mandatoryType: 'no', multiple: false, upsert: true, isFilterable: true },
+    { name: 'max', label: 'Opinions max', type: 'numeric', precision: 'integer', editDefault: false, mandatoryType: 'no', multiple: false, upsert: true, isFilterable: true },
+    { name: 'min', label: 'Opinions min', type: 'numeric', precision: 'integer', editDefault: false, mandatoryType: 'no', multiple: false, upsert: true, isFilterable: true },
+    { name: 'total', label: 'Opinions total number', type: 'numeric', precision: 'integer', editDefault: false, mandatoryType: 'no', multiple: false, upsert: true, isFilterable: true },
   ]
 };
 

@@ -1,16 +1,21 @@
 import Button from '@mui/material/Button';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
 import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import React, { FunctionComponent, useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import * as Yup from 'yup';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { handleErrorInForm } from 'src/relay/environment';
+import { CaseRftsLinesCasesPaginationQuery$variables } from '@components/cases/__generated__/CaseRftsLinesCasesPaginationQuery.graphql';
+import AuthorizedMembersField from '@components/common/form/AuthorizedMembersField';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import Typography from '@mui/material/Typography';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
@@ -26,12 +31,20 @@ import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { Option } from '../../common/form/ReferenceField';
 import { CaseRftAddInput, CaseRftCreationCaseMutation } from './__generated__/CaseRftCreationCaseMutation.graphql';
-import { CaseRftLinesCasesPaginationQuery$variables } from './__generated__/CaseRftLinesCasesPaginationQuery.graphql';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
-import RichTextField from '../../../../components/RichTextField';
+import RichTextField from '../../../../components/fields/RichTextField';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
+import Security from '../../../../utils/Security';
+import useGranted, { KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS } from '../../../../utils/hooks/useGranted';
+import { Accordion, AccordionSummary } from '../../../../components/Accordion';
+import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -50,8 +63,11 @@ const caseRftMutation = graphql`
       entity_type
       parent_types
       name
+      representative {
+        main
+      }
       description
-      ...CaseRftLineCase_node
+      ...CaseRftsLineCases_data
     }
   }
 `;
@@ -73,6 +89,7 @@ interface FormikCaseRftAddInput {
   severity: string;
   priority: string;
   caseTemplates?: Option[];
+  authorized_members: { value: string, accessRight: string }[] | undefined;
 }
 
 interface CaseRftFormProps {
@@ -85,6 +102,7 @@ interface CaseRftFormProps {
   defaultConfidence?: number;
   defaultCreatedBy?: { value: string; label: string };
   defaultMarkingDefinitions?: { value: string; label: string }[];
+  inputValue?: string;
 }
 
 const CASE_RFT_TYPE = 'Case-Rft';
@@ -95,25 +113,34 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
   defaultConfidence,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  inputValue,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const history = useHistory();
+  const navigate = useNavigate();
   const [mapAfter, setMapAfter] = useState<boolean>(false);
+  const canEditAuthorizedMembers = useGranted([KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS]);
+  const isEnterpriseEdition = useEnterpriseEdition();
+
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     content: Yup.string().nullable(),
+    authorized_members: Yup.array().nullable(),
   };
   const caseRftValidator = useSchemaCreationValidation(
     CASE_RFT_TYPE,
     basicShape,
   );
-  const [commit] = useMutation<CaseRftCreationCaseMutation>(caseRftMutation);
+  const [commit] = useApiMutation<CaseRftCreationCaseMutation>(
+    caseRftMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Case-Rft')} ${t_i18n('successfully created')}` },
+  );
 
   const onSubmit: FormikConfig<FormikCaseRftAddInput>['onSubmit'] = (
     values,
-    { setSubmitting, resetForm },
+    { setSubmitting, setErrors, resetForm },
   ) => {
     const input: CaseRftAddInput = {
       name: values.name,
@@ -132,6 +159,12 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
       externalReferences: values.externalReferences.map(({ value }) => value),
       createdBy: values.createdBy?.value,
       file: values.file,
+      ...(isEnterpriseEdition && canEditAuthorizedMembers && values.authorized_members && {
+        authorized_members: values.authorized_members.map(({ value, accessRight }) => ({
+          id: value,
+          access_right: accessRight,
+        })),
+      }),
     };
     commit({
       variables: {
@@ -142,6 +175,10 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
           updater(store, 'caseRftAdd', response.caseRftAdd);
         }
       },
+      onError: (error) => {
+        handleErrorInForm(error, setErrors);
+        setSubmitting(false);
+      },
       onCompleted: (response) => {
         setSubmitting(false);
         resetForm();
@@ -149,8 +186,8 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
           onClose();
         }
         if (mapAfter) {
-          history.push(
-            `/dashboard/cases/rfts/${response.caseRftAdd?.id}/knowledge/content`,
+          navigate(
+            `/dashboard/cases/rfts/${response.caseRftAdd?.id}/content/mapping`,
           );
         }
       },
@@ -158,7 +195,7 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
   };
 
   const initialValues = useDefaultValues<FormikCaseRftAddInput>(CASE_RFT_TYPE, {
-    name: '',
+    name: inputValue ?? '',
     confidence: defaultConfidence,
     description: '',
     content: '',
@@ -174,8 +211,11 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
     objectLabel: [],
     externalReferences: [],
     file: undefined,
+    authorized_members: undefined,
   });
-
+  if (!canEditAuthorizedMembers) {
+    delete initialValues.authorized_members;
+  }
   return (
     <Formik<FormikCaseRftAddInput>
       initialValues={initialValues}
@@ -184,7 +224,7 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
       onReset={onClose}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"
@@ -200,7 +240,7 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
               label: t_i18n('Request For Takedown Date'),
               variant: 'standard',
               fullWidth: true,
-              style: { marginTop: 20 },
+              style: { ...fieldSpacingContainerStyle },
             }}
           />
           <OpenVocabField
@@ -275,6 +315,7 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
           <ObjectMarkingField
             name="objectMarking"
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
@@ -283,6 +324,30 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
             values={values.externalReferences}
           />
           <CustomFileUploader setFieldValue={setFieldValue} />
+          {isEnterpriseEdition && (
+            <Security
+              needs={[KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS]}
+            >
+              <div style={fieldSpacingContainerStyle}>
+                <Accordion >
+                  <AccordionSummary id="accordion-panel">
+                    <Typography>{t_i18n('Advanced options')}</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Field
+                      name={'authorized_members'}
+                      component={AuthorizedMembersField}
+                      containerstyle={{ marginTop: 20 }}
+                      showAllMembersLine
+                      canDeactivate
+                      disabled={isSubmitting}
+                      addMeUserWithAdminRights
+                    />
+                  </AccordionDetails>
+                </Accordion>
+              </div>
+            </Security>
+          )}
           <div className={classes.buttons}>
             <Button
               variant="contained"
@@ -325,19 +390,26 @@ export const CaseRftCreationForm: FunctionComponent<CaseRftFormProps> = ({
 const CaseRftCreation = ({
   paginationOptions,
 }: {
-  paginationOptions: CaseRftLinesCasesPaginationQuery$variables;
+  paginationOptions: CaseRftsLinesCasesPaginationQuery$variables;
 }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
   const updater = (store: RecordSourceSelectorProxy) => insertNode(
     store,
     'Pagination_case_caseRfts',
     paginationOptions,
     'caseRftAdd',
   );
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const CreateCaseRftControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Case-Rft' {...props} />
+  );
+
   return (
     <Drawer
       title={t_i18n('Create a request for takedown')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateCaseRftControlledDial : undefined}
     >
       <CaseRftCreationForm updater={updater} />
     </Drawer>

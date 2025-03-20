@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -19,12 +19,16 @@ import Button from '@mui/material/Button';
 import * as Yup from 'yup';
 import { graphql } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
+import { useNavigate } from 'react-router-dom';
 import Drawer, { DrawerVariant } from '../../common/drawer/Drawer';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import { insertNode } from '../../../../utils/store';
 import { useFormatter } from '../../../../components/i18n';
+import { resolveLink } from '../../../../utils/Entity';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   buttons: {
     marginTop: 20,
@@ -38,7 +42,8 @@ const useStyles = makeStyles((theme) => ({
 const PlaybookCreationMutation = graphql`
   mutation PlaybookCreationMutation($input: PlaybookAddInput!) {
     playbookAdd(input: $input) {
-      ...PlaybookLine_node
+      id
+      ...PlaybooksLine_node
     }
   }
 `;
@@ -51,6 +56,7 @@ const playbookCreationValidation = (t) => Yup.object().shape({
 const PlaybookCreation = ({ paginationOptions }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const navigate = useNavigate();
   const onSubmit = (values, { setSubmitting, resetForm }) => {
     commitMutation({
       mutation: PlaybookCreationMutation,
@@ -66,9 +72,10 @@ const PlaybookCreation = ({ paginationOptions }) => {
         );
       },
       setSubmitting,
-      onCompleted: () => {
+      onCompleted: (response) => {
         setSubmitting(false);
         resetForm();
+        navigate(`${resolveLink('Playbook')}/${response.playbookAdd.id}`);
       },
     });
   };
@@ -91,7 +98,7 @@ const PlaybookCreation = ({ paginationOptions }) => {
           onReset={onClose}
         >
           {({ submitForm, handleReset, isSubmitting }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"

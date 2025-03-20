@@ -64,8 +64,14 @@ import {
   TaskAlt,
   AutoAwesomeMotion,
   ViewStreamTwoTone,
+  BackupTableOutlined,
+  PlayCircleOutlined,
+  ArchitectureOutlined,
+  PlaylistRemoveOutlined,
+  AttachEmailOutlined,
 } from '@mui/icons-material';
 import {
+  AutoFix,
   ArchiveOutline,
   Biohazard,
   BriefcaseCheckOutline,
@@ -150,6 +156,8 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
       return <StreamOutlined style={style} fontSize={fontSize} role="img" />;
     case 'settings':
       return <SettingsOutlined style={style} fontSize={fontSize} role="img" />;
+    case 'draft':
+      return <ArchitectureOutlined style={style} fontSize={fontSize} role="img" />;
     case 'taxiicollection':
       return (
         <DatabaseExportOutline style={style} fontSize={fontSize} role="img" />
@@ -364,6 +372,10 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
       return (
         <NotificationsOutlined style={style} fontSize={fontSize} role="img" />
       );
+    case 'manual':
+      return (
+        <PlayCircleOutlined style={style} fontSize={fontSize} role="img" />
+      );
     case 'managerconfiguration':
       return (
         <SettingsApplicationsOutlined style={style} fontSize={fontSize} role="img" />
@@ -397,7 +409,10 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
     case 'bank-account':
     case 'phone-number':
     case 'payment-card':
+    case 'credential':
+    case 'tracking-number':
     case 'media-content':
+    case 'persona':
       return <HexagonOutline style={style} fontSize={fontSize} role="img" />;
     case 'stix-sighting-relationship':
     case 'sighting':
@@ -434,6 +449,8 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
       return <SourcePull style={style} fontSize={fontSize} role="img" />;
     case 'victimology':
       return <Target style={style} fontSize={fontSize} role="img" />;
+    case 'cron':
+      return <BackupTableOutlined style={style} fontSize={fontSize} role="img" />;
     case 'relationship':
     case 'stix-core-relationship':
     case 'targets':
@@ -441,6 +458,9 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
     case 'located-at':
     case 'related-to':
     case 'mitigates':
+    case 'reports-to':
+    case 'supports':
+    case 'known-as':
     case 'impersonates':
     case 'indicates':
     case 'comes-after':
@@ -489,7 +509,6 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
     case 'exfiltrates-to':
     case 'exploits':
     case 'investigates':
-    case 'x_opencti_linked-to':
     case 'originates-from':
     case 'participates-in':
     case 'body-multipart':
@@ -524,6 +543,14 @@ const iconSelector = (type, variant, fontSize, color, isReversed) => {
       return <UpcomingOutlined style={style} fontSize={fontSize} role="img" />;
     case 'synchronizer':
       return <ViewStreamTwoTone style={style} fontSize={fontSize} role="img" />;
+    case 'draft_context':
+      return <ArchitectureOutlined style={style} fontSize={fontSize} role="img" />;
+    case 'exclusion-list':
+      return <PlaylistRemoveOutlined style={style} fontSize={fontSize} role="img" />;
+    case 'dissemination-list':
+      return <AttachEmailOutlined style={style} fontSize={fontSize} role="img" />;
+    case 'autofix':
+      return <AutoFix style={style} fontSize={fontSize} role="img" />;
     case 'default':
       return <CircleOutlined style={style} fontSize={fontSize} role="img" />;
     default:

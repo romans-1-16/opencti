@@ -2,26 +2,29 @@ import { getHeapStatistics } from 'node:v8';
 import nconf from 'nconf';
 import * as R from 'ramda';
 import { createEntity, listAllThings, loadEntity, patchAttribute, updateAttribute } from '../database/middleware';
-import conf, { ACCOUNT_STATUSES, BUS_TOPICS, DISABLED_FEATURE_FLAGS, ENABLED_DEMO_MODE, getBaseUrl, PLATFORM_VERSION } from '../config/conf';
+import conf, { ACCOUNT_STATUSES, booleanConf, BUS_TOPICS, ENABLED_DEMO_MODE, ENABLED_FEATURE_FLAGS, getBaseUrl, PLATFORM_VERSION, PLAYGROUND_ENABLED } from '../config/conf';
 import { delEditContext, getClusterInstances, getRedisVersion, notify, setEditContext } from '../database/redis';
 import { isRuntimeSortEnable, searchEngineVersion } from '../database/engine';
 import { getRabbitMQVersion } from '../database/rabbitmq';
-import { ENTITY_TYPE_GROUP, ENTITY_TYPE_SETTINGS } from '../schema/internalObject';
+import { ENTITY_TYPE_GROUP, ENTITY_TYPE_ROLE, ENTITY_TYPE_SETTINGS } from '../schema/internalObject';
 import { isUserHasCapability, SETTINGS_SET_ACCESSES, SYSTEM_USER } from '../utils/access';
 import { storeLoadById } from '../database/middleware-loader';
 import { INTERNAL_SECURITY_PROVIDER, PROVIDERS } from '../config/providers';
 import { publishUserAction } from '../listener/UserActionListener';
-import { getEntityFromCache } from '../database/cache';
-import { now } from '../utils/format';
-import { generateInternalId } from '../schema/identifier';
+import { getEntitiesListFromCache, getEntityFromCache } from '../database/cache';
+import { now, utcDate } from '../utils/format';
+import { generateInternalId, generateStandardId } from '../schema/identifier';
 import { UnsupportedError } from '../config/errors';
+import { markAllSessionsForRefresh } from '../database/session';
 import { isEmptyField, isNotEmptyField } from '../database/utils';
+import { ENTITY_TYPE_MARKING_DEFINITION } from '../schema/stixMetaObject';
+import { getEnterpriseEditionInfo, getEnterpriseEditionInfoFromPem, LICENSE_OPTION_TRIAL } from '../modules/settings/licensing';
 
 export const getMemoryStatistics = () => {
   return { ...process.memoryUsage(), ...getHeapStatistics() };
 };
 
-const getClusterInformation = async () => {
+export const getClusterInformation = async () => {
   const clusterConfig = await getClusterInstances();
   const info = { instances_number: clusterConfig.length };
   const allManagers = clusterConfig.map((i) => i.managers).flat();
@@ -61,12 +64,66 @@ const getAIEndpointType = () => {
   }
   return 'Custom';
 };
+
+const getProtectedMarkingsIdsByNames = async (context, user, names) => {
+  if (!names || names.length === 0) {
+    return [];
+  }
+  const entities = await getEntitiesListFromCache(context, user, ENTITY_TYPE_MARKING_DEFINITION);
+  const filteredEntities = entities.filter((entity) => names.includes(entity.definition));
+  return filteredEntities.map((entity) => entity.standard_id);
+};
+
+const getStandardIdsByNames = (entityType, names) => {
+  if (!names || names.length === 0) {
+    return [];
+  }
+  return names.map((name) => generateStandardId(entityType, { name }));
+};
+
+export const getProtectedSensitiveConfig = async (context, user) => {
+  return {
+    enabled: booleanConf('protected_sensitive_config:enabled', false),
+    markings: {
+      enabled: booleanConf('protected_sensitive_config:markings:enabled', false),
+      protected_ids: await getProtectedMarkingsIdsByNames(context, user, nconf.get('protected_sensitive_config:markings:protected_definitions') ?? []),
+    },
+    groups: {
+      enabled: booleanConf('protected_sensitive_config:groups:enabled', false),
+      protected_ids: getStandardIdsByNames(ENTITY_TYPE_GROUP, nconf.get('protected_sensitive_config:groups:protected_names') ?? []),
+    },
+    roles: {
+      enabled: booleanConf('protected_sensitive_config:roles:enabled', false),
+      protected_ids: getStandardIdsByNames(ENTITY_TYPE_ROLE, nconf.get('protected_sensitive_config:roles:protected_names') ?? []),
+    },
+    rules: {
+      enabled: booleanConf('protected_sensitive_config:rules:enabled', false),
+      protected_ids: [],
+    },
+    ce_ee_toggle: {
+      enabled: booleanConf('protected_sensitive_config:ce_ee_toggle:enabled', false),
+      protected_ids: [],
+    },
+    file_indexing: {
+      enabled: booleanConf('protected_sensitive_config:file_indexing:enabled', false),
+      protected_ids: [],
+    },
+    platform_organization: {
+      enabled: booleanConf('protected_sensitive_config:platform_organization:enabled', false),
+      protected_ids: [],
+    }
+  };
+};
+
 export const getSettings = async (context) => {
   const platformSettings = await loadEntity(context, SYSTEM_USER, [ENTITY_TYPE_SETTINGS]);
   const clusterInfo = await getClusterInformation();
+  const eeInfo = getEnterpriseEditionInfoFromPem(platformSettings.internal_id, platformSettings.enterprise_license);
   return {
     ...platformSettings,
     platform_url: getBaseUrl(context.req),
+    platform_enterprise_edition: eeInfo,
+    valid_enterprise_edition: eeInfo.license_validated,
     platform_providers: PROVIDERS.filter((p) => p.name !== INTERNAL_SECURITY_PROVIDER),
     platform_user_statuses: Object.entries(ACCOUNT_STATUSES).map(([k, v]) => ({ status: k, message: v })),
     platform_cluster: clusterInfo.info,
@@ -76,15 +133,18 @@ export const getSettings = async (context) => {
     platform_map_tile_server_dark: nconf.get('app:map_tile_server_dark'),
     platform_map_tile_server_light: nconf.get('app:map_tile_server_light'),
     platform_openbas_url: nconf.get('xtm:openbas_url'),
+    platform_openbas_disable_display: nconf.get('xtm:openbas_disable_display'),
     platform_openerm_url: nconf.get('xtm:openerm_url'),
     platform_openmtd_url: nconf.get('xtm:openmtd_url'),
+    platform_xtmhub_url: nconf.get('xtm:xtmhub_url'),
     platform_ai_enabled: nconf.get('ai:enabled') ?? false,
     platform_ai_type: `${getAIEndpointType()} ${nconf.get('ai:type')}`,
     platform_ai_model: nconf.get('ai:model'),
     platform_ai_has_token: !!isNotEmptyField(nconf.get('ai:token')),
+    platform_trash_enabled: nconf.get('app:trash:enabled') ?? true,
     platform_feature_flags: [
       { id: 'RUNTIME_SORTING', enable: isRuntimeSortEnable() },
-      ...(DISABLED_FEATURE_FLAGS.map((feature) => ({ id: feature, enable: false })))
+      ...(ENABLED_FEATURE_FLAGS.map((feature) => ({ id: feature, enable: true })))
     ],
   };
 };
@@ -94,14 +154,16 @@ export const addSettings = async (context, user, settings) => {
   return notify(BUS_TOPICS.Settings.ADDED_TOPIC, created, user);
 };
 
-export const settingsCleanContext = (context, user, settingsId) => {
-  delEditContext(user, settingsId);
-  return storeLoadById(context, user, settingsId, ENTITY_TYPE_SETTINGS).then((settings) => notify(BUS_TOPICS.Settings.EDIT_TOPIC, settings, user));
+export const settingsCleanContext = async (context, user, settingsId) => {
+  await delEditContext(user, settingsId);
+  const settings = await storeLoadById(context, user, settingsId, ENTITY_TYPE_SETTINGS);
+  return await notify(BUS_TOPICS.Settings.EDIT_TOPIC, settings, user);
 };
 
-export const settingsEditContext = (context, user, settingsId, input) => {
-  setEditContext(user, settingsId, input);
-  return storeLoadById(context, user, settingsId, ENTITY_TYPE_SETTINGS).then((settings) => notify(BUS_TOPICS.Settings.EDIT_TOPIC, settings, user));
+export const settingsEditContext = async (context, user, settingsId, input) => {
+  await setEditContext(user, settingsId, input);
+  const settings = await storeLoadById(context, user, settingsId, ENTITY_TYPE_SETTINGS);
+  return await notify(BUS_TOPICS.Settings.EDIT_TOPIC, settings, user);
 };
 
 const ACCESS_SETTINGS_RESTRICTED_KEYS = [
@@ -118,25 +180,66 @@ const ACCESS_SETTINGS_RESTRICTED_KEYS = [
 export const settingsEditField = async (context, user, settingsId, input) => {
   const hasSetAccessCapability = isUserHasCapability(user, SETTINGS_SET_ACCESSES);
   const data = hasSetAccessCapability ? input : input.filter((i) => !ACCESS_SETTINGS_RESTRICTED_KEYS.includes(i.key));
+  const settings = await getSettings(context);
+  const enterpriseLicense = data.find((inputData) => inputData.key === 'enterprise_license');
+  if (enterpriseLicense && enterpriseLicense.value?.length > 0) {
+    const license = enterpriseLicense.value[0];
+    if (isNotEmptyField(license)) {
+      const info = getEnterpriseEditionInfoFromPem(settings.internal_id, license);
+      if (!info.license_validated) {
+        throw UnsupportedError('Invalid license');
+      }
+    }
+  }
   await updateAttribute(context, user, settingsId, ENTITY_TYPE_SETTINGS, data);
+  if (data.some((i) => i.key === 'platform_organization')) {
+    // if we change platform_organization, we need to refresh all sessions
+    await markAllSessionsForRefresh();
+  }
   await publishUserAction({
     user,
     event_type: 'mutation',
     event_scope: 'update',
     event_access: 'administration',
-    message: `updates \`${input.map((i) => i.key).join(', ')}\` for \`platform settings\``,
-    context_data: { id: settingsId, entity_type: ENTITY_TYPE_SETTINGS, input }
+    message: `updates \`${data.map((i) => i.key).join(', ')}\` for \`platform settings\``,
+    context_data: { id: settingsId, entity_type: ENTITY_TYPE_SETTINGS, input: data }
   });
   const updatedSettings = await getSettings(context);
   return notify(BUS_TOPICS.Settings.EDIT_TOPIC, updatedSettings, user);
 };
 
+const buildEEMessageHeader = (message, error = true) => {
+  return {
+    id: 'license-message',
+    message,
+    activated: true,
+    dismissible: false,
+    updated_at: now(),
+    color: error ? '#d0021b' : undefined,
+    recipients: []
+  };
+};
+
 export const getMessagesFilteredByRecipients = (user, settings) => {
   const messages = JSON.parse(settings.platform_messages ?? '[]');
+  const ee = getEnterpriseEditionInfo(settings);
+  if (ee.license_enterprise) {
+    if (!ee.license_validated) {
+      messages.unshift(buildEEMessageHeader(`The current ${ee.license_type} license has expired, Enterprise Edition is disabled.`));
+    } else if (ee.license_extra_expiration) {
+      messages.unshift(buildEEMessageHeader(`The current ${ee.license_type} license has expired, Enterprise Edition will be disabled in ${ee.license_extra_expiration_days} days.`));
+    } else if (ee.license_type === LICENSE_OPTION_TRIAL) {
+      messages.unshift(buildEEMessageHeader(`This is a trial Enterprise Edition version, valid until ${utcDate(ee.license_expiration_date).format('YYYY-MM-DD')}.`, false));
+    }
+  }
   return messages.filter(({ recipients }) => {
     // eslint-disable-next-line max-len
     return isEmptyField(recipients) || recipients.some((recipientId) => [user.id, ...user.groups.map(({ id }) => id), ...user.organizations.map(({ id }) => id)].includes(recipientId));
   });
+};
+
+export const isPlaygroundEnabled = () => {
+  return PLAYGROUND_ENABLED;
 };
 
 export const settingEditMessage = async (context, user, settingsId, message) => {

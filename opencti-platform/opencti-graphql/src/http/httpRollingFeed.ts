@@ -5,9 +5,8 @@ import nconf from 'nconf';
 import { authenticateUserFromRequest, TAXIIAPI } from '../domain/user';
 import { basePath } from '../config/conf';
 import { ForbiddenAccess } from '../config/errors';
-import { BYPASS, executionContext, SYSTEM_USER } from '../utils/access';
+import { executionContext, isUserHasCapability, SYSTEM_USER } from '../utils/access';
 import { findById as findFeed } from '../domain/feed';
-import type { AuthUser } from '../types/user';
 import { listAllThings } from '../database/middleware';
 import { minutesAgo } from '../utils/format';
 import { isNotEmptyField } from '../database/utils';
@@ -25,10 +24,6 @@ const errorConverter = (e: any) => {
     http_status: e.data?.http_status || 500,
     details,
   };
-};
-const userHaveAccess = (user: AuthUser) => {
-  const capabilities = user.capabilities.map((c) => c.name);
-  return capabilities.includes(BYPASS) || capabilities.includes(TAXIIAPI);
 };
 
 const dataFormat = (separator: string, data: string) => {
@@ -58,7 +53,7 @@ const initHttpRollingFeeds = (app: Express.Application) => {
       // If feed is not public, we need to ensure the user access
       if (!feed.feed_public) {
         const userFeed = await findFeed(context, authUser, id);
-        if (!userHaveAccess(authUser) || !userFeed) {
+        if (!isUserHasCapability(authUser, TAXIIAPI) || !userFeed) {
           throw ForbiddenAccess();
         }
       }
@@ -73,7 +68,7 @@ const initHttpRollingFeeds = (app: Express.Application) => {
       const paginateElements = await listAllThings(context, user, feed.feed_types, args);
       const elements = R.take(SIZE_LIMIT, paginateElements); // Due to pagination, number of results can be slightly superior
       if (feed.include_header) {
-        res.write(`${feed.feed_attributes.map((a) => a.attribute).join(',')}\r\n`);
+        res.write(`${feed.feed_attributes.map((a) => a.attribute).join(feed.separator)}\r\n`);
       }
       for (let index = 0; index < elements.length; index += 1) {
         const element = elements[index];
@@ -87,7 +82,8 @@ const initHttpRollingFeeds = (app: Express.Application) => {
             const data = element[baseKey];
             if (isNotEmptyField(data)) {
               if (isMultipleAttribute(element.entity_type, baseKey)) {
-                dataElements.push(dataFormat(feed.separator, data.join(',')));
+                const dataArray = data as string[];
+                dataElements.push(dataFormat(feed.separator, dataArray.join(',')));
               } else if (isObjectAttribute(baseKey)) {
                 if (isComplexKey) {
                   const [, innerKey] = mapping.attribute.split('.');

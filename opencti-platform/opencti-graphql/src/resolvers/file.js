@@ -1,6 +1,5 @@
 import { loadFile } from '../database/file-storage';
-import { askJobImport, deleteImport, filesMetrics, uploadImport, uploadPending } from '../domain/file';
-import { worksForSource } from '../domain/work';
+import { askJobImport, batchFileMarkingDefinitions, batchFileWorks, deleteImport, filesMetrics, uploadImport, uploadPending } from '../domain/file';
 import { batchLoader } from '../database/middleware';
 import { batchCreator } from '../domain/user';
 import { batchStixDomainObjects } from '../domain/stixDomainObject';
@@ -8,29 +7,32 @@ import { paginatedForPathWithEnrichment } from '../modules/internal/document/doc
 
 const creatorLoader = batchLoader(batchCreator);
 const domainLoader = batchLoader(batchStixDomainObjects);
+const markingDefinitionsLoader = batchLoader(batchFileMarkingDefinitions);
+const worksLoader = batchLoader(batchFileWorks);
 
 const fileResolvers = {
   Query: {
-    file: (_, { id }, context) => loadFile(context.user, id),
-    importFiles: (_, { first }, context) => {
-      return paginatedForPathWithEnrichment(context, context.user, 'import/global', undefined, { first });
+    file: (_, { id }, context) => loadFile(context, context.user, id),
+    importFiles: (_, opts, context) => {
+      return paginatedForPathWithEnrichment(context, context.user, 'import/global', undefined, opts);
     },
-    pendingFiles: (_, { first }, context) => {
-      return paginatedForPathWithEnrichment(context, context.user, 'import/pending', undefined, { first });
+    pendingFiles: (_, opts, context) => { // correspond to global workbenches (i.e. worbenches in Data > Import)
+      return paginatedForPathWithEnrichment(context, context.user, 'import/pending', undefined, opts);
     },
     filesMetrics: (_, args, context) => filesMetrics(context, context.user),
   },
   File: {
-    works: (file, _, context) => worksForSource(context, context.user, file.id),
+    objectMarking: (rel, _, context) => markingDefinitionsLoader.load(rel, context, context.user),
+    works: (file, _, context) => worksLoader.load(file.id, context, context.user),
   },
   FileMetadata: {
     entity: (metadata, _, context) => domainLoader.load(metadata.entity_id, context, context.user),
     creator: (metadata, _, context) => creatorLoader.load(metadata.creator_id, context, context.user),
   },
   Mutation: {
-    uploadImport: (_, { file }, context) => uploadImport(context, context.user, file),
-    uploadPending: (_, { file, entityId, labels, errorOnExisting }, context) => {
-      return uploadPending(context, context.user, file, entityId, labels, errorOnExisting);
+    uploadImport: (_, args, context) => uploadImport(context, context.user, args),
+    uploadPending: (_, args, context) => {
+      return uploadPending(context, context.user, args);
     },
     deleteImport: (_, { fileName }, context) => deleteImport(context, context.user, fileName),
     askJobImport: (_, args, context) => askJobImport(context, context.user, args),

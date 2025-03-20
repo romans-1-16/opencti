@@ -1,24 +1,51 @@
-import { getStoppingState, logApp, setStoppingState } from './config/conf';
-import platformInit, { checkSystemDependencies } from './initialization';
+import { environment, getStoppingState, logApp, setStoppingState } from './config/conf';
+import platformInit, { checkFeatureFlags, checkSystemDependencies } from './initialization';
 import cacheManager from './manager/cacheManager';
 import { shutdownRedisClients } from './database/redis';
-import { UnknownError } from './config/errors';
 import { shutdownModules, startModules } from './managers';
+import { initLockFork } from './lock/master-lock';
 
 // region platform start and stop
 export const platformStart = async () => {
-  logApp.info('[OPENCTI] Starting platform');
+  logApp.info('[OPENCTI] Starting platform', { environment });
   try {
+    checkFeatureFlags();
     // Check all dependencies access
-    await checkSystemDependencies();
+    try {
+      await checkSystemDependencies();
+    } catch (dependencyError) {
+      logApp.error('[OPENCTI] System dependencies check failed', { cause: dependencyError });
+      throw dependencyError; //  Re-throw the error to exit the main try block
+    }
+    // Init the lock manager
+    try {
+      initLockFork();
+    } catch (lockManagerError) {
+      logApp.error('[OPENCTI] Lock process startup failed', { cause: lockManagerError });
+      throw lockManagerError;
+    }
     // Init the cache manager
-    await cacheManager.start();
+    try {
+      await cacheManager.start();
+    } catch (cacheError) {
+      logApp.error('[OPENCTI] Cache manager initialization failed', { cause: cacheError });
+      throw cacheError;
+    }
     // Init the platform default
-    await platformInit();
+    try {
+      await platformInit();
+    } catch (platformError) {
+      logApp.error('[OPENCTI] Platform default initialization failed', { cause: platformError });
+      throw platformError;
+    }
     // Init the modules
-    await startModules();
-  } catch (e) {
-    logApp.error(e);
+    try {
+      await startModules();
+    } catch (modulesError) {
+      logApp.error('[OPENCTI] Modules startup failed', { cause: modulesError });
+      throw modulesError;
+    }
+  } catch (mainError) {
     process.exit(1);
   }
 };
@@ -37,7 +64,7 @@ export const platformStop = async () => {
 
 // region signals management
 process.on('unhandledRejection', (reason, p) => {
-  logApp.error(UnknownError('Engine unhandled rejection', { reason, promise: p }));
+  logApp.error('[OPENCTI] Engine unhandled rejection', { reason: reason?.stack, promise: p?.stack });
 });
 
 ['SIGTERM', 'SIGINT', 'message'].forEach((signal) => {
@@ -50,7 +77,7 @@ process.on('unhandledRejection', (reason, p) => {
           await platformStop();
           process.exit(0);
         } catch (e) {
-          logApp.error(e);
+          logApp.error('[OPENCTI] Error stopping the platform', { cause: e });
           process.exit(1);
         }
       }

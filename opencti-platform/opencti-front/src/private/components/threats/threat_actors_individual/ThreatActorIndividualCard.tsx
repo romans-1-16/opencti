@@ -3,18 +3,41 @@ import { graphql, useFragment } from 'react-relay';
 import { ThreatActorIndividualCard_node$key } from './__generated__/ThreatActorIndividualCard_node.graphql';
 import { GenericAttack, GenericAttackCard } from '../../common/cards/GenericAttackCard';
 
-const ThreatActorIndividualCardFragment = graphql`
+export const ThreatActorIndividualCardFragment = graphql`
   fragment ThreatActorIndividualCard_node on ThreatActorIndividual {
     id
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     name
     aliases
     description
     created
     modified
     entity_type
+    threat_actor_types
+    sophistication
+    resource_level
+    draftVersion {
+      draft_id
+      draft_operation
+    }
+    creators {
+      id
+      name
+    }
     avatar {
       id
       name
+    }
+    status {
+      id
+      template {
+        id
+        name
+        color
+      }
     }
     objectLabel {
       id
@@ -31,7 +54,7 @@ const ThreatActorIndividualCardFragment = graphql`
     targetedCountries: stixCoreRelationships(
       relationship_type: "targets"
       toTypes: ["Country"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {
@@ -66,7 +89,7 @@ const ThreatActorIndividualCardFragment = graphql`
     targetedSectors: stixCoreRelationships(
       relationship_type: "targets"
       toTypes: ["Sector"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {
@@ -83,7 +106,7 @@ const ThreatActorIndividualCardFragment = graphql`
     usedMalware: stixCoreRelationships(
       relationship_type: "uses"
       toTypes: ["Malware"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {

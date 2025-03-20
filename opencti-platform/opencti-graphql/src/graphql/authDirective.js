@@ -3,7 +3,7 @@ import { getDirective, MapperKind, mapSchema } from '@graphql-tools/utils';
 import { filter, includes, map } from 'ramda';
 // eslint-disable-next-line import/extensions
 import { defaultFieldResolver } from 'graphql/index.js';
-import { AuthRequired, ForbiddenAccess, OtpRequired, OtpRequiredActivation } from '../config/errors';
+import { AuthRequired, ForbiddenAccess, OtpRequired, OtpRequiredActivation, UnsupportedError } from '../config/errors';
 import { OPENCTI_ADMIN_UUID } from '../schema/general';
 import { BYPASS, VIRTUAL_ORGANIZATION_ADMIN, SETTINGS_SET_ACCESSES } from '../utils/access';
 
@@ -23,6 +23,12 @@ export const authDirectiveBuilder = (directiveName) => {
       [MapperKind.OBJECT_FIELD]: (fieldConfig, _fieldName, typeName) => {
         const directive = getDirective(schema, fieldConfig, directiveName);
         const authDirective = directive?.[0] ?? typeDirectiveArgumentMaps[typeName];
+        if (!authDirective && (typeName === 'Query' || typeName === 'Mutation')) {
+          const publicDirective = getDirective(schema, fieldConfig, 'public')?.[0];
+          if (!publicDirective) {
+            throw UnsupportedError('Unsecure schema: missing auth or public directive', { field: _fieldName });
+          }
+        }
         if (authDirective) {
           const { for: requiredCapabilities, and: requiredAll } = authDirective;
           if (requiredCapabilities) {
@@ -68,7 +74,7 @@ export const authDirectiveBuilder = (directiveName) => {
               let numberOfAvailableCapabilities = 0;
               for (let index = 0; index < requiredCapabilities.length; index += 1) {
                 const checkCapability = requiredCapabilities[index];
-                const matchingCapabilities = filter((r) => includes(checkCapability, r), userCapabilities);
+                const matchingCapabilities = filter((r) => checkCapability !== BYPASS && includes(checkCapability, r), userCapabilities);
                 if (matchingCapabilities.length > 0) {
                   numberOfAvailableCapabilities += 1;
                 }

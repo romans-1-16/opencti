@@ -1,12 +1,14 @@
 import React, { FunctionComponent } from 'react';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Button from '@mui/material/Button';
 import makeStyles from '@mui/styles/makeStyles';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import { FormikConfig } from 'formik/dist/types';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
+import useHelper from 'src/utils/hooks/useHelper';
+import { ObservedDatasLinesPaginationQuery$variables } from '@components/events/__generated__/ObservedDatasLinesPaginationQuery.graphql';
 import { handleErrorInForm } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
@@ -24,10 +26,13 @@ import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySe
 import type { Theme } from '../../../../components/Theme';
 import { Option } from '../../common/form/ReferenceField';
 import { ObservedDataCreationMutation, ObservedDataCreationMutation$variables } from './__generated__/ObservedDataCreationMutation.graphql';
-import { ObservedDatasLinesPaginationQuery$variables } from './__generated__/ObservedDatasLinesPaginationQuery.graphql';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -44,9 +49,12 @@ const observedDataCreationMutation = graphql`
       id
       standard_id
       name
+      representative {
+        main
+      }
       entity_type
       parent_types
-      ...ObservedDataLine_node
+      ...ObservedDatasLine_node
     }
   }
 `;
@@ -106,8 +114,10 @@ ObservedDataFormProps
     OBSERVED_DATA_TYPE,
     basicShape,
   );
-  const [commit] = useMutation<ObservedDataCreationMutation>(
+  const [commit] = useApiMutation<ObservedDataCreationMutation>(
     observedDataCreationMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Observed-Data')} ${t_i18n('successfully created')}` },
   );
   const onSubmit: FormikConfig<ObservedDataAddInput>['onSubmit'] = (
     values,
@@ -160,17 +170,17 @@ ObservedDataFormProps
     file: undefined,
   });
   return (
-    <Formik
+    <Formik<ObservedDataAddInput>
       initialValues={initialValues}
       validationSchema={observedDataValidator}
       onSubmit={onSubmit}
       onReset={onReset}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <StixCoreObjectsField
             name="objects"
-            style={{ width: '100%' }}
+            style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
             values={values.objects}
           />
@@ -181,7 +191,7 @@ ObservedDataFormProps
               label: t_i18n('First observed'),
               variant: 'standard',
               fullWidth: true,
-              style: { marginTop: 20 },
+              style: { ...fieldSpacingContainerStyle },
             }}
           />
           <Field
@@ -191,7 +201,7 @@ ObservedDataFormProps
               label: t_i18n('Last observed'),
               variant: 'standard',
               fullWidth: true,
-              style: { marginTop: 20 },
+              style: { ...fieldSpacingContainerStyle },
             }}
           />
           <Field
@@ -201,7 +211,7 @@ ObservedDataFormProps
             type="number"
             label={t_i18n('Number observed')}
             fullWidth={true}
-            style={{ marginTop: 20 }}
+            style={fieldSpacingContainerStyle}
           />
           <ConfidenceField
             entityType="Observed-Data"
@@ -221,6 +231,7 @@ ObservedDataFormProps
           <ObjectMarkingField
             name="objectMarking"
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
@@ -260,16 +271,22 @@ const ObservedDataCreation = ({
   paginationOptions: ObservedDatasLinesPaginationQuery$variables;
 }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
   const updater = (store: RecordSourceSelectorProxy) => insertNode(
     store,
     'Pagination_observedDatas',
     paginationOptions,
     'observedDataAdd',
   );
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const CreateObservedDataControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Observed-Data' {...props} />
+  );
   return (
     <Drawer
       title={t_i18n('Create an observed data')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateObservedDataControlledDial : undefined}
     >
       {({ onClose }) => (
         <ObservedDataCreationForm

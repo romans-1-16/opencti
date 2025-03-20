@@ -14,8 +14,9 @@ import {
   FilterAltOffOutlined,
   FilterListOutlined,
   GestureOutlined,
+  HubOutlined,
   LinkOutlined,
-  ReadMoreOutlined,
+  PolylineOutlined,
   ScatterPlotOutlined,
   VisibilityOutlined,
 } from '@mui/icons-material';
@@ -34,7 +35,6 @@ import Popover from '@mui/material/Popover';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Divider from '@mui/material/Divider';
-import TimeRange from 'react-timeline-range-slider';
 import { ResponsiveContainer, Scatter, ScatterChart, YAxis, ZAxis } from 'recharts';
 import Badge from '@mui/material/Badge';
 import Dialog from '@mui/material/Dialog';
@@ -42,10 +42,14 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Slide from '@mui/material/Slide';
+import { Form, Formik } from 'formik';
+import { ToggleButtonGroup } from '@mui/material';
+import ToggleButton from '@mui/material/ToggleButton';
+import StixNestedRefRelationshipCreationFromKnowledgeGraph from '../../common/stix_nested_ref_relationships/StixNestedRefRelationshipCreationFromKnowledgeGraph';
+import CommitMessage from '../../common/form/CommitMessage';
 import inject18n from '../../../../components/i18n';
-import ContainerAddStixCoreObjects from '../../common/containers/ContainerAddStixCoreObjects';
 import StixCoreRelationshipCreation from '../../common/stix_core_relationships/StixCoreRelationshipCreation';
-import { dateFormat } from '../../../../utils/Time';
+import { dateFormat, minutesBefore, now } from '../../../../utils/Time';
 import { truncate } from '../../../../utils/String';
 import StixCoreRelationshipEdition from '../../common/stix_core_relationships/StixCoreRelationshipEdition';
 import StixDomainObjectEdition from '../../common/stix_domain_objects/StixDomainObjectEdition';
@@ -59,10 +63,12 @@ import StixCyberObservableEdition from '../../observations/stix_cyber_observable
 import { isStixNestedRefRelationship } from '../../../../utils/Relation';
 import { convertCreatedBy, convertMarkings } from '../../../../utils/edition';
 import { UserContext } from '../../../../utils/hooks/useAuth';
+import ContainerAddStixCoreObjectsInGraph from '../../common/containers/ContainerAddStixCoreObjectsInGraph';
+import TimeRange from '../../../../components/range_slider/RangeSlider';
 
 const styles = () => ({
   bottomNav: {
-    zIndex: 1000,
+    zIndex: 1,
     display: 'flex',
     overflow: 'hidden',
   },
@@ -97,6 +103,7 @@ class IncidentKnowledgeGraphBar extends Component {
       relationReversed: false,
       sightingReversed: false,
       nestedReversed: false,
+      nestedRelationExist: false,
       openEditRelation: false,
       openEditSighting: false,
       openEditNested: false,
@@ -104,6 +111,7 @@ class IncidentKnowledgeGraphBar extends Component {
       openEditObservable: false,
       displayRemove: false,
       deleteObject: false,
+      referenceDialogOpened: false,
     };
   }
 
@@ -180,7 +188,7 @@ class IncidentKnowledgeGraphBar extends Component {
   }
 
   handleCloseCreateRelationship() {
-    this.setState({ openCreatedRelation: false });
+    this.setState({ openCreatedRelation: false, relationReversed: null });
     this.props.handleCloseRelationCreation();
   }
 
@@ -205,11 +213,15 @@ class IncidentKnowledgeGraphBar extends Component {
   }
 
   handleCloseCreateNested() {
-    this.setState({ openCreatedNested: false });
+    this.setState({ openCreatedNested: false, nestedReversed: null });
   }
 
   handleReverseNested() {
     this.setState({ nestedReversed: !this.state.nestedReversed });
+  }
+
+  handleSetNestedRelationExist(val) {
+    this.setState({ nestedRelationExist: val });
   }
 
   handleOpenEditItem() {
@@ -298,10 +310,34 @@ class IncidentKnowledgeGraphBar extends Component {
     this.handleCloseSelectByType();
   }
 
+  closeReferencesPopup() {
+    this.setState({ referenceDialogOpened: false });
+  }
+
+  submitReference(values, { setSubmitting, resetForm }) {
+    const { handleDeleteSelected } = this.props;
+    const { deleteObject } = this.state;
+    const references = (values.references || []).map((ref) => ref.value);
+    this.handleCloseRemove();
+    handleDeleteSelected(deleteObject, values.message, references, setSubmitting, resetForm);
+  }
+
+  handleSubmitRemoveElements() {
+    const { enableReferences, handleDeleteSelected } = this.props;
+    const { deleteObject } = this.state;
+    if (enableReferences) {
+      this.setState({ referenceDialogOpened: true });
+    } else {
+      this.handleCloseRemove();
+      handleDeleteSelected(deleteObject);
+    }
+  }
+
   render() {
     const {
       t,
       classes,
+      currentQueryMode,
       currentMode3D,
       currentModeTree,
       currentModeFixed,
@@ -311,6 +347,7 @@ class IncidentKnowledgeGraphBar extends Component {
       currentSelectRectangleModeFree,
       currentSelectModeFree,
       selectModeFreeReady,
+      handleToggleQueryMode,
       handleToggle3DMode,
       handleToggleTreeMode,
       handleToggleFixedMode,
@@ -345,6 +382,7 @@ class IncidentKnowledgeGraphBar extends Component {
       theme,
       navOpen,
       resetAllFilters,
+      enableReferences,
     } = this.props;
     const {
       openStixCoreObjectsTypes,
@@ -367,6 +405,7 @@ class IncidentKnowledgeGraphBar extends Component {
       openEditObservable,
       openEditNested,
       deleteObject,
+      referenceDialogOpened,
     } = this.state;
     const isInferred = selectedNodes.filter((n) => n.inferred || n.isNestedInferred).length
         > 0
@@ -426,6 +465,9 @@ class IncidentKnowledgeGraphBar extends Component {
         : [selectedNodes[0]];
     }
     const stixCoreObjectOrRelationshipId = (selectedNodes[0]?.id ?? null) || (selectedLinks[0]?.id ?? null);
+
+    const defaultTime = now();
+
     return (
       <UserContext.Consumer>
         {({ bannerSettings }) => (
@@ -862,7 +904,7 @@ class IncidentKnowledgeGraphBar extends Component {
                     }}
                   >
                     {onAdd && (
-                      <ContainerAddStixCoreObjects
+                      <ContainerAddStixCoreObjectsInGraph
                         containerId={caseData.id}
                         containerStixCoreObjects={caseData.objects.edges}
                         knowledgeGraph={true}
@@ -875,7 +917,43 @@ class IncidentKnowledgeGraphBar extends Component {
                         onAdd={onAdd}
                         onDelete={onDelete}
                         confidence={caseData.confidence}
+                        enableReferences={enableReferences}
                       />
+                    )}
+                    {handleToggleQueryMode && (
+                    <ToggleButtonGroup
+                      size="small"
+                      value={currentQueryMode}
+                      exclusive
+                      onChange={handleToggleQueryMode}
+                      style={{
+                        padding: '6px 8px',
+                        marginBottom: '3px',
+                      }}
+                    >
+                      <Tooltip title={t('Show all correlated entities')}>
+                        <ToggleButton
+                          value="all-entities"
+                          selected={currentQueryMode === 'all-entities'}
+                        >
+                          <HubOutlined
+                            fontSize="small"
+                            color={currentQueryMode === 'all-entities' ? 'secondary' : 'primary'}
+                          />
+                        </ToggleButton>
+                      </Tooltip>
+                      <Tooltip title={t('Show only correlated observables and indicators')}>
+                        <ToggleButton
+                          value="indicators-and-observables"
+                          selected={currentQueryMode === 'indicators-and-observables'}
+                        >
+                          <PolylineOutlined
+                            fontSize="small"
+                            color={currentQueryMode === 'indicators-and-observables' ? 'secondary' : 'primary'}
+                          />
+                        </ToggleButton>
+                      </Tooltip>
+                    </ToggleButtonGroup>
                     )}
                     <Tooltip title={t('Edit the selected item')}>
                       <span>
@@ -958,10 +1036,10 @@ class IncidentKnowledgeGraphBar extends Component {
                         fromObjects={relationFromObjects}
                         toObjects={relationToObjects}
                         startTime={
-                          lastLinkFirstSeen || dateFormat(caseData.published)
+                          lastLinkFirstSeen || minutesBefore(1, defaultTime)
                         }
                         stopTime={
-                          lastLinkLastSeen || dateFormat(caseData.published)
+                          lastLinkLastSeen || defaultTime
                         }
                         confidence={caseData.confidence}
                         handleClose={this.handleCloseCreateRelationship.bind(
@@ -976,18 +1054,15 @@ class IncidentKnowledgeGraphBar extends Component {
                       />
                     )}
                     {onAddRelation && (
-                      <Tooltip title={t('Create a nested relationship')}>
-                        <span>
-                          <IconButton
-                            color="primary"
-                            onClick={this.handleOpenCreateNested.bind(this)}
-                            disabled={!nestedEnabled}
-                            size="large"
-                          >
-                            <ReadMoreOutlined />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <StixNestedRefRelationshipCreationFromKnowledgeGraph
+                        nestedRelationExist={this.state.nestedRelationExist}
+                        openCreateNested={this.state.openCreateNested}
+                        nestedEnabled={nestedEnabled}
+                        relationFromObjects={relationFromObjects}
+                        relationToObjects={relationToObjects}
+                        handleSetNestedRelationExist={this.handleSetNestedRelationExist.bind(this)}
+                        handleOpenCreateNested={this.handleOpenCreateNested.bind(this)}
+                      />
                     )}
                     {onAddRelation && (
                       <StixNestedRefRelationshipCreation
@@ -1099,16 +1174,39 @@ class IncidentKnowledgeGraphBar extends Component {
                           {t('Cancel')}
                         </Button>
                         <Button
-                          onClick={() => {
-                            this.handleCloseRemove();
-                            handleDeleteSelected(deleteObject);
-                          }}
+                          onClick={ this.handleSubmitRemoveElements.bind(this)}
                           color="secondary"
                         >
                           {t('Remove')}
                         </Button>
                       </DialogActions>
                     </Dialog>
+                    {enableReferences && (
+                    <Formik
+                      initialValues={{ message: '', references: [] }}
+                      onSubmit={this.submitReference.bind(this)}
+                    >
+                      {({
+                        submitForm,
+                        isSubmitting,
+                        setFieldValue,
+                        values,
+                      }) => (
+                        <Form>
+                          <CommitMessage
+                            handleClose={this.closeReferencesPopup.bind(this)}
+                            open={referenceDialogOpened}
+                            submitForm={submitForm}
+                            disabled={isSubmitting}
+                            setFieldValue={setFieldValue}
+                            values={values.references}
+                            id={caseData.id}
+                            noStoreUpdate={true}
+                          />
+                        </Form>
+                      )}
+                    </Formik>
+                    )}
                   </div>
                 )}
                 <div className="clearfix" />
@@ -1186,6 +1284,8 @@ IncidentKnowledgeGraphBar.propTypes = {
   classes: PropTypes.object,
   t: PropTypes.func,
   caseData: PropTypes.object,
+  handleToggleQueryMode: PropTypes.func,
+  currentQueryMode: PropTypes.string,
   handleToggle3DMode: PropTypes.func,
   handleToggleRectangleSelectModeFree: PropTypes.func,
   handleToggleSelectModeFree: PropTypes.func,
@@ -1230,6 +1330,7 @@ IncidentKnowledgeGraphBar.propTypes = {
   timeRangeValues: PropTypes.array,
   theme: PropTypes.object,
   navOpen: PropTypes.bool,
+  enableReferences: PropTypes.bool,
 };
 
 export default R.compose(

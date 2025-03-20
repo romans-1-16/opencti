@@ -11,6 +11,11 @@ on:
         type: boolean
         required: false
         default: false
+      redis_cluster:
+        description: Redis cluster (sentinel) ?
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   worker:
@@ -35,7 +40,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: opencti-worker
           file: opencti-worker/Dockerfile
@@ -49,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jirutka/setup-alpine@v1
         with:
-          branch: v3.18
+          branch: v3.20
           packages: >
             nodejs npm git tini gcc g++ make musl-dev cargo python3 py3-pip python3-dev postfix postfix-pcre
 
@@ -61,6 +66,8 @@ jobs:
 
       - name: Build into Alpine
         run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
           cd opencti-platform/opencti-front
           yarn install
           yarn build
@@ -91,7 +98,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: opencti-platform/Dockerfile_ga
@@ -114,7 +121,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-      - run: if [ "${{ inputs.upgrade_from_58 }}" == "true" ]; then ID=35; else ID=26; fi; echo "AWX_TPL_ID=$ID" >> "$GITHUB_ENV"
+      - run: if [ "${{ inputs.upgrade_from_58 }}" == "true" ]; then ID=67; else ID=66; fi; echo "AWX_TPL_ID=$ID" >> "$GITHUB_ENV"
       - name: deploy via awx
         uses: certara/github-action-ansible-tower-awx@master
         with:
@@ -123,6 +130,6 @@ jobs:
           ansible-tower-url: ${{ secrets.AWX_URL }}
           template-id: "${{ env.AWX_TPL_ID }}"
           additional-vars: |
-            { "octi_version": "${{steps.meta.outputs.version}}", "octi_config": ${{ inputs.octi_config }} }
+            { "octi_version": "${{steps.meta.outputs.version}}", "octi_config": ${{ inputs.octi_config }}, "redis_cluster": ${{ inputs.redis_cluster }} }
       - name: display URL
         run: echo "https://${{steps.meta.outputs.version}}.octi.dev.filigran.io"

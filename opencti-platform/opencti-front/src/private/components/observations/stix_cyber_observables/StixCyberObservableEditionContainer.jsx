@@ -9,9 +9,11 @@ import { SubscriptionAvatars } from '../../../../components/Subscription';
 import StixCyberObservableEditionOverview from './StixCyberObservableEditionOverview';
 import { useIsEnforceReference } from '../../../../utils/hooks/useEntitySettings';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   header: {
-    backgroundColor: theme.palette.background.nav,
+    backgroundColor: theme.palette.background.default,
     padding: '20px 20px 20px 60px',
   },
   closeButton: {
@@ -31,7 +33,6 @@ const useStyles = makeStyles((theme) => ({
 const StixCyberObservableEditionContainer = (props) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-
   const { handleClose, stixCyberObservable } = props;
   const { editContext } = stixCyberObservable;
 
@@ -47,7 +48,7 @@ const StixCyberObservableEditionContainer = (props) => {
         >
           <Close fontSize="small" color="primary" />
         </IconButton>
-        <Typography variant="h6" classes={{ root: classes.title }}>
+        <Typography variant="subtitle2" classes={{ root: classes.title }}>
           {t_i18n('Update an observable')}
         </Typography>
         <SubscriptionAvatars context={editContext} />
@@ -64,7 +65,6 @@ const StixCyberObservableEditionContainer = (props) => {
     </div>
   );
 };
-
 const StixCyberObservableEditionFragment = createFragmentContainer(
   StixCyberObservableEditionContainer,
   {
@@ -80,5 +80,4 @@ const StixCyberObservableEditionFragment = createFragmentContainer(
     `,
   },
 );
-
 export default StixCyberObservableEditionFragment;

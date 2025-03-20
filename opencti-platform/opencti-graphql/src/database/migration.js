@@ -1,7 +1,7 @@
 import * as R from 'ramda';
 import { MigrationSet } from 'migrate';
 import Migration from 'migrate/lib/migration';
-import { logApp, PLATFORM_VERSION } from '../config/conf';
+import { logApp, logMigration, PLATFORM_VERSION } from '../config/conf';
 import { DatabaseError } from '../config/errors';
 import { RELATION_MIGRATES } from '../schema/internalRelationship';
 import { ENTITY_TYPE_MIGRATION_REFERENCE, ENTITY_TYPE_MIGRATION_STATUS } from '../schema/internalObject';
@@ -50,7 +50,7 @@ const migrationStorage = {
       RELATION_MIGRATES,
       ENTITY_TYPE_MIGRATION_REFERENCE
     );
-    logApp.info(`[MIGRATION] Read ${dbMigrations.length} migrations from the database`);
+    logMigration.info(`[MIGRATION] Read ${dbMigrations.length} migrations from the database`);
     const migrationStatus = {
       lastRun: migration.lastRun,
       internal_id: migration.internal_id,
@@ -80,10 +80,10 @@ const migrationStorage = {
       // Attach the reference to the migration status.
       const migrationRel = { fromId: migrationStatus.id, toId: migrationRef.id, relationship_type: RELATION_MIGRATES };
       await createRelation(context, SYSTEM_USER, migrationRel);
-      logApp.info(`[MIGRATION] Saving current configuration, ${mig.title}`);
+      logMigration.info(`[MIGRATION] Saving current configuration, ${mig.title}`);
       return fn();
     } catch (err) {
-      logApp.error(err);
+      logApp.error('Error handling migration', { cause: err });
       return fn();
     }
   },
@@ -94,7 +94,7 @@ export const applyMigration = (context) => {
   return new Promise((resolve, reject) => {
     migrationStorage.load((err, state) => {
       if (err) {
-        throw DatabaseError('[MIGRATION] Error applying migration', err);
+        throw DatabaseError('[MIGRATION] Error applying migration', { cause: err });
       }
       // Set last run date on the set
       set.lastRun = state.lastRun;
@@ -108,34 +108,34 @@ export const applyMigration = (context) => {
       /** Match the files migrations to the database migrations.
        Plays migrations that does not have matching name / timestamp */
       if (migrationToApply.length > 0) {
-        logApp.info(`[MIGRATION] ${migrationToApply.length} migrations will be executed`);
+        logMigration.info(`[MIGRATION] ${migrationToApply.length} migrations will be executed`);
       } else {
-        logApp.info('[MIGRATION] Platform already up to date, nothing to migrate');
+        logMigration.info('[MIGRATION] Platform already up to date, nothing to migrate');
       }
       for (let index = 0; index < migrationToApply.length; index += 1) {
         const migSet = migrationToApply[index];
         const migration = new Migration(migSet.title, migSet.up, migSet.down);
         const stateMigration = alreadyAppliedMigrations.get(migration.title);
         if (stateMigration) {
-          logApp.info(`[MIGRATION] Replaying migration ${migration.title}`);
+          logMigration.info(`[MIGRATION] Replaying migration ${migration.title}`);
         }
         set.addMigration(migration);
       }
       // Start the set migration
       set.up((migrationError) => {
         if (migrationError) {
-          logApp.error(migrationError);
+          logApp.error('Migration up error', { cause: migrationError });
           reject(migrationError);
           return;
         }
-        logApp.info('[MIGRATION] Migration process completed');
+        logMigration.info('[MIGRATION] Migration process completed');
         resolve(state);
       });
-    });
+    }).catch((reason) => logApp.error('[MIGRATION] error on load', { cause: reason }));
   }).then(async (state) => {
     // After migration, path the current version runtime
     const statusPatch = { platformVersion: PLATFORM_VERSION };
     await patchAttribute(context, SYSTEM_USER, state.internal_id, ENTITY_TYPE_MIGRATION_STATUS, statusPatch);
     logApp.info(`[MIGRATION] Platform version updated to ${PLATFORM_VERSION}`);
-  });
+  }).catch((reason) => logApp.error('[MIGRATION] error on current version reference update', { cause: reason }));
 };

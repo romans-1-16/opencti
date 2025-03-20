@@ -18,20 +18,29 @@ import {
   MAIN_OBSERVABLE_TYPE_FILTER,
   MARKING_FILTER,
   OBJECT_CONTAINS_FILTER,
+  PARTICIPANT_FILTER,
   PATTERN_FILTER,
   PRIORITY_FILTER,
   RELATION_FROM_FILTER,
   RELATION_FROM_TYPES_FILTER,
   RELATION_TO_FILTER,
   RELATION_TO_TYPES_FILTER,
+  REPRESENTATIVE_FILTER,
   REVOKED_FILTER,
   SCORE_FILTER,
   SEVERITY_FILTER,
   TYPE_FILTER,
   WORKFLOW_FILTER,
+  CISA_KEV_FILTER,
+  EPSS_PERCENTILE_FILTER,
+  EPSS_SCORE_FILTER,
+  CVSS_BASE_SCORE_FILTER,
+  CVSS_BASE_SEVERITY_FILTER,
+  REPORT_TYPES_FILTER
 } from '../filtering-constants';
 import type { Filter } from '../../../generated/graphql';
 import { STIX_RESOLUTION_MAP_PATHS } from '../filtering-resolution';
+import { extractStixRepresentative } from '../../../database/stix-representative';
 
 //-----------------------------------------------------------------------------------
 // Testers for each possible filter.
@@ -69,6 +78,15 @@ export const testIndicatorTypes = (stix: any, filter: Filter) => {
 };
 
 /**
+ * REPORTS
+ * - report types is report_types in stix
+ */
+export const testReportTypes = (stix: any, filter: Filter) => {
+  const stixValue: string[] = stix.report_types ?? [];
+  return testStringFilter(filter, stixValue);
+};
+
+/**
  * WORKFLOWS
  * - x_opencti_workflow_id is workflow_id in stix (in extension)
  */
@@ -101,6 +119,15 @@ export const testCreator = (stix: any, filter: Filter) => {
  */
 export const testAssignee = (stix: any, filter: Filter) => {
   const stixValues: string[] = stix.extensions?.[STIX_EXT_OCTI]?.assignee_ids ?? [];
+  return testStringFilter(filter, stixValues);
+};
+
+/**
+ * ASSIGNEES
+ * - participantTo is participant_ids in stix (in extension)
+ */
+export const testParticipant = (stix: any, filter: Filter) => {
+  const stixValues: string[] = stix.extensions?.[STIX_EXT_OCTI]?.participant_ids ?? [];
   return testStringFilter(filter, stixValues);
 };
 
@@ -267,6 +294,14 @@ export const testRelationToTypes = (stix: any, filter: Filter) => {
 };
 
 /**
+ * REPRESENTATIVE
+ */
+export const testRepresentative = (stix: any, filter: Filter) => {
+  const representative: string = extractStixRepresentative(stix);
+  return testStringFilter(filter, [representative]);
+};
+
+/**
  * CONNECTED TO for DIRECT EVENTS ONLY
  * test if the stix is directly related to the instance id
  */
@@ -307,17 +342,45 @@ export const testConnectedToSideEvents = (stix: any, filter: Filter) => {
   return testStringFilter(filter, aggregatedStixValues);
 };
 
+export const testCisaKev = (stix: any, filter: Filter) => {
+  const stixValue: boolean | null = stix.x_opencti_cisa_kev ?? stix.extensions?.[STIX_EXT_OCTI].cisa_kev ?? null;
+  return testBooleanFilter(filter, stixValue);
+};
+
+export const testEpssPercentile = (stix: any, filter: Filter) => {
+  const stixValue: number | null = stix.x_opencti_epss_percentile ?? stix.extensions?.[STIX_EXT_OCTI].epss_percentile ?? null;
+  return testNumericFilter(filter, stixValue);
+};
+
+export const testEpssScore = (stix: any, filter: Filter) => {
+  const stixValue: number | null = stix.x_opencti_epss_score ?? stix.extensions?.[STIX_EXT_OCTI].epss_score ?? null;
+  return testNumericFilter(filter, stixValue);
+};
+
+export const testCvssScore = (stix: any, filter: Filter) => {
+  const stixValue: number | null = stix.x_opencti_cvss_base_score ?? stix.extensions?.[STIX_EXT_OCTI].base_score ?? null;
+  return testNumericFilter(filter, stixValue);
+};
+
+export const testCvssSeverity = (stix: any, filter: Filter) => {
+  const stixValue: string | null = stix.x_opencti_cvss_base_severity ?? stix.extensions?.[STIX_EXT_OCTI].base_severity ?? null;
+  const value = stixValue ? [stixValue] : [];
+  return testStringFilter(filter, value);
+};
+
 /**
  * TODO: This mapping could be given by the schema, like we do with stix converters
  */
 export const FILTER_KEY_TESTERS_MAP: Record<string, TesterFunction> = {
   // basic keys
   [ASSIGNEE_FILTER]: testAssignee,
+  [PARTICIPANT_FILTER]: testParticipant,
   [CONFIDENCE_FILTER]: testConfidence,
   [CREATED_BY_FILTER]: testCreatedBy,
   [CREATOR_FILTER]: testCreator,
   [DETECTION_FILTER]: testDetection,
   [INDICATOR_FILTER]: testIndicatorTypes,
+  [REPORT_TYPES_FILTER]: testReportTypes,
   [LABEL_FILTER]: testLabel,
   [MAIN_OBSERVABLE_TYPE_FILTER]: testMainObservableType,
   [MARKING_FILTER]: testMarkingFilter,
@@ -329,6 +392,11 @@ export const FILTER_KEY_TESTERS_MAP: Record<string, TesterFunction> = {
   [SCORE_FILTER]: testScore,
   [TYPE_FILTER]: testEntityType,
   [WORKFLOW_FILTER]: testWorkflow,
+  [CISA_KEV_FILTER]: testCisaKev,
+  [EPSS_PERCENTILE_FILTER]: testEpssPercentile,
+  [EPSS_SCORE_FILTER]: testEpssScore,
+  [CVSS_BASE_SCORE_FILTER]: testCvssScore,
+  [CVSS_BASE_SEVERITY_FILTER]: testCvssSeverity,
 
   // special keys (more complex behavior)
   [CONNECTED_TO_INSTANCE_FILTER]: testConnectedTo, // instance trigger, direct events
@@ -337,4 +405,5 @@ export const FILTER_KEY_TESTERS_MAP: Record<string, TesterFunction> = {
   [RELATION_FROM_TYPES_FILTER]: testRelationFromTypes,
   [RELATION_TO_FILTER]: testRelationTo,
   [RELATION_TO_TYPES_FILTER]: testRelationToTypes,
+  [REPRESENTATIVE_FILTER]: testRepresentative,
 };

@@ -14,9 +14,12 @@ import Loader, { LoaderVariant } from '../../../components/Loader';
 import useQueryLoading from '../../../utils/hooks/useQueryLoading';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { useFormatter } from '../../../components/i18n';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY_CSV_MAPPERS = 'csvMappers';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     paddingRight: '200px',
@@ -26,6 +29,8 @@ const useStyles = makeStyles(() => ({
 const CsvMappers = () => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('CSV Mappers | Processing | Data'));
   const { viewStorage, paginationOptions, helpers } = usePaginationLocalStorage<csvMappers_MappersQuery$variables>(
     LOCAL_STORAGE_KEY_CSV_MAPPERS,
     {
@@ -73,7 +78,7 @@ const CsvMappers = () => {
           schemaAttributesQueryRef={queryRefSchemaAttributes}
         >
           <div className={classes.container}>
-            <Breadcrumbs variant="list" elements={[{ label: t_i18n('Data') }, { label: t_i18n('Processing') }, { label: t_i18n('CSV mappers'), current: true }]} />
+            <Breadcrumbs elements={[{ label: t_i18n('Data') }, { label: t_i18n('Processing') }, { label: t_i18n('CSV mappers'), current: true }]} />
             <ProcessingMenu />
             <ListLines
               helpers={helpers}
@@ -97,7 +102,9 @@ const CsvMappers = () => {
                 />
               </React.Suspense>
             </ListLines>
-            <CsvMapperCreationContainer paginationOptions={paginationOptions}/>
+            <CsvMapperCreationContainer paginationOptions={paginationOptions} open={false} onClose={() => {
+            }}
+            />
           </div>
         </CsvMappersProvider>
       </Suspense>

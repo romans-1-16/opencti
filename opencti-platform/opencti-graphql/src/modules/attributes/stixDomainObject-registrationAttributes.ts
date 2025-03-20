@@ -2,6 +2,8 @@ import * as R from 'ramda';
 import {
   aliases,
   type AttributeDefinition,
+  authorizedMembers,
+  authorizedMembersActivationDate,
   confidence,
   created,
   entityLocationType,
@@ -9,6 +11,7 @@ import {
   iAliasedIds,
   identityClass,
   lang,
+  modified,
   revoked,
   xOpenctiAliases,
   xOpenctiReliability
@@ -38,8 +41,11 @@ import {
   ENTITY_TYPE_TOOL,
   ENTITY_TYPE_VULNERABILITY
 } from '../../schema/stixDomainObject';
+import { CVSS_SEVERITY_VALUES } from '../../domain/vulnerability';
 
 const stixDomainObjectAttributes: Array<AttributeDefinition> = [
+  created,
+  modified,
   lang,
   confidence,
   revoked,
@@ -92,7 +98,7 @@ const stixDomainObjectsAttributes: { [k: string]: Array<AttributeDefinition> } =
     { name: 'objective', label: 'Objective', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: false, isFilterable: true },
   ],
   [ENTITY_TYPE_CONTAINER_NOTE]: [
-    { ...created, mandatoryType: 'external', editDefault: true, label: 'Publication date' },
+    { ...created, mandatoryType: 'external', editDefault: true },
     { name: 'attribute_abstract', label: 'Abstract', type: 'string', format: 'short', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'content', label: 'Content', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'authors', label: 'Authors', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: true, upsert: false, isFilterable: false },
@@ -119,9 +125,11 @@ const stixDomainObjectsAttributes: { [k: string]: Array<AttributeDefinition> } =
     { name: 'description', label: 'Description', type: 'string', format: 'text', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'report_types', label: 'Report types', type: 'string', format: 'vocabulary', vocabularyCategory: 'report_types_ov', mandatoryType: 'customizable', editDefault: true, multiple: true, upsert: true, isFilterable: true },
     xOpenctiReliability,
-    { name: 'published', label: 'Publication date', type: 'date', mandatoryType: 'external', editDefault: true, multiple: false, upsert: false, isFilterable: true },
+    { name: 'published', label: 'Report publication date', type: 'date', mandatoryType: 'external', editDefault: true, multiple: false, upsert: false, isFilterable: true },
     { name: 'content', label: 'Content', type: 'string', format: 'short', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'content_mapping', label: 'Content mapping', type: 'string', format: 'text', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: false },
+    { ...authorizedMembers, editDefault: true },
+    { ...authorizedMembersActivationDate },
   ],
   [ENTITY_TYPE_COURSE_OF_ACTION]: [
     xOpenctiAliases,
@@ -231,11 +239,14 @@ const stixDomainObjectsAttributes: { [k: string]: Array<AttributeDefinition> } =
     { name: 'name', label: 'Name', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'description', label: 'Description', type: 'string', format: 'text', mandatoryType: 'customizable', editDefault: true, multiple: false, upsert: true, isFilterable: true },
     { name: 'x_opencti_cvss_base_score', label: 'CVSS3 Score', type: 'numeric', precision: 'float', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
-    { name: 'x_opencti_cvss_base_severity', label: 'CVSS3 Severity', type: 'string', format: 'enum', values: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'Unknown'], mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'x_opencti_cvss_base_severity', label: 'CVSS3 Severity', type: 'string', format: 'enum', values: CVSS_SEVERITY_VALUES, mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'x_opencti_cvss_attack_vector', label: 'CVSS3 Attack vector', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'x_opencti_cvss_integrity_impact', label: 'CVSS3 Integrity impact', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'x_opencti_cvss_availability_impact', label: 'CVSS3 Availability impact', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'x_opencti_cvss_confidentiality_impact', label: 'CVSS3 Confidentiality impact', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'x_opencti_cisa_kev', label: 'CISA KEV', type: 'boolean', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'x_opencti_epss_score', label: 'EPSS Score', type: 'numeric', precision: 'float', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'x_opencti_epss_percentile', label: 'EPSS Percentile', type: 'numeric', precision: 'float', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
   ],
   [ENTITY_TYPE_INCIDENT]: [
     // Check Name, type, mandatory, multiple, upsert

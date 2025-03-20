@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -18,14 +18,14 @@ import { graphql } from 'react-relay';
 import { QueryRenderer } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
 import { dayAgo } from '../../../../utils/Time';
-import useGranted, { SETTINGS } from '../../../../utils/hooks/useGranted';
+import useGranted, { SETTINGS_SECURITYACTIVITY, SETTINGS_SETACCESSES, VIRTUAL_ORGANIZATION_ADMIN } from '../../../../utils/hooks/useGranted';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 import { buildFiltersAndOptionsForWidgets } from '../../../../utils/filters/filtersUtils';
 import WidgetContainer from '../../../../components/dashboard/WidgetContainer';
 import WidgetNoData from '../../../../components/dashboard/WidgetNoData';
-import WidgetLoader from '../../../../components/dashboard/WidgetLoader';
 import WidgetNumber from '../../../../components/dashboard/WidgetNumber';
 import WidgetAccessDenied from '../../../../components/dashboard/WidgetAccessDenied';
+import Loader, { LoaderVariant } from '../../../../components/Loader';
 
 const auditsNumberNumberQuery = graphql`
   query AuditsNumberNumberSeriesQuery(
@@ -59,7 +59,7 @@ const AuditsNumber = ({
   parameters = {},
 }) => {
   const { t_i18n } = useFormatter();
-  const isGrantedToSettings = useGranted([SETTINGS]);
+  const isGrantedToSettings = useGranted([SETTINGS_SETACCESSES, SETTINGS_SECURITYACTIVITY, VIRTUAL_ORGANIZATION_ADMIN]);
   const isEnterpriseEdition = useEnterpriseEdition();
   const renderContent = () => {
     if (!isGrantedToSettings || !isEnterpriseEdition) {
@@ -83,7 +83,7 @@ const AuditsNumber = ({
           if (props) {
             return <WidgetNoData />;
           }
-          return <WidgetLoader />;
+          return <Loader variant={LoaderVariant.inElement} />;
         }}
       />
     );

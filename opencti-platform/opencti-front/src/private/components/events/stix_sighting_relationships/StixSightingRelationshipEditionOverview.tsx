@@ -15,8 +15,8 @@ import { SubscriptionAvatars, SubscriptionFocus } from '../../../../components/S
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ConfidenceField from '../../common/form/ConfidenceField';
-import SwitchField from '../../../../components/SwitchField';
-import MarkdownField from '../../../../components/MarkdownField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import StatusField from '../../common/form/StatusField';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
@@ -35,6 +35,8 @@ import type { Theme } from '../../../../components/Theme';
 import { StixSightingRelationshipEditionOverviewQuery } from './__generated__/StixSightingRelationshipEditionOverviewQuery.graphql';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   header: {
     backgroundColor: theme.palette.background.nav,
@@ -70,6 +72,7 @@ const StixSightingRelationshipEditionOverviewFragment = graphql`
     attribute_count
     x_opencti_negative
     confidence
+    entity_type
     first_seen
     last_seen
     description
@@ -221,10 +224,10 @@ const StixSightingRelationshipEditionOverviewComponent: FunctionComponent<Omit<S
       .required(t_i18n('This field is required')),
     first_seen: Yup.date()
       .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)'))
-      .required(t_i18n('This field is required')),
+      .nullable(),
     last_seen: Yup.date()
       .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)'))
-      .required(t_i18n('This field is required')),
+      .nullable(),
     description: Yup.string().nullable(),
     x_opencti_negative: Yup.boolean(),
     x_opencti_workflow_id: Yup.object(),
@@ -306,7 +309,7 @@ const StixSightingRelationshipEditionOverviewComponent: FunctionComponent<Omit<S
           onSubmit={onSubmit}
         >
           {({ submitForm, isSubmitting, setFieldValue, values, isValid, dirty }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <AlertConfidenceForEntity entity={stixSightingRelationship} />
               <Field
                 component={TextField}
@@ -422,30 +425,38 @@ const StixSightingRelationshipEditionOverviewComponent: FunctionComponent<Omit<S
                 }
                 disabled={inferred}
               />
-              {enableReferences && (
-                <CommitMessage
-                  submitForm={submitForm}
-                  disabled={isSubmitting || !isValid || !dirty}
-                  setFieldValue={setFieldValue}
-                  open={false}
-                  values={values.references}
-                  id={stixSightingRelationship.id}
-                  noStoreUpdate={noStoreUpdate}
-                />
-              )}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                width: '100%',
+              }}
+              >
+                {typeof handleDelete === 'function' && (
+                  <Button
+                    variant="contained"
+                    onClick={() => handleDelete()}
+                    classes={{ root: classes.button }}
+                    disabled={inferred}
+                  >
+                    {t_i18n('Delete')}
+                  </Button>
+                )}
+                {enableReferences && (
+                  <CommitMessage
+                    submitForm={submitForm}
+                    disabled={isSubmitting || !isValid || !dirty}
+                    setFieldValue={setFieldValue}
+                    open={false}
+                    values={values.references}
+                    id={stixSightingRelationship.id}
+                    noStoreUpdate={noStoreUpdate}
+                  />
+                )}
+              </div>
             </Form>
           )}
         </Formik>
-        {typeof handleDelete === 'function' && (
-          <Button
-            variant="contained"
-            onClick={() => handleDelete()}
-            classes={{ root: classes.button }}
-            disabled={inferred}
-          >
-            {t_i18n('Delete')}
-          </Button>
-        )}
       </div>
     </>
   );

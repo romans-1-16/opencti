@@ -1,31 +1,25 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { Page } from '@playwright/test';
 
 export default class DashboardPage {
-  constructor(private page: Page) {
-  }
+  constructor(private page: Page) {}
 
   getPage() {
     return this.page.getByTestId('dashboard-page');
   }
 
-  openButtonModal() {
-    return this.page.getByLabel('Create', { exact: true });
+  getPageTitle() {
+    return this.page.getByText('Dashboards', { exact: true });
   }
 
-  addNewDashboard() {
-    return this.page.getByLabel('Create dashboard', { exact: true });
+  getImportDashboardButton() {
+    return this.page.getByRole('button', { name: 'Import Dashboard' });
   }
 
-  getDashboardNameInput() {
-    return this.page.getByLabel('Name');
-  }
-
-  getCreateDashboardButton() {
-    return this.page.getByRole('button', { name: 'Create' });
+  getAddNewDashboardButton() {
+    return this.page.getByRole('button', { name: 'Create Dashboard' });
   }
 
   getItemFromList(name: string) {
-    return this.page.getByRole('link', { name }).first();
+    return this.page.getByText(name, { exact: true });
   }
 }

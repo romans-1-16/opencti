@@ -1,15 +1,16 @@
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
-import Redis, { Cluster, type RedisOptions } from 'ioredis';
-import Redlock from 'redlock';
+import { SEMATTRS_DB_NAME } from '@opentelemetry/semantic-conventions';
+import Redis, { Cluster, type RedisOptions, type SentinelAddress } from 'ioredis';
+import { Redlock } from '@sesamecare-oss/redlock';
 import * as jsonpatch from 'fast-json-patch';
 import { RedisPubSub } from 'graphql-redis-subscriptions';
 import * as R from 'ramda';
 import type { ChainableCommander } from 'ioredis/built/utils/RedisCommander';
 import type { ClusterOptions } from 'ioredis/built/cluster/ClusterOptions';
-import conf, { booleanConf, configureCA, DEV_MODE, getStoppingState, loadCert, logApp } from '../config/conf';
+import type { SentinelConnectionOptions } from 'ioredis/built/connectors/SentinelConnector';
+import conf, { booleanConf, configureCA, DEV_MODE, getStoppingState, loadCert, logApp, REDIS_PREFIX } from '../config/conf';
 import { asyncListTransformation, EVENT_TYPE_CREATE, EVENT_TYPE_DELETE, EVENT_TYPE_MERGE, EVENT_TYPE_UPDATE, isEmptyField, waitInSec } from './utils';
 import { isStixExportableData } from '../schema/stixCoreObject';
-import { DatabaseError, LockTimeoutError, UnsupportedError } from '../config/errors';
+import { DatabaseError, LockTimeoutError, TYPE_LOCK_ERROR, UnsupportedError } from '../config/errors';
 import { mergeDeepRightAll, now, utcDate } from '../utils/format';
 import { convertStoreToStix } from './stix-converter';
 import type { StoreObject, StoreRelation } from '../types/store';
@@ -22,9 +23,12 @@ import { filterEmpty } from '../types/type-utils';
 import type { ClusterConfig } from '../manager/clusterManager';
 import type { ActivityStreamEvent } from '../manager/activityListener';
 import type { ExecutionEnvelop } from '../manager/playbookManager';
-import { generateCreateMessage, generateDeleteMessage, generateMergeMessage } from './generate-message';
+import { generateCreateMessage, generateDeleteMessage, generateMergeMessage, generateRestoreMessage } from './generate-message';
+import { INPUT_OBJECTS } from '../schema/general';
+import { enrichWithRemoteCredentials } from '../config/credentials';
+import { getDraftContext } from '../utils/draftContext';
+import type { ExclusionListCacheItem } from './exclusionListCache';
 
-export const REDIS_PREFIX = conf.get('redis:namespace') ? `${conf.get('redis:namespace')}:` : '';
 const USE_SSL = booleanConf('redis:use_ssl', false);
 const REDIS_CA = conf.get('redis:ca').map((path: string) => loadCert(path));
 export const REDIS_STREAM_NAME = `${REDIS_PREFIX}stream.opencti`;
@@ -35,26 +39,30 @@ const isStreamPublishable = (opts: EventOpts) => {
   return opts.publishStreamEvent === undefined || opts.publishStreamEvent;
 };
 
-const redisOptions = (autoReconnect = false): RedisOptions => ({
-  keyPrefix: REDIS_PREFIX,
-  username: conf.get('redis:username'),
-  password: conf.get('redis:password'),
-  tls: USE_SSL ? { ...configureCA(REDIS_CA), servername: conf.get('redis:hostname') } : undefined,
-  retryStrategy: /* v8 ignore next */ (times) => {
-    if (getStoppingState()) {
+const redisOptions = async (autoReconnect = false): Promise<RedisOptions> => {
+  const baseAuth = { username: conf.get('redis:username'), password: conf.get('redis:password') };
+  const userPasswordAuth = await enrichWithRemoteCredentials('redis', baseAuth);
+  return {
+    keyPrefix: REDIS_PREFIX,
+    ...userPasswordAuth,
+    tls: USE_SSL ? { ...configureCA(REDIS_CA), servername: conf.get('redis:hostname') } : undefined,
+    retryStrategy: /* v8 ignore next */ (times) => {
+      if (getStoppingState()) {
+        return null;
+      }
+      if (autoReconnect) {
+        return Math.min(times * 50, 2000);
+      }
       return null;
-    }
-    if (autoReconnect) {
-      return Math.min(times * 50, 2000);
-    }
-    return null;
-  },
-  lazyConnect: true,
-  enableAutoPipelining: false,
-  enableOfflineQueue: true,
-  maxRetriesPerRequest: autoReconnect ? null : 1,
-  showFriendlyErrorStack: DEV_MODE,
-});
+    },
+    lazyConnect: true,
+    enableAutoPipelining: false,
+    enableOfflineQueue: true,
+    maxRetriesPerRequest: autoReconnect ? null : 1,
+    showFriendlyErrorStack: DEV_MODE,
+    family: conf.get('redis:host_ip_family') ?? 4,
+  };
+};
 
 // From "HOST:PORT" to { host, port }
 export const generateClusterNodes = (nodes: string[]): { host: string; port: number; }[] => {
@@ -76,30 +84,54 @@ export const generateNatMap = (mappings: string[]): Record<string, { host: strin
   return natMap;
 };
 
-const clusterOptions = (): ClusterOptions => ({
-  keyPrefix: REDIS_PREFIX,
-  lazyConnect: true,
-  enableAutoPipelining: false,
-  enableOfflineQueue: true,
-  redisOptions: redisOptions(),
-  scaleReads: conf.get('redis:scale_reads') ?? 'all',
-  natMap: generateNatMap(conf.get('redis:nat_map') ?? []),
-  showFriendlyErrorStack: DEV_MODE,
-});
+const clusterOptions = async (): Promise<ClusterOptions> => {
+  const redisOpts = await redisOptions();
+  return {
+    keyPrefix: REDIS_PREFIX,
+    lazyConnect: true,
+    enableAutoPipelining: false,
+    enableOfflineQueue: true,
+    redisOptions: redisOpts,
+    scaleReads: conf.get('redis:scale_reads') ?? 'all',
+    natMap: generateNatMap(conf.get('redis:nat_map') ?? []),
+    showFriendlyErrorStack: DEV_MODE,
+  };
+};
 
-export const createRedisClient = (provider: string, autoReconnect = false): Cluster | Redis => {
+const sentinelOptions = async (clusterNodes: Partial<SentinelAddress>[]): Promise<SentinelConnectionOptions> => {
+  const baseAuth = { sentinelPassword: conf.get('redis:sentinel_password') };
+  const passwordAuth = await enrichWithRemoteCredentials('redis', baseAuth);
+  return {
+    ...passwordAuth,
+    keyPrefix: REDIS_PREFIX,
+    name: conf.get('redis:sentinel_master_name'),
+    role: conf.get('redis:sentinel_role'),
+    preferredSlaves: conf.get('redis:sentinel_preferred_slaves'),
+    sentinels: clusterNodes,
+    enableTLSForSentinelMode: conf.get('redis:sentinel_tls') ?? false,
+    failoverDetector: conf.get('redis:sentinel_failover_detector') ?? false,
+    updateSentinels: conf.get('redis:sentinel_update_sentinels') ?? true,
+  };
+};
+
+export const createRedisClient = async (provider: string, autoReconnect = false): Promise<Cluster | Redis> => {
   let client: Cluster | Redis;
-  const isCluster = conf.get('redis:mode') === 'cluster';
-  if (isCluster) {
-    const clusterNodes = generateClusterNodes(conf.get('redis:hostnames') ?? []);
-    client = new Redis.Cluster(clusterNodes, clusterOptions());
+  const redisMode: string = conf.get('redis:mode');
+  const clusterNodes = generateClusterNodes(conf.get('redis:hostnames') ?? []);
+  if (redisMode === 'cluster') {
+    const clusterOpts = await clusterOptions();
+    client = new Redis.Cluster(clusterNodes, clusterOpts);
+  } else if (redisMode === 'sentinel') {
+    const sentinelOpts = await sentinelOptions(clusterNodes);
+    client = new Redis(sentinelOpts);
   } else {
-    const singleOptions = redisOptions(autoReconnect);
-    client = new Redis({ ...singleOptions, port: conf.get('redis:port'), host: conf.get('redis:hostname') });
+    const singleOptions = await redisOptions(autoReconnect);
+    client = new Redis({ ...singleOptions, db: conf.get('redis:database') ?? 0, port: conf.get('redis:port'), host: conf.get('redis:hostname') });
   }
+
   client.on('close', () => logApp.info(`[REDIS] Redis '${provider}' client closed`));
   client.on('ready', () => logApp.info(`[REDIS] Redis '${provider}' client ready`));
-  client.on('error', (err) => logApp.error(DatabaseError('Redis client connection fail', { cause: err, provider })));
+  client.on('error', (err) => logApp.error('Redis client connection fail', { cause: err, provider }));
   client.on('reconnecting', () => logApp.info(`[REDIS] '${provider}' Redis client reconnecting`));
   return client;
 };
@@ -107,16 +139,32 @@ export const createRedisClient = (provider: string, autoReconnect = false): Clus
 // region Initialization of clients
 type RedisConnection = Cluster | Redis ;
 interface RedisClients { base: RedisConnection, lock: RedisConnection, pubsub: RedisPubSub }
-const redisClients: RedisClients = {
-  base: createRedisClient('base', true),
-  lock: createRedisClient('lock', true),
-  pubsub: new RedisPubSub({
-    publisher: createRedisClient('publisher', true),
-    subscriber: createRedisClient('subscriber', true),
-    connectionListener: (err) => {
-      logApp.info('[REDIS] Redis pubsub client closed', { error: err });
-    }
-  })
+
+let redisClients: RedisClients;
+// Method reserved for lock child process
+export const initializeOnlyRedisLockClient = async () => {
+  const lock = await createRedisClient('lock', true);
+  // Disable typescript check for this specific use case.
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  redisClients = { lock, base: null, pubsub: null };
+};
+export const initializeRedisClients = async () => {
+  const base = await createRedisClient('base', true);
+  const lock = await createRedisClient('lock', true);
+  const publisher = await createRedisClient('publisher', true);
+  const subscriber = await createRedisClient('subscriber', true);
+  redisClients = {
+    base,
+    lock,
+    pubsub: new RedisPubSub({
+      publisher,
+      subscriber,
+      connectionListener: (err) => {
+        logApp.info('[REDIS] Redis pubsub client closed', { error: err });
+      }
+    })
+  };
 };
 export const shutdownRedisClients = async () => {
   await redisClients.base?.quit().catch(() => { /* Dont care */ });
@@ -243,12 +291,20 @@ export const extendSession = async (sessionId: string, extension: number) => {
   return sessionExtension;
 };
 // endregion
-
 export const redisIsAlive = async () => {
   try {
     await getClientBase().get('test-key');
-    const isCluster = conf.get('redis:mode') === 'cluster';
-    logApp.info(`[REDIS] Clients initialized in ${isCluster ? 'cluster' : 'Single'} mode`);
+    return true;
+  } catch {
+    throw DatabaseError('Redis seems down');
+  }
+};
+export const redisInit = async () => {
+  try {
+    await initializeRedisClients();
+    await redisIsAlive();
+    const redisMode: string = conf.get('redis:mode');
+    logApp.info(`[REDIS] Clients initialized in ${redisMode} mode`);
     return true;
   } catch {
     throw DatabaseError('Redis seems down');
@@ -264,7 +320,10 @@ export const getRedisVersion = async () => {
 export const notify = async (topic: string, instance: any, user: AuthUser) => {
   // Instance can be empty if user is currently looking for a deleted instance
   if (instance) {
-    await getClientPubSub().publish(topic, { instance, user });
+    // Resolved object_refs must be dissoc from original objects as not directly used for live update
+    // and can imply very large event message
+    const data = R.dissoc(INPUT_OBJECTS, instance);
+    await getClientPubSub().publish(topic, { instance: data, user });
   }
   return instance;
 };
@@ -295,18 +354,23 @@ export const redisAddDeletions = async (internalIds: Array<string>) => {
   await redisTx(getClientLock(), async (tx) => {
     const time = new Date().getTime();
     // remove the too old keys from the list of instances
-    await tx.zremrangebyscore('platform-deletions', '-inf', time - (120 * 1000));
+    await tx.zremrangebyscore('platform-deletions', '-inf', time - (5 * 1000));
     // add/update the instance with its creation date in the ordered list of instances
     await tx.zadd('platform-deletions', time, ...ids);
   });
 };
 export const redisFetchLatestDeletions = async () => {
   const time = new Date().getTime();
-  await getClientLock().zremrangebyscore('platform-deletions', '-inf', time - (120 * 1000));
+  await getClientLock().zremrangebyscore('platform-deletions', '-inf', time - (5 * 1000));
   return getClientLock().zrange('platform-deletions', 0, -1);
 };
-interface LockOptions { automaticExtension?: boolean, retryCount?: number }
-const defaultLockOpts: LockOptions = { automaticExtension: true, retryCount: conf.get('app:concurrency:retry_count') };
+interface LockOptions {
+  automaticExtension?: boolean,
+  retryCount?: number,
+  draftId?: string
+  child_operation?: string
+}
+const defaultLockOpts: LockOptions = { automaticExtension: true, retryCount: conf.get('app:concurrency:retry_count'), draftId: '' };
 const getStackTrace = () => {
   const obj: any = {};
   Error.captureStackTrace(obj, getStackTrace);
@@ -316,7 +380,8 @@ export const lockResource = async (resources: Array<string>, opts: LockOptions =
   let timeout: NodeJS.Timeout | undefined;
   let extension: undefined | Promise<void>;
   const initialCallStack = getStackTrace();
-  const locks = R.uniq(resources).map((id) => `{locks}:${id}`);
+  const draftId = opts.draftId ? opts.draftId : '';
+  const locks = R.uniq(resources).map((id) => `{locks}:${id}${draftId}`);
   const automaticExtensionThreshold = conf.get('app:concurrency:extension_threshold');
   const retryDelay = conf.get('app:concurrency:retry_delay');
   const retryJitter = conf.get('app:concurrency:retry_jitter');
@@ -337,22 +402,29 @@ export const lockResource = async (resources: Array<string>, opts: LockOptions =
     );
   };
   const extend = async () => {
-    timeout = undefined;
     try {
       if (opts.retryCount !== 0) {
-        logApp.warn('Extending resources for long processing task', { locks, stack: initialCallStack });
+        logApp.info('Extending resources for long processing task', { locks, stack: initialCallStack });
       }
       lock = await lock.extend(maxTtl);
       queue();
     } catch (error) {
-      controller.abort('[REDIS] Failed to extend resource');
+      logApp.error('Execution timeout, error extending resources', { locks });
+      if (process.send) {
+        // If process.send, we use a child process
+        process.send({ operation: opts.child_operation, type: 'abort', success: false });
+      } else {
+        controller.abort({ name: TYPE_LOCK_ERROR });
+      }
     }
   };
   // If lock succeed we need to be sure that delete not occurred just before the resolution/lock
+  // If we do not check for that, we could update an entity even though it was just deleted, resulting in the entity being created again
   const latestDeletions = await redisFetchLatestDeletions();
   const deletedParticipantsIds = resources.filter((x) => latestDeletions.includes(x));
   if (deletedParticipantsIds.length > 0) {
     // noinspection ExceptionCaughtLocallyJS
+    await lock.release();
     throw LockTimeoutError({ participantIds: deletedParticipantsIds });
   }
   // If everything seems good, start auto extension if needed
@@ -364,16 +436,7 @@ export const lockResource = async (resources: Array<string>, opts: LockOptions =
     signal,
     extend,
     unlock: async () => {
-      // First clear the auto extends if needed
-      try {
-        if (timeout) {
-          clearTimeout(timeout);
-          timeout = undefined;
-        }
-      } catch (timeoutError) {
-        // Nothing to do here
-      }
-      // Wait for an in-flight extension to finish.
+      // First, wait for an in-flight extension to finish.
       if (extension) {
         await extension.catch(() => {
           // An error here doesn't matter at all, because the routine has
@@ -382,13 +445,14 @@ export const lockResource = async (resources: Array<string>, opts: LockOptions =
           // between the extension and release.
         });
       }
-      // Then unlock in redis
+      // Second, clear the auto extends possibly starts by the first step
+      clearTimeout(timeout);
+      // Last, unlock in redis
       try {
         // Finally try to unlock
         await lock.release();
       } catch (e) {
         // Nothing to do here
-        logApp.warn('Failed to unlock resource', { locks });
       }
     },
   };
@@ -409,16 +473,18 @@ const mapJSToStream = (event: any) => {
   return cmdArgs;
 };
 const pushToStream = async (context: AuthContext, user: AuthUser, client: Cluster | Redis, event: BaseEvent, opts: EventOpts = {}) => {
-  if (isStreamPublishable(opts)) {
+  const draftContext = getDraftContext(context, user);
+  const eventToPush = { ...event, event_id: context.eventId };
+  if (!draftContext && isStreamPublishable(opts)) {
     const pushToStreamFn = async () => {
       if (streamTrimming) {
-        await client.call('XADD', REDIS_STREAM_NAME, 'MAXLEN', '~', streamTrimming, '*', ...mapJSToStream(event));
+        await client.call('XADD', REDIS_STREAM_NAME, 'MAXLEN', '~', streamTrimming, '*', ...mapJSToStream(eventToPush));
       } else {
-        await client.call('XADD', REDIS_STREAM_NAME, '*', ...mapJSToStream(event));
+        await client.call('XADD', REDIS_STREAM_NAME, '*', ...mapJSToStream(eventToPush));
       }
     };
     telemetry(context, user, 'INSERT STREAM', {
-      [SemanticAttributes.DB_NAME]: 'stream_engine',
+      [SEMATTRS_DB_NAME]: 'stream_engine',
     }, pushToStreamFn);
   }
 };
@@ -466,7 +532,7 @@ export const buildStixUpdateEvent = (user: AuthUser, previousStix: StixCoreObjec
   if (patch.length === 0 || previousPatch.length === 0) {
     throw UnsupportedError('Update event must contains a valid previous patch');
   }
-  if (patch.length === 1 && patch[0].path === '/modified') {
+  if (patch.length === 1 && patch[0].path === '/modified' && !opts.allow_only_modified) {
     throw UnsupportedError('Update event must contains more operation than just modified/updated_at value');
   }
   return {
@@ -479,7 +545,8 @@ export const buildStixUpdateEvent = (user: AuthUser, previousStix: StixCoreObjec
     commit: opts.commit,
     context: {
       patch,
-      reverse_patch: previousPatch
+      reverse_patch: previousPatch,
+      related_restrictions: opts.related_restrictions,
     }
   };
 };
@@ -519,8 +586,11 @@ export const buildCreateEvent = (user: AuthUser, instance: StoreObject, message:
 export const storeCreateRelationEvent = async (context: AuthContext, user: AuthUser, instance: StoreRelation, opts: CreateEventOpts = {}) => {
   try {
     if (isStixExportableData(instance)) {
-      const { withoutMessage = false } = opts;
-      const message = withoutMessage ? '-' : generateCreateMessage(instance);
+      const { withoutMessage = false, restore = false } = opts;
+      let message = '-';
+      if (!withoutMessage) {
+        message = restore ? generateRestoreMessage(instance) : generateCreateMessage(instance);
+      }
       const event = buildCreateEvent(user, instance, message);
       await pushToStream(context, user, getClientBase(), event, opts);
       return event;
@@ -657,7 +727,7 @@ export const createStreamProcessor = <T extends BaseEvent> (
         await processStreamResult([], callback, opts.withInternal);
       }
     } catch (err) {
-      logApp.error(DatabaseError('Redis stream consume fail', { cause: err, provider }));
+      logApp.error('Redis stream consume fail', { cause: err, provider });
       if (opts.autoReconnect) {
         await waitInSec(2);
       } else {
@@ -787,7 +857,9 @@ export const getLastPlaybookExecutions = async (playbookId: string) => {
   return executions.map((e) => {
     const steps = Object.entries(e).filter(([k, _]) => k.startsWith('step_')).map(([k, v]) => {
       const bundle_or_patch = v.bundle ? JSON.stringify([v.bundle], null, 2) : JSON.stringify(v.patch, null, 2);
-      return ({ id: k.split('step_')[1], bundle_or_patch, ...v });
+      // beware, step key is the same for every execution, and we need to avoid id collision in Relay
+      const id = `${e.playbook_execution_id}-${k.split('step_')[1]}`;
+      return ({ id, bundle_or_patch, ...v });
     });
     return {
       id: e.playbook_execution_id,
@@ -798,3 +870,69 @@ export const getLastPlaybookExecutions = async (playbookId: string) => {
   });
 };
 // endregion
+
+// region - support package handling
+export const SUPPORT_NODE_STATUS_IN_PROGRESS = 0;
+export const SUPPORT_NODE_STATUS_READY = 10;
+export const SUPPORT_NODE_STATUS_IN_ERROR = 100;
+
+/**
+ * Add or update for a given support package, one node status.
+ * @param supportPackageId
+ * @param nodeId
+ * @param nodeStatus one of SUPPORT_NODE_STATUS_IN_PROGRESS, SUPPORT_NODE_STATUS_READY, SUPPORT_NODE_STATUS_IN_ERROR
+ */
+export const redisStoreSupportPackageNodeStatus = (supportPackageId:string, nodeId: string, nodeStatus: number) => {
+  const setKeyId = `support:${supportPackageId}`;
+  // redis score =  nodeStatus
+  // redis member = nodeId
+  return getClientBase().zadd(setKeyId, nodeStatus, nodeId);
+};
+
+/**
+ * Count for a support package the number of node with a status.
+ * @param supportPackageId
+ * @param nodeStatus
+ */
+export const redisCountSupportPackageNodeWithStatus = (supportPackageId: string, nodeStatus: number) => {
+  const setKeyId = `support:${supportPackageId}`;
+  return getClientBase().zcount(setKeyId, nodeStatus, nodeStatus);
+};
+
+export const redisDeleteSupportPackageNodeStatus = (supportPackageId: string) => {
+  const setKeyId = `support:${supportPackageId}`;
+  return getClientBase().del(setKeyId);
+};
+
+// endregion - support package handling
+
+// region - exclusion list cache handling
+
+const EXCLUSION_LIST_STATUS_KEY = 'exclusion_list_status';
+const EXCLUSION_LIST_CACHE_KEY = 'exclusion_list_cache';
+export const redisUpdateExclusionListStatus = async (exclusionListStatus: object) => {
+  const clientBase = getClientBase();
+  await redisTx(clientBase, async (tx) => {
+    tx.hset(EXCLUSION_LIST_STATUS_KEY, exclusionListStatus);
+  });
+};
+export const redisGetExclusionListStatus = async () => {
+  return getClientBase().hgetall(EXCLUSION_LIST_STATUS_KEY);
+};
+
+export const redisGetExclusionListCache = async () => {
+  const rawCache = await getClientBase().get(EXCLUSION_LIST_CACHE_KEY);
+  try {
+    return rawCache ? JSON.parse(rawCache) : [];
+  } catch (e) {
+    logApp.error('Exclusion cache could not be parsed properly. Asking for a cache refresh.', { rawCache });
+    await redisUpdateExclusionListStatus({ last_refresh_ask_date: (new Date()).toString() });
+    return [];
+  }
+};
+export const redisSetExclusionListCache = async (cache: ExclusionListCacheItem[]) => {
+  const stringifiedCache = JSON.stringify(cache);
+  await getClientBase().set(EXCLUSION_LIST_CACHE_KEY, stringifiedCache);
+};
+
+// endregion - exclusion list cache handling

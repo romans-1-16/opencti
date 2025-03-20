@@ -5,6 +5,7 @@ import {
 } from '@components/events/stix_sighting_relationships/__generated__/EntityStixSightingRelationshipsLinesPaginationQuery.graphql';
 import makeStyles from '@mui/styles/makeStyles';
 import { EntityStixSightingRelationshipLineDummy } from '@components/events/stix_sighting_relationships/EntityStixSightingRelationshipLine';
+import useHelper from 'src/utils/hooks/useHelper';
 import ListLines from '../../../../components/list_lines/ListLines';
 import EntityStixSightingRelationshipsLines, { entityStixSightingRelationshipsLinesQuery } from './EntityStixSightingRelationshipsLines';
 import StixSightingRelationshipCreationFromEntity from './StixSightingRelationshipCreationFromEntity';
@@ -12,16 +13,71 @@ import Security from '../../../../utils/Security';
 import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStorage';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
-import { FilterGroup, emptyFilterGroup, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, useRemoveIdAndIncorrectKeysFromFilterGroupObject, isFilterGroupNotEmpty } from '../../../../utils/filters/filtersUtils';
+import { FilterGroup } from '../../../../utils/filters/filtersHelpers-types';
 
 export const LOCAL_STORAGE_KEY = 'sightings';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     marginTop: 15,
     paddingBottom: 70,
   },
 }));
+
+interface SightingCreationComponentProps {
+  isTo: boolean,
+  entityId: string,
+  noPadding?: boolean,
+  paginationOptions: EntityStixSightingRelationshipsLinesPaginationQuery$variables
+  stixCoreObjectTypes: string[],
+  variant?: 'controlledDial' | 'inLine',
+}
+
+const SightingCreationComponent: FunctionComponent<SightingCreationComponentProps> = ({
+  isTo,
+  entityId,
+  noPadding,
+  paginationOptions,
+  stixCoreObjectTypes,
+  variant,
+}) => (
+  <Security needs={[KNOWLEDGE_KNUPDATE]}>
+    {isTo ? (
+      <StixSightingRelationshipCreationFromEntity
+        entityId={entityId}
+        isTo={true}
+        stixCoreObjectTypes={[
+          'Threat-Actor',
+          'Intrusion-Set',
+          'Campaign',
+          'Malware',
+          'Tool',
+          'Vulnerability',
+          'Indicator',
+        ]}
+        targetStixCyberObservableTypes={['Stix-Cyber-Observable']}
+        paddingRight={noPadding ? null : 220}
+        paginationOptions={paginationOptions}
+        variant={variant}
+        onCreate={undefined}
+      />
+    ) : (
+      <StixSightingRelationshipCreationFromEntity
+        entityId={entityId}
+        isTo={false}
+        stixCoreObjectTypes={stixCoreObjectTypes}
+        targetStixCyberObservableTypes={undefined}
+        paddingRight={noPadding ? null : 220}
+        paginationOptions={paginationOptions}
+        variant={variant}
+        onCreate={undefined}
+      />
+    )}
+  </Security>
+);
 
 interface EntityStixSightingRelationshipsProps {
   isTo: boolean,
@@ -41,6 +97,7 @@ const EntityStixSightingRelationships: FunctionComponent<EntityStixSightingRelat
   disableExport,
 }) => {
   const classes = useStyles();
+  const { isFeatureEnable } = useHelper();
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<EntityStixSightingRelationshipsLinesPaginationQuery$variables>(
     LOCAL_STORAGE_KEY,
     {
@@ -56,21 +113,36 @@ const EntityStixSightingRelationships: FunctionComponent<EntityStixSightingRelat
     orderAsc,
     openExports,
     filters,
+    searchTerm,
     numberOfElements,
   } = viewStorage;
+
+  const userFilters = useRemoveIdAndIncorrectKeysFromFilterGroupObject(filters, ['stix-sighting-relationship']);
+
+  const contextFilters: FilterGroup = {
+    mode: 'and',
+    filters: [
+      { key: isTo ? 'toId' : 'fromId', values: [entityId], operator: 'eq' },
+      {
+        key: 'entity_type',
+        values: ['stix-sighting-relationship'],
+        operator: 'eq',
+        mode: 'or',
+      },
+    ],
+    filterGroups: userFilters && isFilterGroupNotEmpty(userFilters) ? [userFilters] : [],
+  };
   const finalPaginationOptions = {
     ...paginationOptions,
-    filters: useRemoveIdAndIncorrectKeysFromFilterGroupObject(paginationOptions.filters as unknown as FilterGroup, ['stix-core-relationship']),
-  } as EntityStixSightingRelationshipsLinesPaginationQuery$variables;
-  if (isTo) {
-    finalPaginationOptions.toId = entityId;
-  } else {
-    finalPaginationOptions.fromId = entityId;
-  }
+    filters: contextFilters,
+  } as unknown as EntityStixSightingRelationshipsLinesPaginationQuery$variables;
+
   const queryRef = useQueryLoading<EntityStixSightingRelationshipsLinesPaginationQuery>(
     entityStixSightingRelationshipsLinesQuery,
     finalPaginationOptions,
   );
+
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
 
   const renderLines = () => {
     const dataColumns = {
@@ -124,6 +196,7 @@ const EntityStixSightingRelationships: FunctionComponent<EntityStixSightingRelat
           handleSwitchLocalMode={helpers.handleSwitchLocalMode}
           handleToggleExports={disableExport ? null : helpers.handleToggleExports}
           filters={filters}
+          keyword={searchTerm}
           availableFilterKeys={[
             'toTypes',
             'objectLabel',
@@ -134,12 +207,22 @@ const EntityStixSightingRelationships: FunctionComponent<EntityStixSightingRelat
             'x_opencti_negative',
           ]}
           openExports={openExports}
-          exportContext={{ entity_type: 'stix-sighting-relationship' }}
+          exportContext={{ entity_type: 'stix-sighting-relationship', entity_id: entityId }}
           availableEntityTypes={stixCoreObjectTypes}
           displayImport={true}
           secondaryAction={true}
           paginationOptions={finalPaginationOptions}
           numberOfElements={numberOfElements}
+          createButton={isFABReplaced && (
+            <SightingCreationComponent
+              isTo={isTo}
+              entityId={entityId}
+              noPadding={noPadding}
+              paginationOptions={finalPaginationOptions}
+              stixCoreObjectTypes={stixCoreObjectTypes}
+              variant='controlledDial'
+            />
+          )}
         >
           {queryRef && (
           <React.Suspense
@@ -172,39 +255,15 @@ const EntityStixSightingRelationships: FunctionComponent<EntityStixSightingRelat
   return (
     <div className={classes.container}>
       {renderLines()}
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        {isTo ? (
-          <StixSightingRelationshipCreationFromEntity
-            entityId={entityId}
-            isTo={true}
-            stixCoreObjectTypes={[
-              'Threat-Actor',
-              'Intrusion-Set',
-              'Campaign',
-              'Malware',
-              'Tool',
-              'Vulnerability',
-              'Indicator',
-            ]}
-            targetStixCyberObservableTypes={['Stix-Cyber-Observable']}
-            paddingRight={noPadding ? null : 220}
-            paginationOptions={finalPaginationOptions}
-            variant={undefined}
-            onCreate={undefined}
-          />
-        ) : (
-          <StixSightingRelationshipCreationFromEntity
-            entityId={entityId}
-            isTo={false}
-            stixCoreObjectTypes={stixCoreObjectTypes}
-            targetStixCyberObservableTypes={undefined}
-            paddingRight={noPadding ? null : 220}
-            paginationOptions={finalPaginationOptions}
-            variant={undefined}
-            onCreate={undefined}
-          />
-        )}
-      </Security>
+      {!isFABReplaced && (
+        <SightingCreationComponent
+          isTo={isTo}
+          entityId={entityId}
+          noPadding={noPadding}
+          paginationOptions={finalPaginationOptions}
+          stixCoreObjectTypes={stixCoreObjectTypes}
+        />
+      )}
     </div>
   );
 };

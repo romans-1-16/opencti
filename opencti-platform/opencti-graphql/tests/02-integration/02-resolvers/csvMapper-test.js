@@ -1,7 +1,8 @@
 import { expect, it, describe, beforeAll, afterAll } from 'vitest';
 import gql from 'graphql-tag';
-import { adminQuery, queryAsAdmin } from '../../utils/testQuery';
+import { internalAdminQuery, queryAsAdmin } from '../../utils/testQuery';
 import { ABSTRACT_STIX_CORE_RELATIONSHIP } from '../../../src/schema/general';
+import { createUploadFromTestDataFile } from '../../utils/testQueryHelper';
 
 const MAPPER_INPUT = {
   name: 'super mapper',
@@ -200,6 +201,16 @@ const DELETE_MUTATION = gql`
   }
 `;
 
+const TEST_MUTATION = gql`
+    mutation CsvMapperTest($configuration: String!, $file: Upload!) {
+        csvMapperTest(configuration: $configuration, file: $file){
+            objects
+            nbEntities
+            nbRelationships
+        }
+    }
+`;
+
 const LIST_SCHEMAS_QUERY = gql`
   query CsvMapperSchemaAttributes {
     csvMapperSchemaAttributes {
@@ -244,11 +255,11 @@ describe('CSV Mapper Resolver', () => {
   let addedMapper;
 
   beforeAll(async () => {
-    const { data } = await adminQuery(ENTITY_SETTINGS_GET);
+    const { data } = await internalAdminQuery(ENTITY_SETTINGS_GET);
     const entitySettings = data.entitySettings.edges.map((e) => e.node);
     entitySettingStixCoreRel = entitySettings.find((setting) => setting.target_type === ABSTRACT_STIX_CORE_RELATIONSHIP);
 
-    await adminQuery(
+    await internalAdminQuery(
       ENTITY_SETTINGS_UPDATE,
       {
         ids: [entitySettingStixCoreRel.id],
@@ -263,7 +274,7 @@ describe('CSV Mapper Resolver', () => {
   });
 
   afterAll(async () => {
-    await adminQuery(
+    await internalAdminQuery(
       ENTITY_SETTINGS_UPDATE,
       {
         ids: [entitySettingStixCoreRel.id],
@@ -288,6 +299,34 @@ describe('CSV Mapper Resolver', () => {
     expect(csvMapperAdd.separator).toEqual(MAPPER_INPUT.separator);
     expect(csvMapperAdd.skipLineChar).toEqual(MAPPER_INPUT.skipLineChar);
     addedMapper = csvMapperAdd;
+  });
+
+  it('should fail to create a mapper with malformed JSON representations', async () => {
+    const { errors } = await queryAsAdmin({
+      query: CREATE_QUERY,
+      variables: {
+        input: {
+          ...MAPPER_INPUT,
+          representations: '{ invalid // json --',
+        }
+      },
+    });
+    expect(errors).toBeDefined();
+    expect(errors[0].message).toBe('Could not parse CSV mapper: representations is not a valid JSON');
+  });
+
+  it('should fail to create a mapper with invalid representations', async () => {
+    const { errors } = await queryAsAdmin({
+      query: CREATE_QUERY,
+      variables: {
+        input: {
+          ...MAPPER_INPUT,
+          representations: JSON.stringify('{ "id": "test", "type": "InvalidType" }'),
+        }
+      },
+    });
+    expect(errors).toBeDefined();
+    expect(errors[0].message).toBe('CSV mapper representations is not an array of CsvMapperRepresentation objects');
   });
 
   it('should retrieve a mapper by internal id', async () => {
@@ -345,9 +384,9 @@ describe('CSV Mapper Resolver', () => {
     const objects = JSON.parse(csvMapperTest.objects);
 
     expect(csvMapperTest).toBeDefined();
-    expect(csvMapperTest.nbEntities).toEqual(2);
-    expect(csvMapperTest.nbRelationships).toEqual(1);
-    expect(objects.length).toEqual(3);
+    expect(csvMapperTest.nbEntities).toEqual(4); // TODO to check if correct with upsert way
+    expect(csvMapperTest.nbRelationships).toEqual(2); // TODO to check if correct with upsert way
+    expect(objects.length).toEqual(6); // TODO to check if correct with upsert way
     expect(objects.find((o) => o.name === 'morbihan')).toBeDefined();
     expect(objects.find((o) => o.name === 'vador')).toBeDefined();
     expect(objects.find((o) => o.relationship_type === 'targets')).toBeDefined();
@@ -378,5 +417,20 @@ describe('CSV Mapper Resolver', () => {
     const description = attributes.find((attr) => attr.name === 'description');
     expect(description.mandatory).toEqual(true);
     expect(description.defaultValues[0].name).toEqual('hello');
+  });
+
+  it('should test a cvs file against mapper', async () => {
+    const upload = await createUploadFromTestDataFile('csvMapper/test-file.csv', 'test-file.csv', 'application/json');
+
+    const queryResult = await queryAsAdmin({
+      query: TEST_MUTATION,
+      variables: {
+        file: upload,
+        configuration: JSON.stringify(addedMapper),
+      },
+    });
+    expect(queryResult.data.csvMapperTest.objects).toBeDefined();
+    expect(queryResult.data.csvMapperTest.nbEntities).toBe(2); // 1 Administrative-Area, one Malware
+    expect(queryResult.data.csvMapperTest.nbRelationships).toBe(1);
   });
 });

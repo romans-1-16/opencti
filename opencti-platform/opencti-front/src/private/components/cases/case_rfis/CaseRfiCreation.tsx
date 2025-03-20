@@ -3,14 +3,19 @@ import makeStyles from '@mui/styles/makeStyles';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
 import React, { FunctionComponent, useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import * as Yup from 'yup';
-import { useHistory } from 'react-router-dom';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import { useNavigate } from 'react-router-dom';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
+import { handleErrorInForm } from 'src/relay/environment';
+import { CaseRfisLinesCasesPaginationQuery$variables } from '@components/cases/__generated__/CaseRfisLinesCasesPaginationQuery.graphql';
+import AuthorizedMembersField from '@components/common/form/AuthorizedMembersField';
+import Typography from '@mui/material/Typography';
+import AccordionDetails from '@mui/material/AccordionDetails';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import TextField from '../../../../components/TextField';
 import type { Theme } from '../../../../components/Theme';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
@@ -26,12 +31,20 @@ import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { Option } from '../../common/form/ReferenceField';
 import { CaseRfiAddInput, CaseRfiCreationCaseMutation } from './__generated__/CaseRfiCreationCaseMutation.graphql';
-import { CaseRfiLinesCasesPaginationQuery$variables } from './__generated__/CaseRfiLinesCasesPaginationQuery.graphql';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
-import RichTextField from '../../../../components/RichTextField';
+import RichTextField from '../../../../components/fields/RichTextField';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
+import Security from '../../../../utils/Security';
+import useGranted, { KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS } from '../../../../utils/hooks/useGranted';
+import { Accordion, AccordionSummary } from '../../../../components/Accordion';
+import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -50,8 +63,11 @@ const caseRfiMutation = graphql`
       entity_type
       parent_types
       name
+      representative {
+        main
+      }
       description
-      ...CaseRfiLineCase_node
+      ...CaseRfisLineCase_node
     }
   }
 `;
@@ -73,6 +89,7 @@ interface FormikCaseRfiAddInput {
   severity: string;
   priority: string;
   caseTemplates?: Option[];
+  authorized_members: { value: string, accessRight: string }[] | undefined;
 }
 
 interface CaseRfiFormProps {
@@ -85,6 +102,7 @@ interface CaseRfiFormProps {
   defaultConfidence?: number;
   defaultCreatedBy?: { value: string; label: string };
   defaultMarkingDefinitions?: { value: string; label: string }[];
+  inputValue?: string;
 }
 
 const CASE_RFI_TYPE = 'Case-Rfi';
@@ -95,23 +113,32 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
   defaultConfidence,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  inputValue,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const history = useHistory();
+  const navigate = useNavigate();
   const [mapAfter, setMapAfter] = useState<boolean>(false);
+  const canEditAuthorizedMembers = useGranted([KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS]);
+  const isEnterpriseEdition = useEnterpriseEdition();
+
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
+    authorized_members: Yup.array().nullable(),
   };
   const caseRfiValidator = useSchemaCreationValidation(
     CASE_RFI_TYPE,
     basicShape,
   );
-  const [commit] = useMutation<CaseRfiCreationCaseMutation>(caseRfiMutation);
+  const [commit] = useApiMutation<CaseRfiCreationCaseMutation>(
+    caseRfiMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Case-Rfi')} ${t_i18n('successfully created')}` },
+  );
   const onSubmit: FormikConfig<FormikCaseRfiAddInput>['onSubmit'] = (
     values,
-    { setSubmitting, resetForm },
+    { setSubmitting, setErrors, resetForm },
   ) => {
     const input: CaseRfiAddInput = {
       name: values.name,
@@ -130,6 +157,12 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
       externalReferences: values.externalReferences.map(({ value }) => value),
       createdBy: values.createdBy?.value,
       file: values.file,
+      ...(isEnterpriseEdition && canEditAuthorizedMembers && values.authorized_members && {
+        authorized_members: values.authorized_members.map(({ value, accessRight }) => ({
+          id: value,
+          access_right: accessRight,
+        })),
+      }),
     };
     commit({
       variables: {
@@ -140,6 +173,10 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
           updater(store, 'caseRfiAdd', response.caseRfiAdd);
         }
       },
+      onError: (error) => {
+        handleErrorInForm(error, setErrors);
+        setSubmitting(false);
+      },
       onCompleted: (response) => {
         setSubmitting(false);
         resetForm();
@@ -147,8 +184,8 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
           onClose();
         }
         if (mapAfter) {
-          history.push(
-            `/dashboard/cases/rfis/${response.caseRfiAdd?.id}/knowledge/content`,
+          navigate(
+            `/dashboard/cases/rfis/${response.caseRfiAdd?.id}/content/mapping`,
           );
         }
       },
@@ -156,7 +193,7 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
   };
 
   const initialValues = useDefaultValues<FormikCaseRfiAddInput>(CASE_RFI_TYPE, {
-    name: '',
+    name: inputValue ?? '',
     confidence: defaultConfidence,
     description: '',
     content: '',
@@ -172,8 +209,11 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
     objectLabel: [],
     externalReferences: [],
     file: undefined,
+    authorized_members: undefined,
   });
-
+  if (!canEditAuthorizedMembers) {
+    delete initialValues.authorized_members;
+  }
   return (
     <Formik<FormikCaseRfiAddInput>
       initialValues={initialValues}
@@ -182,7 +222,7 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
       onReset={onClose}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"
@@ -199,7 +239,7 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
               label: t_i18n('Request For Information Date'),
               variant: 'standard',
               fullWidth: true,
-              style: { marginTop: 20 },
+              style: { ...fieldSpacingContainerStyle },
             }}
           />
           <OpenVocabField
@@ -276,6 +316,7 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
           <ObjectMarkingField
             name="objectMarking"
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
@@ -284,6 +325,30 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
             values={values.externalReferences}
           />
           <CustomFileUploader setFieldValue={setFieldValue} />
+          {isEnterpriseEdition && (
+            <Security
+              needs={[KNOWLEDGE_KNUPDATE_KNMANAGEAUTHMEMBERS]}
+            >
+              <div style={fieldSpacingContainerStyle}>
+                <Accordion >
+                  <AccordionSummary id="accordion-panel">
+                    <Typography>{t_i18n('Advanced options')}</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Field
+                      name={'authorized_members'}
+                      component={AuthorizedMembersField}
+                      containerstyle={{ marginTop: 20 }}
+                      showAllMembersLine
+                      canDeactivate
+                      disabled={isSubmitting}
+                      addMeUserWithAdminRights
+                    />
+                  </AccordionDetails>
+                </Accordion>
+              </div>
+            </Security>
+          )}
           <div className={classes.buttons}>
             <Button
               variant="contained"
@@ -326,20 +391,26 @@ export const CaseRfiCreationForm: FunctionComponent<CaseRfiFormProps> = ({
 const CaseRfiCreation = ({
   paginationOptions,
 }: {
-  paginationOptions: CaseRfiLinesCasesPaginationQuery$variables;
+  paginationOptions: CaseRfisLinesCasesPaginationQuery$variables;
 }) => {
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
   const updater = (store: RecordSourceSelectorProxy) => insertNode(
     store,
     'Pagination_case_caseRfis',
     paginationOptions,
     'caseRfiAdd',
   );
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const CreateCaseRfiControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Case-Rfi' {...props} />
+  );
 
   return (
     <Drawer
       title={t_i18n('Create a request for information')}
-      variant={DrawerVariant.create}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateCaseRfiControlledDial : undefined}
     >
       <CaseRfiCreationForm updater={updater} />
     </Drawer>

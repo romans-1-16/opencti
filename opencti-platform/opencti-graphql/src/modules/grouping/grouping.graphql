@@ -10,6 +10,7 @@ type Grouping implements BasicObject & StixObject & StixCoreObject & StixDomainO
     spec_version: String!
     created_at: DateTime!
     updated_at: DateTime!
+    draftVersion: DraftVersion
     # inferences
     x_opencti_inferences: [Inference]
     # StixCoreObject
@@ -84,6 +85,7 @@ type Grouping implements BasicObject & StixObject & StixCoreObject & StixDomainO
         search: String
         filters: FilterGroup
     ): [Distribution] @auth(for: [KNOWLEDGE, EXPLORE])
+    opinions_metrics: OpinionsMetrics
     # StixDomainObject
     revoked: Boolean!
     confidence: Int
@@ -92,8 +94,12 @@ type Grouping implements BasicObject & StixObject & StixCoreObject & StixDomainO
     modified: DateTime
     x_opencti_graph_data: String
     objectAssignee: [Assignee!]
+    objectParticipant: [Participant!]
     avatar: OpenCtiFile
     # Container
+    authorized_members: [MemberAccess!]
+    authorized_members_activation_date: DateTime
+    currentUserAccessRight: String
     objects(
         first: Int
         after: ID
@@ -124,9 +130,34 @@ type Grouping implements BasicObject & StixObject & StixCoreObject & StixDomainO
     # Technical
     creators: [Creator!]
     toStix: String
-    importFiles(first: Int, prefixMimeType: String): FileConnection
-    pendingFiles(first: Int): FileConnection
+    importFiles(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+    pendingFiles(
+    first: Int
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
     exportFiles(first: Int): FileConnection
+    filesFromTemplate(
+        first: Int
+        prefixMimeType: String
+        after: ID
+        orderBy: FileOrdering
+        orderMode: OrderingMode
+        search: String
+        filters: FilterGroup
+    ): FileConnection
+    fintelTemplates: [FintelTemplate!]
     editContext: [EditUserContext!]
     connectors(onlyAlive: Boolean): [Connector]
     jobs(first: Int): [Work]
@@ -146,6 +177,7 @@ enum GroupingsOrdering {
     objectMarking
     x_opencti_workflow_id
     creator
+    _score
 }
 
 # Relay connections
@@ -210,7 +242,7 @@ type Query {
 input GroupingAddInput {
     stix_id: StixId
     x_opencti_stix_ids: [StixId]
-    name: String! @constraint(minLength: 2)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     content: String
     content_mapping: String
@@ -231,6 +263,7 @@ input GroupingAddInput {
     x_opencti_workflow_id: String
     update: Boolean
     file: Upload
+    authorized_members: [MemberAccessInput!]
 }
 
 type Mutation {

@@ -36,13 +36,12 @@ import { FIVE_SECONDS } from '../../../../utils/Time';
 import ExternalReferencePopover from './ExternalReferencePopover';
 import { isNotEmptyField } from '../../../../utils/utils';
 import ItemIcon from '../../../../components/ItemIcon';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
 const interval$ = interval(FIVE_SECONDS);
 
 const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '-4px 0 0 0',
     padding: 0,
     borderRadius: 4,
@@ -195,7 +194,7 @@ class StixCoreRelationshipExternalReferencesLinesContainer extends Component {
           />
         </Security>
         <div className="clearfix" />
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           {externalReferencesEdges.length > 0 ? (
             <List style={{ marginBottom: 0 }}>
               {R.take(expanded ? 200 : 7, externalReferencesEdges).map(
@@ -276,6 +275,7 @@ class StixCoreRelationshipExternalReferencesLinesContainer extends Component {
                                   this,
                                   externalReferenceEdge,
                                 )}
+                                variant="inLine"
                               />
                             </Security>
                           </ListItemSecondaryAction>
@@ -331,6 +331,7 @@ class StixCoreRelationshipExternalReferencesLinesContainer extends Component {
                                 this,
                                 externalReferenceEdge,
                               )}
+                              variant="inLine"
                             />
                           </Security>
                         </ListItemSecondaryAction>
@@ -362,7 +363,7 @@ class StixCoreRelationshipExternalReferencesLinesContainer extends Component {
                   textAlign: 'center',
                 }}
               >
-                {t('No entities of this type has been found.')}
+                {t(NO_DATA_WIDGET_MESSAGE)}
               </span>
             </div>
           )}

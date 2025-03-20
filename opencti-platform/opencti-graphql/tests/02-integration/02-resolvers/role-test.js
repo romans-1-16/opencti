@@ -1,6 +1,6 @@
 import { expect, it, describe } from 'vitest';
 import gql from 'graphql-tag';
-import { ADMIN_USER, testContext, queryAsAdmin } from '../../utils/testQuery';
+import { ADMIN_USER, testContext, queryAsAdmin, TESTING_ROLES } from '../../utils/testQuery';
 import { elLoadById } from '../../../src/database/engine';
 import { ENTITY_TYPE_CAPABILITY } from '../../../src/schema/internalObject';
 import { generateStandardId } from '../../../src/schema/identifier';
@@ -39,6 +39,7 @@ describe('Role resolver standard behavior', () => {
           id
           name
           description
+          can_manage_sensitive_config
         }
       }
     `;
@@ -56,6 +57,8 @@ describe('Role resolver standard behavior', () => {
     expect(role).not.toBeNull();
     expect(role.data.roleAdd).not.toBeNull();
     expect(role.data.roleAdd.name).toEqual('Role');
+    expect(role.data.roleAdd.can_manage_sensitive_config).toBeFalsy('New role should have the can_manage_sensitive_config to false by default');
+
     roleInternalId = role.data.roleAdd.id;
   });
   it('should role loaded by internal id', async () => {
@@ -66,7 +69,7 @@ describe('Role resolver standard behavior', () => {
   });
   it('should list roles', async () => {
     const queryResult = await queryAsAdmin({ query: LIST_QUERY, variables: { first: 10 } });
-    expect(queryResult.data.roles.edges.length).toEqual(7);
+    expect(queryResult.data.roles.edges.length).toEqual(TESTING_ROLES.length + 4);
   });
   it('should list capabilities', async () => {
     const LIST_CAPABILITIES_QUERY = gql`
@@ -83,7 +86,7 @@ describe('Role resolver standard behavior', () => {
       }
     `;
     const queryResult = await queryAsAdmin({ query: LIST_CAPABILITIES_QUERY, variables: { first: 50 } });
-    expect(queryResult.data.capabilities.edges.length).toEqual(27);
+    expect(queryResult.data.capabilities.edges.length).toEqual(41);
   });
   it('should update role', async () => {
     const UPDATE_QUERY = gql`

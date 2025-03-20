@@ -1,5 +1,5 @@
 import React from 'react';
-import { graphql, useFragment, useMutation } from 'react-relay';
+import { graphql, useFragment } from 'react-relay';
 import Typography from '@mui/material/Typography';
 import Switch from '@mui/material/Switch';
 import Grid from '@mui/material/Grid';
@@ -8,13 +8,13 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import FormGroup from '@mui/material/FormGroup';
 import { InformationOutline } from 'mdi-material-ui';
 import { useFormatter } from '../../../../../components/i18n';
-import { SubType_subType$data } from '../__generated__/SubType_subType.graphql';
 import ErrorNotFound from '../../../../../components/ErrorNotFound';
 import { SETTINGS_SETACCESSES } from '../../../../../utils/hooks/useGranted';
 import GroupEntitySettingHiddenTypesList from '../../groups/GroupEntitySettingHiddenTypesList';
 import Security from '../../../../../utils/Security';
 import { EntitySettingSettings_entitySetting$key } from './__generated__/EntitySettingSettings_entitySetting.graphql';
 import SettingsOrganizationEntitySettingHiddenTypesList from '../../organizations/SettingsOrganizationEntitySettingHiddenTypesList';
+import useApiMutation from '../../../../../utils/hooks/useApiMutation';
 
 export const entitySettingFragment = graphql`
   fragment EntitySettingSettings_entitySetting on EntitySetting {
@@ -37,6 +37,11 @@ export const entitySettingFragment = graphql`
         name
       }
     }
+    overview_layout_customization {
+        key
+        width
+        label
+    }
   }
 `;
 
@@ -51,21 +56,18 @@ export const entitySettingPatch = graphql`
   }
 `;
 
-const EntitySettingSettings = ({
-  entitySettingsData,
-}: {
-  entitySettingsData: SubType_subType$data['settings'];
-}) => {
+interface EntitySettingSettingsProps {
+  entitySettingsData: EntitySettingSettings_entitySetting$key
+}
+
+const EntitySettingSettings = ({ entitySettingsData }: EntitySettingSettingsProps) => {
   const { t_i18n } = useFormatter();
-  const entitySetting = useFragment<EntitySettingSettings_entitySetting$key>(
-    entitySettingFragment,
-    entitySettingsData,
-  );
+  const entitySetting = useFragment(entitySettingFragment, entitySettingsData);
   if (!entitySetting) {
     return <ErrorNotFound />;
   }
 
-  const [commit] = useMutation(entitySettingPatch);
+  const [commit] = useApiMutation(entitySettingPatch);
 
   const handleSubmitField = (name: string, value: boolean) => {
     commit({
@@ -77,7 +79,7 @@ const EntitySettingSettings = ({
   };
   return (
     <Grid container={true} spacing={3}>
-      <Grid item={true} xs={6}>
+      <Grid item xs={6}>
         <div>
           <Typography
             variant="h3"
@@ -130,7 +132,7 @@ const EntitySettingSettings = ({
           </>
         </Security>
       </Grid>
-      <Grid item={true} xs={6}>
+      <Grid item xs={6}>
         <div>
           <Typography
             variant="h3"

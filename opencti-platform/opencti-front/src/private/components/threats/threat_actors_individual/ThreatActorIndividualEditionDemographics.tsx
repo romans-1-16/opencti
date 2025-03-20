@@ -14,7 +14,7 @@ import { useFormatter } from '../../../../components/i18n';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { commitMutation, defaultCommitMutation } from '../../../../relay/environment';
 import { SubscriptionFocus } from '../../../../components/Subscription';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { buildDate } from '../../../../utils/Time';
 import { ThreatActorIndividualEditionDemographics_ThreatActorIndividual$key } from './__generated__/ThreatActorIndividualEditionDemographics_ThreatActorIndividual.graphql';
@@ -57,6 +57,7 @@ const threatActorIndividualEditionDemographicsFragment = graphql`
     marital_status
     job_title
     confidence
+    entity_type
     bornIn {
       id
       name
@@ -184,7 +185,7 @@ const ThreatActorIndividualEditionDemographicsComponent = ({
       >
         {({ submitForm, isSubmitting, setFieldValue, isValid, dirty }) => (
           <div>
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <AlertConfidenceForEntity entity={threatActorIndividual} />
               <CountryField
                 id="PlaceOfBirth"

@@ -5,10 +5,9 @@ import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Skeleton from '@mui/material/Skeleton';
 import * as R from 'ramda';
-import { truncate } from '../../../../utils/String';
 import ItemIcon from '../../../../components/ItemIcon';
 import { deleteNodeFromEdge } from '../../../../utils/store';
 import { useFormatter } from '../../../../components/i18n';
@@ -16,7 +15,10 @@ import { useIsEnforceReference, useSchemaCreationValidation } from '../../../../
 import StixCoreRelationshipCreationForm, { stixCoreRelationshipBasicShape } from './StixCoreRelationshipCreationForm';
 import { formatDate } from '../../../../utils/Time';
 import { APP_BASE_PATH } from '../../../../relay/environment';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   icon: {
     color: theme.palette.primary.main,
@@ -170,19 +172,7 @@ const stixCoreRelationshipCreationFromEntityListRelationAdd = graphql`
           ...VulnerabilitySoftwares_vulnerability
         }
         ... on StixCyberObservable {
-          id
-          indicators(first: 200) {
-            edges {
-              node {
-                id
-                entity_type
-                name
-                created_at
-                updated_at
-                pattern_type
-              }
-            }
-          }
+          ...StixCyberObservableIndicators_stixCyberObservable
         }
       }
     }
@@ -249,17 +239,13 @@ const StixCoreRelationshipCreationFromEntityList = ({
   updaterOptions,
   isRelationReversed,
 }) => {
-  if (!availableDatas) {
-    return <StixCoreRelationshipCreationFromEntityDummyList />;
-  }
-
   const classes = useStyles();
   const { t_i18n } = useFormatter();
 
-  const [commitRelationAdd] = useMutation(
+  const [commitRelationAdd] = useApiMutation(
     stixCoreRelationshipCreationFromEntityListRelationAdd,
   );
-  const [commitRelationDelete] = useMutation(
+  const [commitRelationDelete] = useApiMutation(
     stixCoreRelationshipCreationFromEntityListRelationDelete,
   );
 
@@ -337,18 +323,18 @@ const StixCoreRelationshipCreationFromEntityList = ({
     handleCloseForm();
   };
 
+  if (!availableDatas) {
+    return <StixCoreRelationshipCreationFromEntityDummyList />;
+  }
+
   const existingIds = existingDatas?.map((n) => n.node.id) ?? [];
   const nodes = availableDatas.edges
     .filter((edge) => edge.node.id !== entity.id)
     .map((edge) => edge.node);
 
-  const defaultDescription = (data) => truncate(
-    // eslint-disable-next-line no-nested-ternary
-    data.parent_types.includes('Stix-Cyber-Observable')
-      ? data.x_opencti_description
-      : data.description,
-    120,
-  );
+  const defaultDescription = (data) => (data.parent_types.includes('Stix-Cyber-Observable')
+    ? data.x_opencti_description
+    : data.description);
 
   return (
     <>
@@ -402,6 +388,14 @@ const StixCoreRelationshipCreationFromEntityList = ({
                       <ListItemText
                         primary={node.name}
                         secondary={defaultDescription(node)}
+                        sx={{
+                          '.MuiListItemText-primary, .MuiListItemText-secondary': {
+                            overflowX: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            marginRight: '20px',
+                          },
+                        }}
                       />
                     </ListItem>
                   );

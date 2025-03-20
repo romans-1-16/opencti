@@ -16,12 +16,14 @@ interface RoleEditionProps {
   role: RoleEdition_role$data
   handleClose?: () => void
   open?: boolean
+  disabled?: boolean
 }
 
 const RoleEdition: FunctionComponent<RoleEditionProps> = ({
   handleClose = () => {},
   role,
   open,
+  disabled = false,
 }) => {
   const { t_i18n } = useFormatter();
   const [currentTab, setTab] = useState(0);
@@ -36,6 +38,7 @@ const RoleEdition: FunctionComponent<RoleEditionProps> = ({
       open={open}
       onClose={handleClose}
       context={editContext}
+      disabled={disabled}
     >
       <>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -47,7 +50,7 @@ const RoleEdition: FunctionComponent<RoleEditionProps> = ({
         {currentTab === 0 && <RoleEditionOverview role={role} context={editContext} />}
         {currentTab === 1 && queryRef && (
           <React.Suspense
-            fallback={<Loader variant={LoaderVariant.inElement} />}
+            fallback={<Loader variant={LoaderVariant.inline} />}
           >
             <RoleEditionCapabilities role={role} queryRef={queryRef} />
           </React.Suspense>

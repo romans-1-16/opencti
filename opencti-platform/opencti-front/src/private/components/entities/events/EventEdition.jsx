@@ -7,6 +7,7 @@ import inject18n from '../../../../components/i18n';
 import EventEditionContainer from './EventEditionContainer';
 import { eventEditionOverviewFocus } from './EventEditionOverview';
 import Loader from '../../../../components/Loader';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 
 export const eventEditionQuery = graphql`
   query EventEditionContainerQuery($id: String!) {
@@ -46,10 +47,14 @@ class EventEdition extends Component {
         render={({ props }) => {
           if (props) {
             return (
-              <EventEditionContainer event={props.event} handleClose={this.handleClose.bind(this)} />
+              <EventEditionContainer
+                event={props.event}
+                handleClose={this.handleClose.bind(this)}
+                controlledDial={EditEntityControlledDial}
+              />
             );
           }
-          return <Loader variant="inElement" />;
+          return <Loader variant="inline" />;
         }}
       />
     );

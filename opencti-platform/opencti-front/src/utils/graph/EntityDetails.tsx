@@ -10,7 +10,6 @@ import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
 import { useFormatter } from '../../components/i18n';
 import ItemAuthor from '../../components/ItemAuthor';
 import useQueryLoading from '../hooks/useQueryLoading';
@@ -21,14 +20,16 @@ import type { SelectedEntity } from './EntitiesDetailsRightBar';
 import ErrorNotFound from '../../components/ErrorNotFound';
 import ItemIcon from '../../components/ItemIcon';
 import type { Theme } from '../../components/Theme';
-import { defaultValue } from '../Graph';
-import { hexToRGB, itemColor } from '../Colors';
+import { getMainRepresentative } from '../defaultRepresentatives';
 import { truncate } from '../String';
 import ItemCreators from '../../components/ItemCreators';
 import { EntityDetailsQuery } from './__generated__/EntityDetailsQuery.graphql';
 import ItemConfidence from '../../components/ItemConfidence';
 import FieldOrEmpty from '../../components/FieldOrEmpty';
+import ItemEntityType from '../../components/ItemEntityType';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   label: {
     marginTop: '20px',
@@ -62,13 +63,6 @@ const useStyles = makeStyles<Theme>((theme) => ({
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     paddingRight: 10,
-  },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
   },
 }));
 
@@ -253,6 +247,11 @@ const entityDetailsQuery = graphql`
       }
       ... on StixFile {
         observableName: name
+        x_opencti_additional_names
+        hashes {
+          algorithm
+          hash
+        }
       }
       ... on Event {
         name
@@ -319,27 +318,59 @@ EntityDetailsComponentProps
   const entityDescription = stixCoreObject.description || stixCoreObject.x_opencti_description;
   return (
     <div>
-      <Typography variant="h3" gutterBottom={true} className={classes.label}>
-        {t_i18n('Value')}
-      </Typography>
-      <Tooltip title={defaultValue(stixCoreObject)}>
-        <span>{truncate(defaultValue(stixCoreObject), 40)}</span>
-      </Tooltip>
+      {stixCoreObject.entity_type !== 'StixFile' && (
+      <>
+        <Typography variant="h3" gutterBottom={true} className={classes.label}>
+          {t_i18n('Value')}
+        </Typography>
+        <Tooltip title={getMainRepresentative(stixCoreObject)}>
+          <span>{truncate(getMainRepresentative(stixCoreObject), 40)}</span>
+        </Tooltip>
+      </>
+      )}
+      {stixCoreObject.entity_type === 'StixFile' && (
+      <>
+        {stixCoreObject.hashes && stixCoreObject.hashes.map((hashObj, index) => (hashObj ? (
+          <div key={`${hashObj.algorithm}-${index}`}>
+            <Typography variant="h3" gutterBottom={true} className={classes.label}>
+              {hashObj.algorithm ? String(hashObj.algorithm) : ''}
+            </Typography>
+            <Tooltip title={hashObj.hash ? String(hashObj.hash) : ''}>
+              <span>{truncate(hashObj.hash, 40)}</span>
+            </Tooltip>
+          </div>
+        ) : null))}
+
+        {stixCoreObject.observableName && (
+        <>
+          <Typography variant="h3" gutterBottom={true} className={classes.label}>
+            {t_i18n('Name')}
+          </Typography>
+          <span>{stixCoreObject.observableName}</span>
+        </>
+        )}
+
+        {stixCoreObject.x_opencti_additional_names && (
+          (() => {
+            const filteredAdditionalNames = stixCoreObject.x_opencti_additional_names.filter(
+              (additionalName) => additionalName !== stixCoreObject.observableName,
+            );
+            return filteredAdditionalNames.length > 0 ? (
+              <>
+                <Typography variant="h3" gutterBottom={true} className={classes.label}>
+                  {t_i18n('Additional Names')}
+                </Typography>
+                <span>{filteredAdditionalNames.join(', ')}</span>
+              </>
+            ) : null;
+          })()
+        )}
+      </>
+      )}
       <Typography variant="h3" gutterBottom={true} className={classes.label}>
         {t_i18n('Type')}
       </Typography>
-      <Chip
-        classes={{ root: classes.chipInList }}
-        style={{
-          backgroundColor: hexToRGB(
-            itemColor(stixCoreObject.entity_type),
-            0.08,
-          ),
-          color: itemColor(stixCoreObject.entity_type),
-          border: `1px solid ${itemColor(stixCoreObject.entity_type)}`,
-        }}
-        label={t_i18n(`entity_${stixCoreObject.entity_type}`)}
-      />
+      <ItemEntityType entityType={stixCoreObject.entity_type} inList={false} />
       <Typography variant="h3" gutterBottom={true} className={classes.label}>
         {t_i18n('Platform creation date')}
       </Typography>

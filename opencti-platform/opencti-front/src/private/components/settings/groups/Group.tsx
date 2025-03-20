@@ -15,6 +15,7 @@ import { graphql, useFragment } from 'react-relay';
 import { Link } from 'react-router-dom';
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import GroupConfidenceLevel from '@components/settings/groups/GroupConfidenceLevel';
+import { uniq } from 'ramda';
 import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 import { useFormatter } from '../../../../components/i18n';
 import ItemBoolean from '../../../../components/ItemBoolean';
@@ -28,8 +29,13 @@ import GroupPopover from './GroupPopover';
 import ItemIcon from '../../../../components/ItemIcon';
 import GroupHiddenTypesChipList from './GroupHiddenTypesChipList';
 import ExpandableMarkdown from '../../../../components/ExpandableMarkdown';
+import { checkIsMarkingAllowed } from '../../../../utils/markings/markingsFiltering';
+import type { Theme } from '../../../../components/Theme';
+import useSensitiveModifications from '../../../../utils/hooks/useSensitiveModifications';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     margin: 0,
     padding: '0 200px 0 0',
@@ -45,9 +51,7 @@ const useStyles = makeStyles(() => ({
     marginTop: '-13px',
   },
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -60,24 +64,21 @@ const groupFragment = graphql`
     rolesOrderMode: { type: "OrderingMode", defaultValue: asc }
   ) {
     id
+    standard_id
     entity_type
     name
     default_assignation
     auto_new_marking
+    restrict_delete
+    no_creators
     group_confidence_level {
       max_confidence
-    }
-    description
-    members {
-      edges {
-        node {
-          ...UserLine_node
-        }
+      overrides {
+        max_confidence
+        entity_type
       }
     }
-    group_confidence_level {
-      max_confidence
-    }
+    description
     default_dashboard {
       id
       name
@@ -97,6 +98,15 @@ const groupFragment = graphql`
     allowed_marking {
       id
       definition
+      definition_type
+      x_opencti_color
+      x_opencti_order
+    }
+    not_shareable_marking_types
+    max_shareable_marking {
+      id
+      definition
+      definition_type
       x_opencti_color
       x_opencti_order
     }
@@ -115,12 +125,22 @@ const groupFragment = graphql`
 const Group = ({ groupData }: { groupData: Group_group$key }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+
   const group = useFragment<Group_group$key>(groupFragment, groupData);
+  const { isAllowed, isSensitive } = useSensitiveModifications('groups', group.standard_id);
+
   const markingsSort = R.sortWith([
     R.ascend(R.propOr('TLP', 'definition_type')),
     R.descend(R.propOr(0, 'x_opencti_order')),
   ]);
   const allowedMarkings = markingsSort(group.allowed_marking ?? []);
+  const markingTypes = uniq(allowedMarkings.map((marking) => marking.definition_type)).filter((type) => !!type) as string[];
+  const maxShareableMarkings = markingsSort(group.max_shareable_marking ?? []);
+  const maxShareableMarkingsByType = new Map(markingTypes.map((type) => {
+    const sortedMaxMarkingsOfType = maxShareableMarkings.filter((m) => m.definition_type === type)
+      .sort((a, b) => b.x_opencti_order - a.x_opencti_order);
+    return [type, sortedMaxMarkingsOfType.length > 0 ? sortedMaxMarkingsOfType[0] : undefined];
+  }));
   // Handle only GLOBAL entity type for now
   const globalDefaultMarkings = markingsSort(
     (group.default_marking ?? []).find((d) => d.entity_type === 'GLOBAL')
@@ -140,7 +160,7 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
         {group.name}
       </Typography>
       <div className={classes.popover}>
-        <GroupPopover groupId={group.id} />
+        <GroupPopover groupId={group.id} disabled={!isAllowed && isSensitive} />
       </div>
       <div className="clearfix" />
       <Grid
@@ -148,13 +168,13 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Basic information')}
           </Typography>
-          <Paper classes={{ root: classes.paper }} variant="outlined">
+          <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={12}>
+              <Grid item xs={12}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Description')}
                 </Typography>
@@ -163,10 +183,10 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
                   limit={400}
                 />
               </Grid>
-              <Grid item={true} xs={12}>
+              <Grid item xs={12}>
                 <GroupHiddenTypesChipList groupData={group} />
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Auto new markings')}
                 </Typography>
@@ -175,7 +195,7 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
                   label={group.auto_new_marking ? t_i18n('Yes') : t_i18n('No')}
                 />
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Default membership')}
                 </Typography>
@@ -187,13 +207,13 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
             </Grid>
           </Paper>
         </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <Typography variant="h4" gutterBottom={true}>
             {t_i18n('Permissions')}
           </Typography>
-          <Paper classes={{ root: classes.paper }} variant="outlined">
+          <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Roles')}
                 </Typography>
@@ -215,7 +235,7 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
                   ))}
                 </List>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Default dashboard')}
                 </Typography>
@@ -235,21 +255,62 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
                         primary={truncate(group.default_dashboard?.name, 40)}
                       />
                       {!canAccessDashboard && (
-                      <ListItemSecondaryAction>
-                        <Tooltip
-                          title={t_i18n(
-                            'You need to authorize this group to access this dashboard in the permissions of the workspace.',
-                          )}
-                        >
-                          <WarningOutlined color="warning" />
-                        </Tooltip>
-                      </ListItemSecondaryAction>
+                        <ListItemSecondaryAction>
+                          <Tooltip
+                            title={t_i18n(
+                              'You need to authorize this group to access this dashboard in the permissions of the workspace.',
+                            )}
+                          >
+                            <WarningOutlined color="warning" />
+                          </Tooltip>
+                        </ListItemSecondaryAction>
                       )}
                     </ListItem>
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={12}>
+                <Typography
+                  variant="h3"
+                  gutterBottom={true}
+                  style={{ float: 'left' }}
+                >
+                  {t_i18n('Max Confidence Level')}
+                </Typography>
+                <div className="clearfix" />
+                <GroupConfidenceLevel
+                  confidenceLevel={group.group_confidence_level}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="h3" gutterBottom={true}>
+                  {t_i18n('No creators accumulation')}
+                </Typography>
+                <ItemBoolean
+                  status={group.no_creators ?? false}
+                  label={group.no_creators ? t_i18n('Yes') : t_i18n('No')}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="h3" gutterBottom={true}>
+                  {t_i18n('Restrict delete to created entities')}
+                </Typography>
+                <ItemBoolean
+                  status={group.restrict_delete ?? false}
+                  label={group.restrict_delete ? t_i18n('Yes') : t_i18n('No')}
+                />
+              </Grid>
+            </Grid>
+          </Paper>
+        </Grid>
+        <Grid item xs={12}>
+          <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
+            {t_i18n('Markings')}
+          </Typography>
+          <div className="clearfix" />
+          <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
+            <Grid container={true} spacing={3}>
+              <Grid item xs={4}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Default markings')}
                   <Tooltip
@@ -287,7 +348,7 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={4}>
                 <Typography variant="h3" gutterBottom={true}>
                   {t_i18n('Allowed markings')}
                 </Typography>
@@ -314,10 +375,89 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
                   </List>
                 </FieldOrEmpty>
               </Grid>
-              <Grid item={true} xs={12}>
-                <GroupConfidenceLevel
-                  confidenceLevel={group.group_confidence_level}
-                />
+              <Grid item xs={4}>
+                <Typography variant="h3" gutterBottom={true}>
+                  {t_i18n('Maximum shareable markings')}
+                </Typography>
+                <FieldOrEmpty source={markingTypes}>
+                  <List>
+                    {markingTypes.map((type) => {
+                      const marking = maxShareableMarkingsByType.get(type);
+                      if (marking) {
+                        const isMarkingAllowed = checkIsMarkingAllowed(marking, allowedMarkings);
+                        return (
+                          <ListItem
+                            key={marking.id}
+                            dense={true}
+                            divider={true}
+                            button={false}
+                          >
+                            <Typography variant="h3" gutterBottom={true} width={100}>
+                              {truncate(type, 40)}
+                            </Typography>
+                            {isMarkingAllowed
+                              ? <>
+                                <ListItemIcon>
+                                  <ItemIcon
+                                    type="Marking-Definition"
+                                    color={marking.x_opencti_color ?? undefined}
+                                  />
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary={truncate(marking.definition, 40)}
+                                />
+                              </>
+                              : <ListItemText
+                                  primary={t_i18n('No restrictions')}
+                                />
+                            }
+                            {!isMarkingAllowed
+                              && <Tooltip
+                                title={t_i18n(
+                                  'The maximum shareable marking set for this definition type is not allowed for this group, so users can only share their allowed markings independently from the maximum shareable marking set.',
+                                )}
+                                 >
+                                <WarningOutlined color="warning" />
+                              </Tooltip>
+                            }
+                          </ListItem>
+                        );
+                      }
+                      if (group.not_shareable_marking_types.includes(type)) {
+                        return (
+                          <ListItem
+                            key={type}
+                            dense={true}
+                            divider={true}
+                            button={false}
+                          >
+                            <Typography variant="h3" gutterBottom={true} width={100}>
+                              {truncate(type, 40)}
+                            </Typography>
+                            <ListItemText
+                              primary={t_i18n('Not shareable')}
+                            />
+                          </ListItem>
+                        );
+                      }
+                      return (
+                        <ListItem
+                          key={type}
+                          dense={true}
+                          divider={true}
+                          button={false}
+                        >
+                          <Typography variant="h3" gutterBottom={true} width={100}>
+                            {truncate(type, 40)}
+                          </Typography>
+                          <ListItemText
+                            primary={t_i18n('No restrictions')}
+                          />
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                </FieldOrEmpty>
               </Grid>
             </Grid>
           </Paper>
@@ -325,7 +465,10 @@ const Group = ({ groupData }: { groupData: Group_group$key }) => {
         <Triggers recipientId={group.id} filterKey="authorized_members.id" />
         <GroupUsers groupId={group.id} />
       </Grid>
-      <GroupEdition groupId={group.id} />
+      <GroupEdition
+        groupId={group.id}
+        disabled={!isAllowed && isSensitive}
+      />
     </div>
   );
 };

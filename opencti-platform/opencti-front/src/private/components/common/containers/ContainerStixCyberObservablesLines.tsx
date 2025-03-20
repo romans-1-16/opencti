@@ -11,6 +11,7 @@ import { ContainerStixCyberObservablesLines_container$key } from './__generated_
 import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import { UseLocalStorageHelpers } from '../../../../utils/hooks/useLocalStorage';
 import { ContainerStixCyberObservableLine_node$data } from './__generated__/ContainerStixCyberObservableLine_node.graphql';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const nbOfRowsToLoad = 50;
 
@@ -87,6 +88,7 @@ const ContainerStixCyberObservablesLinesFragment = graphql`
             ... on StixCyberObservable {
               id
               observable_value
+              entity_type
             }
             ...ContainerStixCyberObservableLine_node
           }
@@ -122,6 +124,7 @@ interface ContainerStixCyberObservablesLinesProps {
   setSelectedElements: (
     selectedElements: Record<string, ContainerStixCyberObservableLine_node$data>
   ) => void;
+  enableReferences?: boolean;
 }
 
 const ContainerStixCyberObservablesLines: FunctionComponent<
@@ -138,7 +141,10 @@ ContainerStixCyberObservablesLinesProps
   onTypesChange,
   queryRef,
   setSelectedElements,
+  enableReferences,
 }) => {
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const { data, hasMore, loadMore, isLoadingMore } = usePreloadedPaginationFragment<
   ContainerStixCyberObservablesLinesQuery,
   ContainerStixCyberObservablesLines_container$key
@@ -175,8 +181,9 @@ ContainerStixCyberObservablesLinesProps
         deSelectedElements={deSelectedElements}
         selectAll={selectAll}
         onToggleEntity={onToggleEntity}
+        enableReferences={enableReferences}
       />
-      {data?.container && (
+      {!isFABReplaced && data?.container && (
         <Security needs={[KNOWLEDGE_KNUPDATE]}>
           <ContainerAddStixCoreObjects
             containerId={data?.container.id}
@@ -189,6 +196,7 @@ ContainerStixCyberObservablesLinesProps
             defaultCreatedBy={data?.container.createdBy ?? null}
             defaultMarkingDefinitions={data?.container.objectMarking ?? []}
             confidence={data?.container.confidence}
+            enableReferences={enableReferences}
           />
         </Security>
       )}

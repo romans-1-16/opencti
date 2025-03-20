@@ -7,10 +7,9 @@ import Paper from '@mui/material/Paper';
 import inject18n from '../../../../components/i18n';
 import StixSightingRelationshipHistoryLine from './StixSightingRelationshipHistoryLine';
 
-const styles = () => ({
+const styles = (theme) => ({
   paperHistory: {
-    height: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 15,
     borderRadius: 4,
   },
@@ -21,7 +20,7 @@ class StixSightingRelationshipHistoryLinesComponent extends Component {
     const { t, classes, data, isRelationLog } = this.props;
     const logs = pathOr([], ['logs', 'edges'], data);
     return (
-      <Paper classes={{ root: classes.paperHistory }} variant="outlined">
+      <Paper classes={{ root: classes.paperHistory }} className={'paper-for-grid'} variant="outlined">
         {logs.length > 0 ? (
           logs.map((logEdge) => {
             const log = logEdge.node;

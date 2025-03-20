@@ -12,18 +12,18 @@ import ListItem from '@mui/material/ListItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import { BullseyeArrow, ArmFlexOutline, DramaMasks } from 'mdi-material-ui';
 import ListItemText from '@mui/material/ListItemText';
+import Tooltip from '@mui/material/Tooltip';
 import ExpandableMarkdown from '../../../../components/ExpandableMarkdown';
 import inject18n from '../../../../components/i18n';
 import ItemOpenVocab from '../../../../components/ItemOpenVocab';
 import FieldOrEmpty from '../../../../components/FieldOrEmpty';
 import ImageCarousel from '../../../../components/ImageCarousel';
 import ThreatActorGroupLocation from './ThreatActorGroupLocation';
+import { truncate } from '../../../../utils/String';
 
 const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -51,20 +51,20 @@ class ThreatActorGroupDetailsComponent extends Component {
       (n) => n?.node?.metaData?.inCarousel,
     ).length > 0;
     return (
-      <div style={{ height: '100%' }}>
-        <Typography variant="h4" gutterBottom={true}>
+      <>
+        <Typography variant="h4">
           {t('Details')}
         </Typography>
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           <Grid container={true} spacing={3}>
-            <Grid item={true} xs={hasImages ? 7 : 6}>
+            <Grid item xs={hasImages ? 7 : 6}>
               <Grid container={true} spacing={3}>
                 {hasImages && (
-                  <Grid item={true} xs={4}>
+                  <Grid item xs={4}>
                     <ImageCarousel data={threatActorGroup} />
                   </Grid>
                 )}
-                <Grid item={true} xs={hasImages ? 8 : 12}>
+                <Grid item xs={hasImages ? 8 : 12}>
                   <Typography variant="h3" gutterBottom={true}>
                     {t('Threat actor types')}
                   </Typography>
@@ -94,7 +94,7 @@ class ThreatActorGroupDetailsComponent extends Component {
                 </Grid>
               </Grid>
             </Grid>
-            <Grid item={true} xs={hasImages ? 5 : 6}>
+            <Grid item xs={hasImages ? 5 : 6}>
               <ThreatActorGroupLocation threatActorGroup={threatActorGroup} />
               <Typography
                 variant="h3"
@@ -115,7 +115,7 @@ class ThreatActorGroupDetailsComponent extends Component {
             </Grid>
           </Grid>
           <Grid container={true} spacing={3}>
-            <Grid item={true} xs={4}>
+            <Grid item xs={4}>
               <Typography
                 variant="h3"
                 gutterBottom={true}
@@ -123,12 +123,14 @@ class ThreatActorGroupDetailsComponent extends Component {
               >
                 {t('Sophistication')}
               </Typography>
-              <ItemOpenVocab
-                type="threat-actor-group-sophistication-ov"
-                value={threatActorGroup.sophistication}
-              />
+              <FieldOrEmpty source={threatActorGroup.sophistication}>
+                <ItemOpenVocab
+                  type="threat-actor-group-sophistication-ov"
+                  value={threatActorGroup.sophistication}
+                />
+              </FieldOrEmpty>
             </Grid>
-            <Grid item={true} xs={4}>
+            <Grid item xs={4}>
               <Typography
                 variant="h3"
                 gutterBottom={true}
@@ -136,12 +138,14 @@ class ThreatActorGroupDetailsComponent extends Component {
               >
                 {t('Resource level')}
               </Typography>
-              <ItemOpenVocab
-                type="attack-resource-level-ov"
-                value={threatActorGroup.resource_level}
-              />
+              <FieldOrEmpty source={threatActorGroup.resource_level}>
+                <ItemOpenVocab
+                  type="attack-resource-level-ov"
+                  value={threatActorGroup.resource_level}
+                />
+              </FieldOrEmpty>
             </Grid>
-            <Grid item={true} xs={4}>
+            <Grid item xs={4}>
               <Typography
                 variant="h3"
                 gutterBottom={true}
@@ -149,12 +153,14 @@ class ThreatActorGroupDetailsComponent extends Component {
               >
                 {t('Primary motivation')}
               </Typography>
-              <ItemOpenVocab
-                type="attack-motivation-ov"
-                value={threatActorGroup.primary_motivation}
-              />
+              <FieldOrEmpty source={threatActorGroup.primary_motivation}>
+                <ItemOpenVocab
+                  type="attack-motivation-ov"
+                  value={threatActorGroup.primary_motivation}
+                />
+              </FieldOrEmpty>
             </Grid>
-            <Grid item={true} xs={4}>
+            <Grid item xs={4}>
               <Typography
                 variant="h3"
                 gutterBottom={true}
@@ -184,7 +190,7 @@ class ThreatActorGroupDetailsComponent extends Component {
                 )}
               </FieldOrEmpty>
             </Grid>
-            <Grid item={true} xs={4}>
+            <Grid item xs={4}>
               <Typography
                 variant="h3"
                 gutterBottom={true}
@@ -202,7 +208,11 @@ class ThreatActorGroupDetailsComponent extends Component {
                         </ListItemIcon>
                         <ListItemText
                           primary={
-                            <pre className={classes.smallPre}>{goal}</pre>
+                            <pre className={classes.smallPre}>
+                              <Tooltip title={goal}>
+                                {truncate(goal, 12)}
+                              </Tooltip>
+                            </pre>
                           }
                         />
                       </ListItem>
@@ -211,7 +221,7 @@ class ThreatActorGroupDetailsComponent extends Component {
                 )}
               </FieldOrEmpty>
             </Grid>
-            <Grid item={true} xs={4}>
+            <Grid item xs={4}>
               <Typography
                 variant="h3"
                 gutterBottom={true}
@@ -249,7 +259,7 @@ class ThreatActorGroupDetailsComponent extends Component {
             </Grid>
           </Grid>
         </Paper>
-      </div>
+      </>
     );
   }
 }

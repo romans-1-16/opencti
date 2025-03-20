@@ -15,7 +15,13 @@ import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStora
 import useEntityToggle from '../../../../utils/hooks/useEntityToggle';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import useAuth from '../../../../utils/hooks/useAuth';
-import { emptyFilterGroup, FilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../utils/filters/filtersUtils';
+import { emptyFilterGroup, isFilterGroupNotEmpty, useRemoveIdAndIncorrectKeysFromFilterGroupObject } from '../../../../utils/filters/filtersUtils';
+import { useFormatter } from '../../../../components/i18n';
+import { FilterGroup } from '../../../../utils/filters/filtersHelpers-types';
+import useHelper from '../../../../utils/hooks/useHelper';
+import Security from '../../../../utils/Security';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import ContainerAddStixCoreObjectsInLine from './ContainerAddStixCoreObjectsInLine';
 
 const ContainerStixDomainObjectsFragment = graphql`
     fragment ContainerStixDomainObjects_container on Container {
@@ -39,14 +45,30 @@ const ContainerStixDomainObjectsFragment = graphql`
             last_observed
         }
         ...ContainerHeader_container
+        objects {
+          edges {
+            types
+            node {
+              ... on BasicObject {
+                id
+              }
+              ...ContainerStixDomainObjectLine_node
+            }
+          }
+        }
     }
 `;
 
 const ContainerStixDomainObjects = ({
-  container,
+  container, enableReferences,
 }: {
   container: ContainerStixDomainObjects_container$key;
+  enableReferences?: boolean
 }) => {
+  const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   const {
     platformModuleHelpers: { isRuntimeFieldEnable },
   } = useAuth();
@@ -153,6 +175,8 @@ const ContainerStixDomainObjects = ({
       isSortable: isRuntimeSort,
     },
   };
+  const currentSelection = containerData.objects?.edges ?? [];
+  const selectWithoutInferred = currentSelection.filter((edge) => (edge?.types ?? ['manual']).includes('manual'));
   return (
     <ListLines
       helpers={storageHelpers}
@@ -177,6 +201,15 @@ const ContainerStixDomainObjects = ({
       numberOfElements={numberOfElements}
       paginationOptions={queryPaginationOptions}
       availableEntityTypes={['Stix-Domain-Object']}
+      createButton={isFABReplaced && <Security needs={[KNOWLEDGE_KNUPDATE]}>
+        <ContainerAddStixCoreObjectsInLine
+          containerId={containerData.id}
+          targetStixCoreObjectTypes={['Stix-Domain-Object']}
+          paginationOptions={queryPaginationOptions}
+          containerStixCoreObjects={selectWithoutInferred}
+          enableReferences={enableReferences}
+        />
+      </Security>}
     >
       {queryRef && (
         <React.Suspense
@@ -204,6 +237,7 @@ const ContainerStixDomainObjects = ({
             deSelectedElements={deSelectedElements}
             onToggleEntity={onToggleEntity}
             selectAll={selectAll}
+            enableReferences={enableReferences}
           />
           <ToolBar
             selectedElements={selectedElements}
@@ -216,9 +250,10 @@ const ContainerStixDomainObjects = ({
             variant="large"
             container={containerData}
             warning={true}
+            warningMessage={t_i18n('Be careful, you are about to delete the selected entities (not the relationships)')}
           />
           <StixDomainObjectsRightBar
-            types={types}
+            types={types ?? []}
             handleToggle={storageHelpers.handleToggleTypes}
             handleClear={storageHelpers.handleClearTypes}
             openExports={openExports}

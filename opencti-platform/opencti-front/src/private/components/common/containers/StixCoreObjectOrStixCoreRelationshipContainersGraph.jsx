@@ -5,24 +5,23 @@ import * as R from 'ramda';
 import { Subject, timer } from 'rxjs';
 import withTheme from '@mui/styles/withTheme';
 import { debounce } from 'rxjs/operators';
-import { withRouter } from 'react-router-dom';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import ForceGraph2D from 'react-force-graph-2d';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import {
   applyFilters,
   buildGraphData,
   computeTimeRangeInterval,
   computeTimeRangeValues,
   decodeGraphData,
-  defaultSecondaryValue,
-  defaultValue,
   encodeGraphData,
   linkPaint,
   nodeAreaPaint,
   nodePaint,
   nodeThreePaint,
 } from '../../../../utils/Graph';
+import { getSecondaryRepresentative, getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import { commitMutation, MESSAGING$ } from '../../../../relay/environment';
 import inject18n from '../../../../components/i18n';
 import { stixDomainObjectMutationFieldPatch } from '../stix_domain_objects/StixDomainObjectEditionOverview';
@@ -456,9 +455,9 @@ class StixCoreObjectOrStixCoreRelationshipContainersGraphComponent extends Compo
     this.selectedNodes.clear();
     if (isNotEmptyField(keyword)) {
       const filterByKeyword = (n) => keyword === ''
-        || (defaultValue(n) || '').toLowerCase().indexOf(keyword.toLowerCase())
+        || (getMainRepresentative(n) || '').toLowerCase().indexOf(keyword.toLowerCase())
           !== -1
-        || (defaultSecondaryValue(n) || '')
+        || (getSecondaryRepresentative(n) || '')
           .toLowerCase()
           .indexOf(keyword.toLowerCase()) !== -1
         || (n.entity_type || '').toLowerCase().indexOf(keyword.toLowerCase())
@@ -474,7 +473,9 @@ class StixCoreObjectOrStixCoreRelationshipContainersGraphComponent extends Compo
   render() {
     const {
       handleChangeView,
+      data,
       theme,
+      t,
     } = this.props;
     const {
       mode3D,
@@ -499,6 +500,9 @@ class StixCoreObjectOrStixCoreRelationshipContainersGraphComponent extends Compo
       this.graphObjects,
     );
     const selectedEntities = [...this.selectedLinks, ...this.selectedNodes];
+    const warningMessage = data.containersObjectsOfObject.pageInfo.hasNextPage
+      ? `${t('Limitations applied, number of fully loaded containers: ')} ${data.containersObjectsOfObject.pageInfo.globalCount}. ${t('Open this entity in an investigation to be able to see all objects.')}`
+      : undefined;
     return (
       <UserContext.Consumer>
         {({ bannerSettings }) => {
@@ -545,6 +549,7 @@ class StixCoreObjectOrStixCoreRelationshipContainersGraphComponent extends Compo
                 handleChangeView={handleChangeView.bind(this)}
                 handleSearch={this.handleSearch.bind(this)}
                 navOpen={navOpen}
+                warningMessage={warningMessage}
               />
               {selectedEntities.length > 0 && (
                 <EntitiesDetailsRightsBar

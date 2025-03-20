@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
@@ -10,13 +10,16 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
 import makeStyles from '@mui/styles/makeStyles';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import { DecayRule_decayRule$data } from './__generated__/DecayRule_decayRule.graphql';
 import { decayRuleEditionMutation } from './DecayRuleEdition';
 import Transition from '../../../../components/Transition';
 import { useFormatter } from '../../../../components/i18n';
 import { handleError } from '../../../../relay/environment';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -39,8 +42,8 @@ const DecayRulePopover = ({ decayRule }: DecayRulePopoverProps) => {
   const [anchorEl, setAnchorEl] = useState<Element | null>(null);
   const [displayDelete, setDisplayDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [commitDeleteMutation] = useMutation(decayRuleDeletionMutation);
-  const [commitUpdateMutation] = useMutation(decayRuleEditionMutation);
+  const [commitDeleteMutation] = useApiMutation(decayRuleDeletionMutation);
+  const [commitUpdateMutation] = useApiMutation(decayRuleEditionMutation);
 
   const handleOpen = (event: React.SyntheticEvent) => {
     setAnchorEl(event.currentTarget);

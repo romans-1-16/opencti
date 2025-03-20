@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import gql from 'graphql-tag';
-import fs from 'node:fs';
-import path from 'node:path';
-import Upload from 'graphql-upload/Upload.mjs';
 import { ADMIN_USER, editorQuery, getUserIdByEmail, queryAsAdmin, testContext, USER_EDITOR } from '../../utils/testQuery';
 import { elLoadById } from '../../../src/database/engine';
 import { MEMBER_ACCESS_ALL } from '../../../src/utils/access';
 import { toBase64 } from '../../../src/database/utils';
+import { createUploadFromTestDataFile, queryAsUserIsExpectedForbidden } from '../../utils/testQueryHelper';
 
 const LIST_QUERY = gql`
   query workspaces(
@@ -200,24 +198,7 @@ describe('Workspace resolver standard behavior', () => {
   });
 
   it('can not import workspace configuration, given invalid entity type JSON import', async () => {
-    const file = fs.createReadStream(
-      path.resolve(
-        __dirname,
-        '../../data/20233010_octi_dashboard_Custom Dash_invalid_type.json',
-      ),
-    );
-    const upload = new Upload();
-    const fileUpload = {
-      fieldName: 'fieldName',
-      filename: 'invalid-type.json',
-      mimetype: 'application/json',
-      createReadStream: () => file,
-    };
-    upload.promise = new Promise((executor) => {
-      executor(fileUpload);
-    });
-    upload.file = fileUpload;
-
+    const upload = await createUploadFromTestDataFile('20233010_octi_dashboard_Custom Dash_invalid_type.json', 'invalid-type.json', 'application/json');
     const queryResult = await queryAsAdmin({
       query: gql`
         mutation importWorkspaceConfiguration($file: Upload!) {
@@ -234,24 +215,7 @@ describe('Workspace resolver standard behavior', () => {
   });
 
   it('can not import workspace configuration, given invalid dashboard version import', async () => {
-    const file = fs.createReadStream(
-      path.resolve(
-        __dirname,
-        '../../data/20233010_octi_dashboard_Custom Dash_invalid_5.11.0_version.json',
-      ),
-    );
-    const upload = new Upload();
-    const fileUpload = {
-      fieldName: 'fieldName',
-      filename: 'invalid-version.json',
-      mimetype: 'application/json',
-      createReadStream: () => file,
-    };
-    upload.promise = new Promise((executor) => {
-      executor(fileUpload);
-    });
-    upload.file = fileUpload;
-
+    const upload = await createUploadFromTestDataFile('20233010_octi_dashboard_Custom Dash_invalid_5.11.0_version.json', 'invalid-type.json', 'application/json');
     const queryResult = await queryAsAdmin({
       query: gql`
         mutation importWorkspaceConfiguration($file: Upload!) {
@@ -269,24 +233,7 @@ describe('Workspace resolver standard behavior', () => {
   });
 
   it('can import workspace configuration, given valid entity type JSON import', async () => {
-    const file = fs.createReadStream(
-      path.resolve(
-        __dirname,
-        '../../data/20233010_octi_dashboard_Custom Dash_valid.json',
-      ),
-    );
-    const upload = new Upload();
-    const fileUpload = {
-      fieldName: 'fieldName',
-      filename: 'valid.json',
-      mimetype: 'application/json',
-      createReadStream: () => file,
-    };
-    upload.promise = new Promise((executor) => {
-      executor(fileUpload);
-    });
-    upload.file = fileUpload;
-
+    const upload = await createUploadFromTestDataFile('20233010_octi_dashboard_Custom Dash_valid.json', 'valid.json', 'application/json');
     const queryResult = await queryAsAdmin({
       query: gql`
         mutation importWorkspaceConfiguration($file: Upload!) {
@@ -360,16 +307,7 @@ describe('Workspace resolver standard behavior', () => {
     expect(workspaceWidget.data.workspaceAdd).not.toBeNull();
     expect(workspaceWidget.data.workspaceAdd.name).toEqual(workspaceWidgetName);
     const workspaceId = workspaceWidget.data.workspaceAdd.id;
-    const file = fs.createReadStream(path.resolve(__dirname, '../../data/20231123_octi_widget_list.json'));
-    const upload = new Upload();
-    const fileUpload = {
-      fieldName: 'fieldName',
-      filename: 'valid.json',
-      mimetype: 'application/json',
-      createReadStream: () => file,
-    };
-    upload.promise = new Promise((executor) => { executor(fileUpload); });
-    upload.file = fileUpload;
+    const upload = await createUploadFromTestDataFile('20231123_octi_widget_list.json', 'valid.json', 'application/json');
     const emptyDashboardManifest = toBase64(JSON.stringify({ widgets: {}, config: {} }));
 
     const queryResult = await queryAsAdmin({
@@ -401,16 +339,7 @@ describe('Workspace resolver standard behavior', () => {
   });
 
   it('can not import widget, given invalid widget type import', async () => {
-    const file = fs.createReadStream(path.resolve(__dirname, '../../data/20231123_invalid_type_octi_widget_list.json'));
-    const upload = new Upload();
-    const fileUpload = {
-      fieldName: 'fieldName',
-      filename: 'invalid-type.json',
-      mimetype: 'application/json',
-      createReadStream: () => file,
-    };
-    upload.promise = new Promise((executor) => { executor(fileUpload); });
-    upload.file = fileUpload;
+    const upload = await createUploadFromTestDataFile('20231123_invalid_type_octi_widget_list.json', 'invalid-type.json', 'application/json');
     const emptyDashboardManifest = toBase64(JSON.stringify({ widgets: {}, config: {} }));
 
     const queryResult = await queryAsAdmin({
@@ -437,16 +366,7 @@ describe('Workspace resolver standard behavior', () => {
   });
 
   it('can not import widget, given invalid widget version import', async () => {
-    const file = fs.createReadStream(path.resolve(__dirname, '../../data/20231123_invalid_version_octi_widget_list.json'));
-    const upload = new Upload();
-    const fileUpload = {
-      fieldName: 'fieldName',
-      filename: 'invalid-version.json',
-      mimetype: 'application/json',
-      createReadStream: () => file,
-    };
-    upload.promise = new Promise((executor) => { executor(fileUpload); });
-    upload.file = fileUpload;
+    const upload = await createUploadFromTestDataFile('20231123_invalid_version_octi_widget_list.json', 'invalid-version.json', 'application/json', 'utf8');
     const emptyDashboardManifest = toBase64(JSON.stringify({ widgets: {}, config: {} }));
 
     const queryResult = await queryAsAdmin({
@@ -934,16 +854,13 @@ describe('Workspace member access behavior', () => {
   });
 
   it('User with view access right cannot update workspace3', async () => {
-    const queryResult = await editorQuery({
+    await queryAsUserIsExpectedForbidden(USER_EDITOR.client, {
       query: UPDATE_QUERY,
       variables: {
         id: workspace3InternalId,
         input: { key: 'name', value: ['custom dashboard3'] },
       },
     });
-    expect(queryResult).not.toBeNull();
-    expect(queryResult.errors.length).toEqual(1);
-    expect(queryResult.errors.at(0).name).toEqual('FORBIDDEN_ACCESS');
   });
 
   it('User with edit access right updates workspace2', async () => {
@@ -1000,10 +917,8 @@ describe('Workspace member access behavior', () => {
     });
     expect(queryResult).not.toBeNull();
     expect(queryResult.errors.length).toEqual(1);
-    expect(queryResult.errors.at(0).name).toEqual('FUNCTIONAL_ERROR');
-    expect(queryResult.errors.at(0).message).toEqual(
-      'Workspace should have at least one admin',
-    );
+    expect(queryResult.errors.at(0).extensions.code).toEqual('FUNCTIONAL_ERROR');
+    expect(queryResult.errors.at(0).message).toEqual('It should have at least one valid member with admin access');
   });
 
   it('User with edit access right should not update workspace members', async () => {
@@ -1017,13 +932,10 @@ describe('Workspace member access behavior', () => {
         access_right: 'admin',
       },
     ];
-    const queryResult = await editorQuery({
+    await queryAsUserIsExpectedForbidden(USER_EDITOR.client, {
       query: UPDATE_MEMBERS_QUERY,
       variables: { id: workspace2InternalId, input: authorizedMembersUpdate },
     });
-    expect(queryResult).not.toBeNull();
-    expect(queryResult.errors.length).toEqual(1);
-    expect(queryResult.errors.at(0).name).toEqual('FORBIDDEN_ACCESS');
   });
 
   it('User with admin access right deletes workspace1', async () => {

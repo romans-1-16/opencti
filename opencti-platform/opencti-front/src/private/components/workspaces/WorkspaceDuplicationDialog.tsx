@@ -1,11 +1,11 @@
-import React, { FunctionComponent, useMemo, useState } from 'react';
+import React, { FunctionComponent, UIEvent, useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import DialogTitle from '@mui/material/DialogTitle';
 import TextField from '@mui/material/TextField';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { Link } from 'react-router-dom';
 import {
   WorkspaceDuplicationDialogDuplicatedWorkspaceCreationMutation,
@@ -15,6 +15,8 @@ import { RecordSourceSelectorProxy } from 'relay-runtime';
 import { useFormatter } from '../../../components/i18n';
 import Transition from '../../../components/Transition';
 import { handleError, MESSAGING$ } from '../../../relay/environment';
+import useApiMutation from '../../../utils/hooks/useApiMutation';
+import stopEvent from '../../../utils/domEvent';
 
 interface WorkspaceDuplicationDialogProps {
   workspace: {
@@ -25,7 +27,7 @@ interface WorkspaceDuplicationDialogProps {
   };
   displayDuplicate: boolean;
   duplicating: boolean;
-  handleCloseDuplicate: () => void;
+  handleCloseDuplicate: (event: UIEvent) => void;
   setDuplicating: (value: boolean) => void;
   updater?: (
     store: RecordSourceSelectorProxy<WorkspaceDuplicationDialogDuplicatedWorkspaceCreationMutation$data>,
@@ -44,7 +46,7 @@ const workspaceDuplicationDialogDuplicatedWorkspaceCreation = graphql`
   ) {
     workspaceDuplicate(input: $input) {
       id
-      ...WorkspaceLine_node
+      ...WorkspacesLine_node
     }
   }
 `;
@@ -65,15 +67,19 @@ WorkspaceDuplicationDialogProps
     [t_i18n, workspace.name],
   );
   const [newName, setNewName] = useState(duplicatedDashboardInitialName);
-  const [commitDuplicatedWorkspaceCreation] = useMutation<WorkspaceDuplicationDialogDuplicatedWorkspaceCreationMutation>(
+  const [commitDuplicatedWorkspaceCreation] = useApiMutation<WorkspaceDuplicationDialogDuplicatedWorkspaceCreationMutation>(
     workspaceDuplicationDialogDuplicatedWorkspaceCreation,
   );
-  const submitDashboardDuplication = (submittedWorkspace: {
-    name: string;
-    type: string;
-    description: string;
-    manifest: string;
-  }) => {
+  const submitDashboardDuplication = (
+    e: UIEvent,
+    submittedWorkspace: {
+      name: string;
+      type: string;
+      description: string;
+      manifest: string;
+    },
+  ) => {
+    stopEvent(e);
     commitDuplicatedWorkspaceCreation({
       variables: {
         input: {
@@ -88,7 +94,7 @@ WorkspaceDuplicationDialogProps
         handleError(error);
       },
       onCompleted: (data) => {
-        handleCloseDuplicate();
+        handleCloseDuplicate(e);
         const isDashboardView = !paginationOptions;
         if (isDashboardView) {
           MESSAGING$.notifySuccess(
@@ -106,10 +112,12 @@ WorkspaceDuplicationDialogProps
       },
     });
   };
-  const handleSubmitDuplicate = (submittedNewName: string) => {
+
+  const handleSubmitDuplicate = (e: UIEvent, submittedNewName: string) => {
     setDuplicating(true);
-    submitDashboardDuplication({ ...workspace, name: submittedNewName });
+    submitDashboardDuplication(e, { ...workspace, name: submittedNewName });
   };
+
   return (
     <Dialog
       open={displayDuplicate}
@@ -142,7 +150,7 @@ WorkspaceDuplicationDialogProps
         <Button onClick={handleCloseDuplicate}>{t_i18n('Cancel')}</Button>
         <Button
           color="secondary"
-          onClick={() => handleSubmitDuplicate(newName)}
+          onClick={(e) => handleSubmitDuplicate(e, newName)}
           disabled={duplicating || !newName}
         >
           {t_i18n('Duplicate')}

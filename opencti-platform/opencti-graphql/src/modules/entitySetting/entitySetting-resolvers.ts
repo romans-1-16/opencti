@@ -1,19 +1,20 @@
-import { withFilter } from 'graphql-subscriptions';
 import {
   entitySettingsEditField,
   findAll,
   findById,
   findByType,
+  getOverviewLayoutCustomization,
+  getTemplatesForSetting,
   queryDefaultValuesAttributesForSetting,
   queryEntitySettingSchemaAttributes,
   queryMandatoryAttributesForSetting,
   queryScaleAttributesForSetting
 } from './entitySetting-domain';
 import type { Resolvers } from '../../generated/graphql';
-import { pubSubAsyncIterator } from '../../database/redis';
 import { BUS_TOPICS } from '../../config/conf';
 import { ENTITY_TYPE_ENTITY_SETTING } from './entitySetting-types';
 import { getAvailableSettings } from './entitySetting-utils';
+import { subscribeToInstanceEvents } from '../../graphql/subscriptionWrapper';
 
 const entitySettingResolvers: Resolvers = {
   Query: {
@@ -27,6 +28,8 @@ const entitySettingResolvers: Resolvers = {
     scaleAttributes: (entitySetting, _, context) => queryScaleAttributesForSetting(context, context.user, entitySetting),
     defaultValuesAttributes: (entitySetting, _, context) => queryDefaultValuesAttributesForSetting(context, context.user, entitySetting),
     availableSettings: (entitySetting, _, __) => getAvailableSettings(entitySetting.target_type),
+    overview_layout_customization: (entitySetting, _, __) => getOverviewLayoutCustomization(entitySetting),
+    fintelTemplates: (entitySetting, args, context) => getTemplatesForSetting(context, context.user, entitySetting.target_type, args),
   },
   Mutation: {
     entitySettingsFieldPatch: (_, { ids, input }, context) => {
@@ -38,12 +41,9 @@ const entitySettingResolvers: Resolvers = {
       resolve: /* v8 ignore next */ (payload: any) => {
         return payload.instance;
       },
-      subscribe: /* v8 ignore next */ (_, { id }, __) => {
-        const asyncIterator = pubSubAsyncIterator(BUS_TOPICS[ENTITY_TYPE_ENTITY_SETTING].EDIT_TOPIC);
-        const filtering = withFilter(() => asyncIterator, (payload) => {
-          return payload.instance.id === id;
-        })();
-        return { [Symbol.asyncIterator]() { return filtering; } };
+      subscribe: /* v8 ignore next */ (_, { id }, context) => {
+        const bus = BUS_TOPICS[ENTITY_TYPE_ENTITY_SETTING];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ENTITY_TYPE_ENTITY_SETTING, notifySelf: true });
       },
     },
   }

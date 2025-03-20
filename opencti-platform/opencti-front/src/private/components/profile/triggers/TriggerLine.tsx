@@ -16,8 +16,10 @@ import { useFormatter } from '../../../../components/i18n';
 import TriggerPopover from './TriggerPopover';
 import { dayStartDate, formatTimeForToday } from '../../../../utils/Time';
 import { TriggersLinesPaginationQuery$variables } from './__generated__/TriggersLinesPaginationQuery.graphql';
-import { deserializeFilterGroupForFrontend } from '../../../../utils/filters/filtersUtils';
+import { deserializeFilterGroupForFrontend, isFilterGroupNotEmpty } from '../../../../utils/filters/filtersUtils';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -53,6 +55,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
     float: 'left',
     width: 100,
     marginRight: 10,
+    borderRadius: 4,
   },
   chipInList2: {
     fontSize: 12,
@@ -67,6 +70,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
     height: 20,
     float: 'left',
     marginRight: 10,
+    borderRadius: 4,
   },
 }));
 
@@ -124,9 +128,9 @@ export const TriggerLineComponent: FunctionComponent<TriggerLineProps> = ({
     <ListItem classes={{ root: classes.item }} divider={true}>
       <ListItemIcon>
         {data.trigger_type === 'live' ? (
-          <AlarmOnOutlined color="secondary" />
+          <AlarmOnOutlined color="warning" />
         ) : (
-          <BackupTableOutlined color="info" />
+          <BackupTableOutlined color="secondary" />
         )}
       </ListItemIcon>
       <ListItemText
@@ -157,10 +161,11 @@ export const TriggerLineComponent: FunctionComponent<TriggerLineProps> = ({
               className={classes.bodyItem}
               style={{ width: dataColumns.notifiers.width }}
             >
-              {data.notifiers
-                && data.notifiers.length > 0
-                && data.notifiers
+              {(data.notifiers
+                && data.notifiers.length > 0)
+                ? data.notifiers
                   .map<React.ReactNode>((n) => <code key={n.id} style={{ marginRight: 5 }}>{n.name}</code>)
+                : '-'
               }
             </div>
             <div
@@ -193,15 +198,15 @@ export const TriggerLineComponent: FunctionComponent<TriggerLineProps> = ({
                 className={classes.filtersItem}
                 style={{ width: dataColumns.filters.width }}
               >
-                {filters && (
+                {isFilterGroupNotEmpty(filters) ? (
                   <FilterIconButton
                     filters={filters}
                     dataColumns={dataColumns}
                     styleNumber={3}
                     redirection
-                    entityTypes={data.instance_trigger ? ['Instance'] : ['Stix-Core-Object']}
+                    entityTypes={data.instance_trigger ? ['Instance'] : ['Stix-Core-Object', 'Stix-Filtering']}
                   />
-                )}
+                ) : '-'}
               </div>
             )}
             {data.trigger_type === 'digest' && (

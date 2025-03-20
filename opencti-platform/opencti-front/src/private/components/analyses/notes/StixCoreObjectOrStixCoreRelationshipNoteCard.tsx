@@ -1,5 +1,5 @@
 import React, { FunctionComponent, useState } from 'react';
-import { graphql, useFragment, useMutation } from 'react-relay';
+import { graphql, useFragment } from 'react-relay';
 import { Link } from 'react-router-dom';
 import { OpenInNewOutlined } from '@mui/icons-material';
 import Card from '@mui/material/Card';
@@ -32,7 +32,10 @@ import StixCoreObjectLabelsView from '../../common/stix_core_objects/StixCoreObj
 import ItemLikelihood from '../../../../components/ItemLikelihood';
 import ItemMarkings from '../../../../components/ItemMarkings';
 import MarkdownDisplay from '../../../../components/MarkdownDisplay';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   card: {
     width: '100%',
@@ -113,7 +116,7 @@ StixCoreObjectOrStixCoreRelationshipNoteCardComponentProps
     setDisplayDialog(false);
     setRemoving(false);
   };
-  const [commit] = useMutation(noteMutationRelationDelete);
+  const [commit] = useApiMutation(noteMutationRelationDelete);
   const removeNote = () => {
     commit({
       variables: {
@@ -215,7 +218,7 @@ StixCoreObjectOrStixCoreRelationshipNoteCardComponentProps
       />
       <CardContent>
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={9}>
+          <Grid item xs={9}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Abstract')}
             </Typography>
@@ -236,14 +239,14 @@ StixCoreObjectOrStixCoreRelationshipNoteCardComponentProps
               <MarkdownDisplay content={note.content} remarkGfmPlugin={true} />
             )}
           </Grid>
-          <Grid item={true} xs={3}>
+          <Grid item xs={3}>
             <StixCoreObjectLabelsView
               labels={note.objectLabel}
               id={note.id}
               entity_type={note.entity_type}
             />
             <Grid container={true} spacing={3}>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography
                   variant="h3"
                   gutterBottom={true}
@@ -256,7 +259,7 @@ StixCoreObjectOrStixCoreRelationshipNoteCardComponentProps
                   entityType={note.entity_type}
                 />
               </Grid>
-              <Grid item={true} xs={6}>
+              <Grid item xs={6}>
                 <Typography
                   variant="h3"
                   gutterBottom={true}

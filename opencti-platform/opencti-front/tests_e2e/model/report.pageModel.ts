@@ -1,19 +1,30 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { Page } from '@playwright/test';
+import LeftBarPage from './menu/leftBar.pageModel';
 
 export default class ReportPage {
+  pageUrl = '/dashboard/analyses/reports';
   constructor(private page: Page) {}
+
+  /**
+   * Reload the page (like F5), mostly used once on test start.
+   * When possible please use navigateFromMenu instead it's faster.
+   */
+  async goto() {
+    await this.page.goto(this.pageUrl);
+  }
+
+  async navigateFromMenu() {
+    const leftBarPage = new LeftBarPage(this.page);
+    await leftBarPage.open();
+    await leftBarPage.clickOnMenu('Analyses', 'Reports');
+  }
 
   getPage() {
     return this.page.getByTestId('report-page');
   }
 
-  goToPage() {
-    return this.page.getByLabel('Analyses').click();
-  }
-
-  addNewReport() {
-    return this.page.getByLabel('Add', { exact: true }).click();
+  openNewReportForm() {
+    return this.page.getByRole('button', { name: 'Create' }).click();
   }
 
   closeNewreport() {
@@ -29,6 +40,10 @@ export default class ReportPage {
   }
 
   getItemFromList(name: string) {
-    return this.page.getByRole('link', { name }).first();
+    return this.page.getByTestId(name);
+  }
+
+  checkItemInList(name: string) {
+    return this.getItemFromList(name).getByRole('checkbox').click();
   }
 }

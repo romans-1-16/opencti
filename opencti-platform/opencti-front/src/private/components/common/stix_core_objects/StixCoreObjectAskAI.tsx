@@ -1,12 +1,7 @@
 import React, { FunctionComponent, useState } from 'react';
-import { AutoAwesomeOutlined } from '@mui/icons-material';
-import EETooltip from '@components/common/entreprise_edition/EETooltip';
 import MenuItem from '@mui/material/MenuItem';
-import Menu from '@mui/material/Menu';
 import { v4 as uuid } from 'uuid';
-import { graphql, useMutation } from 'react-relay';
-import ToggleButton from '@mui/material/ToggleButton';
-import { PopoverProps } from '@mui/material/Popover';
+import { graphql } from 'react-relay';
 import { DialogTitle } from '@mui/material';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
@@ -21,67 +16,52 @@ import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import TextField from '@mui/material/TextField';
-import { createSearchParams, useNavigate } from 'react-router-dom-v5-compat';
+import { createSearchParams, useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
-import {
-  StixCoreObjectAskAISummarizeFilesMutation,
-  StixCoreObjectAskAISummarizeFilesMutation$data,
-} from '@components/common/stix_core_objects/__generated__/StixCoreObjectAskAISummarizeFilesMutation.graphql';
-import { StixDomainObjectContentFieldPatchMutation } from '@components/common/stix_domain_objects/__generated__/StixDomainObjectContentFieldPatchMutation.graphql';
+import { StixCoreObjectMappableContentFieldPatchMutation } from '@components/common/stix_core_objects/__generated__/StixCoreObjectMappableContentFieldPatchMutation.graphql';
 import {
   StixCoreObjectAskAIContainerReportMutation,
   StixCoreObjectAskAIContainerReportMutation$data,
 } from '@components/common/stix_core_objects/__generated__/StixCoreObjectAskAIContainerReportMutation.graphql';
-import {
-  StixCoreObjectAskAIConvertFilesToStixMutation,
-  StixCoreObjectAskAIConvertFilesToStixMutation$data,
-} from '@components/common/stix_core_objects/__generated__/StixCoreObjectAskAIConvertFilesToStixMutation.graphql';
-import { stixDomainObjectContentFilesUploadStixDomainObjectMutation } from '../stix_domain_objects/StixDomainObjectContentFiles';
-import { stixDomainObjectContentFieldPatchMutation } from '../stix_domain_objects/StixDomainObjectContent';
-import FilesNativeField from '../form/FilesNativeField';
 import type {
-  StixDomainObjectContentFilesUploadStixDomainObjectMutation,
-  StixDomainObjectContentFilesUploadStixDomainObjectMutation$data,
-} from '../stix_domain_objects/__generated__/StixDomainObjectContentFilesUploadStixDomainObjectMutation.graphql';
+  StixCoreObjectContentFilesUploadStixCoreObjectMutation,
+  StixCoreObjectContentFilesUploadStixCoreObjectMutation$data,
+} from '@components/common/stix_core_objects/__generated__/StixCoreObjectContentFilesUploadStixCoreObjectMutation.graphql';
+import { stixCoreObjectContentFilesUploadStixCoreObjectMutation } from './StixCoreObjectContentFiles';
+import { stixCoreObjectMappableContentFieldPatchMutation } from './StixCoreObjectMappableContent';
+import FilesNativeField from '../form/FilesNativeField';
 import { useFormatter } from '../../../../components/i18n';
 import ResponseDialog from '../../../../utils/ai/ResponseDialog';
-import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
-import useAI from '../../../../utils/hooks/useAI';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { resolveLink } from '../../../../utils/Entity';
 import useGranted, { KNOWLEDGE_KNUPLOAD } from '../../../../utils/hooks/useGranted';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import { MESSAGING$ } from '../../../../relay/environment';
+import { aiLanguage } from '../../../../components/AppIntlProvider';
+import { getDefaultAiLanguage } from '../../../../utils/ai/Common';
 
 // region types
 interface StixCoreObjectAskAiProps {
   instanceId: string;
   instanceName: string;
   instanceType: string;
+  instanceMarkings?: string[];
   type: 'container' | 'threat' | 'victim' | 'unsupported';
+  optionsOpen: boolean;
+  handleCloseOptions: () => void;
 }
 
 const isContainerWithContent = (type: string) => ['Report', 'Grouping', 'Case-Incident', 'Case-Rfi', 'Case-Rft'].includes(type);
 
 const stixCoreObjectAskAIContainerReportMutation = graphql`
-  mutation StixCoreObjectAskAIContainerReportMutation($id: ID!, $containerId: String!, $paragraphs: Int, $tone: Tone, $format: Format) {
-    aiContainerGenerateReport(id: $id, containerId: $containerId, paragraphs: $paragraphs, tone: $tone, format: $format)
-  }
-`;
-
-const stixCoreObjectAskAISummarizeFilesMutation = graphql`
-  mutation StixCoreObjectAskAISummarizeFilesMutation($id: ID!, $elementId: String!, $paragraphs: Int, $tone: Tone, $format: Format, $fileIds: [String]) {
-    aiSummarizeFiles(id: $id, elementId: $elementId, paragraphs: $paragraphs, tone: $tone, format: $format, fileIds: $fileIds)
-  }
-`;
-
-const stixCoreObjectAskAIConvertFilesToStixMutation = graphql`
-  mutation StixCoreObjectAskAIConvertFilesToStixMutation($id: ID!, $elementId: String!, $fileIds: [String]) {
-    aiConvertFilesToStix(id: $id, elementId: $elementId, fileIds: $fileIds)
+  mutation StixCoreObjectAskAIContainerReportMutation($id: ID!, $containerId: String!, $paragraphs: Int, $tone: Tone, $format: Format, $language: String) {
+    aiContainerGenerateReport(id: $id, containerId: $containerId, paragraphs: $paragraphs, tone: $tone, format: $format, language: $language)
   }
 `;
 
 const actionsOptions = {
-  'container-report': ['format', 'paragraphs', 'tone'],
-  'summarize-files': ['format', 'paragraphs', 'tone', 'files'],
+  'container-report': ['format', 'paragraphs', 'tone', 'language'],
+  'summarize-files': ['format', 'paragraphs', 'tone', 'files', 'language'],
   'convert-files': ['format', 'files'],
 };
 
@@ -97,118 +77,75 @@ const actionsExplanation = {
   'convert-files': 'Try to convert the selected files (or all files associated to this entity) in a STIX 2.1 bundle.',
 };
 
-const StixCoreObjectAskAI: FunctionComponent<StixCoreObjectAskAiProps> = ({ instanceId, instanceType, instanceName, type }) => {
+const StixCoreObjectAskAI: FunctionComponent<StixCoreObjectAskAiProps> = ({
+  instanceId,
+  instanceType,
+  instanceName,
+  type,
+  instanceMarkings,
+  optionsOpen,
+  handleCloseOptions,
+}) => {
   const { t_i18n } = useFormatter();
   const navigate = useNavigate();
-  const isEnterpriseEdition = useEnterpriseEdition();
-  const { enabled, configured } = useAI();
   const isKnowledgeUploader = useGranted([KNOWLEDGE_KNUPLOAD]);
-  const [action, setAction] = useState<'container-report' | 'summarize-files' | 'convert-files' | null>(null);
+  const defaultLanguageName = getDefaultAiLanguage();
+  const [language, setLanguage] = useState(defaultLanguageName);
   const [content, setContent] = useState('');
   const [acceptedResult, setAcceptedResult] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [format, setFormat] = useState<'html' | 'markdown' | 'text' | 'json'>('html');
   const [destination, setDestination] = useState<'content' | 'file'>('content');
   const [newFileName, setNewFileName] = useState<string | null>(null);
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const [tone, setTone] = useState<'tactical' | 'operational' | 'strategic'>('tactical');
-  const [format, setFormat] = useState<'html' | 'markdown' | 'text' | 'json'>('html');
   const [paragraphs, setParagraphs] = useState(10);
   const [files, setFiles] = useState<{ label: string, value: string }[]>([]);
   const [disableResponse, setDisableResponse] = useState(false);
-  const [menuOpen, setMenuOpen] = useState<{ open: boolean; anchorEl: PopoverProps['anchorEl'] }>({ open: false, anchorEl: null });
   const [busId, setBusId] = useState<string | null>(null);
   const [displayAskAI, setDisplayAskAI] = useState(false);
-  const handleOpenMenu = (event: React.SyntheticEvent) => {
-    if (isEnterpriseEdition) {
-      event.preventDefault();
-      setMenuOpen({ open: true, anchorEl: event.currentTarget });
-    }
-  };
-  const handleCloseMenu = () => {
-    setMenuOpen({ open: false, anchorEl: null });
-  };
-  const handleOpenOptions = (selectedAction: 'container-report' | 'summarize-files' | 'convert-files') => {
-    handleCloseMenu();
-    setAction(selectedAction);
-    setFormat(actionsFormat[selectedAction][0] as 'html' | 'markdown' | 'text' | 'json' ?? 'html');
-    setOptionsOpen(true);
-  };
-  const handleCloseOptions = () => {
-    setOptionsOpen(false);
-  };
+  const action = 'container-report' as 'container-report' | 'summarize-files' | 'convert-files';
   const handleOpenAskAI = () => setDisplayAskAI(true);
   const handleCloseAskAI = () => setDisplayAskAI(false);
-  const [commitMutationUpdateContent] = useMutation<StixDomainObjectContentFieldPatchMutation>(stixDomainObjectContentFieldPatchMutation);
-  const [commitMutationCreateFile] = useMutation<StixDomainObjectContentFilesUploadStixDomainObjectMutation>(stixDomainObjectContentFilesUploadStixDomainObjectMutation);
-  const [commitMutationContainerReport] = useMutation<StixCoreObjectAskAIContainerReportMutation>(stixCoreObjectAskAIContainerReportMutation);
-  const [commitMutationSummarizeFiles] = useMutation<StixCoreObjectAskAISummarizeFilesMutation>(stixCoreObjectAskAISummarizeFilesMutation);
-  const [commitMutationConvertFilesToStix] = useMutation<StixCoreObjectAskAIConvertFilesToStixMutation>(stixCoreObjectAskAIConvertFilesToStixMutation);
-  const handleAskAi = () => {
+  const [commitMutationUpdateContent] = useApiMutation<StixCoreObjectMappableContentFieldPatchMutation>(stixCoreObjectMappableContentFieldPatchMutation);
+  const [commitMutationCreateFile] = useApiMutation<StixCoreObjectContentFilesUploadStixCoreObjectMutation>(stixCoreObjectContentFilesUploadStixCoreObjectMutation);
+  const [commitMutationContainerReport] = useApiMutation<StixCoreObjectAskAIContainerReportMutation>(stixCoreObjectAskAIContainerReportMutation);
+  const handleAskAiContent = () => {
     handleCloseOptions();
     setDisableResponse(true);
     const id = uuid();
     setBusId(id);
     handleOpenAskAI();
-    switch (action) {
-      case 'container-report':
-        commitMutationContainerReport({
-          variables: {
-            id,
-            containerId: instanceId,
-            paragraphs,
-            tone,
-            format,
-          },
-          onCompleted: (response: StixCoreObjectAskAIContainerReportMutation$data) => {
-            setContent(response?.aiContainerGenerateReport ?? '');
-            setDisableResponse(false);
-          },
-          onError: (error: Error) => {
-            setContent(t_i18n(`An unknown error occurred, please ask your platform administrator: ${error.toString()}`));
-            setDisableResponse(false);
-          },
-        });
-        break;
-      case 'summarize-files':
-        commitMutationSummarizeFiles({
-          variables: {
-            id,
-            elementId: instanceId,
-            paragraphs,
-            tone,
-            format,
-            fileIds: files.map((n) => n.value),
-          },
-          onCompleted: (response: StixCoreObjectAskAISummarizeFilesMutation$data) => {
-            setContent(response?.aiSummarizeFiles ?? '');
-            setDisableResponse(false);
-          },
-          onError: (error: Error) => {
-            setContent(t_i18n(`An unknown error occurred, please ask your platform administrator: ${error.toString()}`));
-            setDisableResponse(false);
-          },
-        });
-        break;
-      case 'convert-files':
-        setDestination('file');
-        commitMutationConvertFilesToStix({
-          variables: {
-            id,
-            elementId: instanceId,
-            fileIds: files.map((n) => n.value),
-          },
-          onCompleted: (response: StixCoreObjectAskAIConvertFilesToStixMutation$data) => {
-            setContent(response?.aiConvertFilesToStix ?? '');
-            setDisableResponse(false);
-          },
-          onError: (error: Error) => {
-            setContent(t_i18n(`An unknown error occurred, please ask your platform administrator: ${error.toString()}`));
-            setDisableResponse(false);
-          },
-        });
-        break;
-      default:
-        // do nothing
+    commitMutationContainerReport({
+      variables: {
+        id,
+        containerId: instanceId,
+        paragraphs,
+        tone,
+        format,
+        language,
+      },
+      onCompleted: (response: StixCoreObjectAskAIContainerReportMutation$data) => {
+        setContent(response?.aiContainerGenerateReport ?? '');
+        setDisableResponse(false);
+      },
+      onError: (error: Error) => {
+        setContent(t_i18n(`An unknown error occurred, please ask your platform administrator: ${error.toString()}`));
+        setDisableResponse(false);
+      },
+    });
+  };
+  const handleAskAi = () => {
+    // check paragraphs value is correct
+    if (action === 'container-report' || action === 'summarize-files') {
+      if (Number.isNaN(paragraphs)) {
+        MESSAGING$.notifyError('Number of paragraphs should be a number');
+      } else if (paragraphs <= 0) {
+        MESSAGING$.notifyError('Number of paragraphs should be greather than 0');
+      } else {
+        handleAskAiContent();
+      }
+    } else {
+      handleAskAiContent();
     }
   };
   const handleCancelDestination = () => {
@@ -233,71 +170,44 @@ const StixCoreObjectAskAI: FunctionComponent<StixCoreObjectAskAiProps> = ({ inst
           });
         },
       });
+    } else if (destination === 'file') {
+      let fileName = newFileName ?? instanceName;
+      if (format === 'text') {
+        fileName += '.txt';
+      } else if (format === 'html') {
+        fileName += '.html';
+      } else if (format === 'markdown') {
+        fileName += '.md';
+      } else if (format === 'json') {
+        fileName += '.json';
+      }
+      const blob = new Blob([acceptedResult ?? ''], {
+        type,
+      });
+      const file = new File([blob], fileName, {
+        type,
+      });
+      const fileMarkings = instanceMarkings ?? [];
+      commitMutationCreateFile({
+        variables: {
+          id: instanceId,
+          file,
+          fileMarkings,
+          noTriggerImport: false,
+        },
+        onCompleted: (response: StixCoreObjectContentFilesUploadStixCoreObjectMutation$data) => {
+          setAcceptedResult(null);
+          setIsSubmitting(false);
+          navigate({
+            pathname: `${resolveLink(instanceType)}/${instanceId}/${type === 'container' && format !== 'json' ? 'content' : 'files'}`,
+            search: `${createSearchParams({ forceFile: 'true', currentFileId: response?.stixCoreObjectEdit?.importPush?.id ?? '' })}`,
+          });
+        },
+      });
     }
-    let fileName = newFileName ?? instanceName;
-    if (format === 'text') {
-      fileName += '.txt';
-    } else if (format === 'html') {
-      fileName += '.html';
-    } else if (format === 'markdown') {
-      fileName += '.md';
-    } else if (format === 'json') {
-      fileName += '.json';
-    }
-    const blob = new Blob([acceptedResult ?? ''], {
-      type,
-    });
-    const file = new File([blob], fileName, {
-      type,
-    });
-    commitMutationCreateFile({
-      variables: {
-        id: instanceId,
-        file,
-        noTriggerImport: false,
-      },
-      onCompleted: (response: StixDomainObjectContentFilesUploadStixDomainObjectMutation$data) => {
-        setAcceptedResult(null);
-        setIsSubmitting(false);
-        navigate({
-          pathname: `${resolveLink(instanceType)}/${instanceId}/${type === 'container' && format !== 'json' ? 'content' : 'files'}`,
-          search: `${createSearchParams({ forceFile: 'true', currentFileId: response?.stixDomainObjectEdit?.importPush?.id ?? '' })}`,
-        });
-      },
-    });
   };
   return (
     <>
-      <EETooltip forAi={true} title={t_i18n('Ask AI')}>
-        <ToggleButton
-          onClick={(event) => ((isEnterpriseEdition && enabled && configured) ? handleOpenMenu(event) : null)}
-          value="ask-ai"
-          size="small"
-          style={{ marginRight: 3 }}
-        >
-          <AutoAwesomeOutlined fontSize="small" color="secondary" />
-        </ToggleButton>
-      </EETooltip>
-      <Menu
-        id="menu-appbar"
-        anchorEl={menuOpen.anchorEl}
-        open={menuOpen.open}
-        onClose={handleCloseMenu}
-      >
-        {type === 'container' && (
-          <MenuItem onClick={() => handleOpenOptions('container-report')}>
-            {t_i18n('Generate report document')}
-          </MenuItem>
-        )}
-        <MenuItem onClick={() => handleOpenOptions('summarize-files')}>
-          {t_i18n('Summarize associated files')}
-        </MenuItem>
-        {isKnowledgeUploader && (
-          <MenuItem onClick={() => handleOpenOptions('convert-files')}>
-            {t_i18n('Convert associated files to STIX 2.1')}
-          </MenuItem>
-        )}
-      </Menu>
       <Dialog
         PaperProps={{ elevation: 1 }}
         open={optionsOpen}
@@ -345,7 +255,7 @@ const StixCoreObjectAskAI: FunctionComponent<StixCoreObjectAskAiProps> = ({ inst
               fullWidth={true}
               type="number"
               value={paragraphs}
-              onChange={(event) => setParagraphs(Number.isNaN(parseInt(event.target.value, 10)) ? 1 : parseInt(event.target.value, 10))}
+              onChange={(event) => setParagraphs(parseInt(event.target.value, 10))}
               style={fieldSpacingContainerStyle}
             />
           )}
@@ -359,6 +269,21 @@ const StixCoreObjectAskAI: FunctionComponent<StixCoreObjectAskAiProps> = ({ inst
               containerStyle={fieldSpacingContainerStyle}
               helperText={t_i18n('By default, all files will be used to generate the response.')}
             />
+          )}
+          {action && actionsOptions[action].includes('language') && (
+            <FormControl style={fieldSpacingContainerStyle}>
+              <InputLabel id="language">{t_i18n('Language')}</InputLabel>
+              <Select
+                labelId="language"
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                fullWidth={true}
+              >
+                {aiLanguage.map((lang) => (
+                  <MenuItem key={lang.value} value={lang.name}>{t_i18n(lang.name)}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           )}
         </DialogContent>
         <DialogActions>

@@ -36,13 +36,12 @@ import ExternalReferencePopover from './ExternalReferencePopover';
 import ExternalReferenceEnrichment from './ExternalReferenceEnrichment';
 import { isNotEmptyField } from '../../../../utils/utils';
 import ItemIcon from '../../../../components/ItemIcon';
+import { NO_DATA_WIDGET_MESSAGE } from '../../../../components/dashboard/WidgetNoData';
 
 const interval$ = interval(FIVE_SECONDS);
 
 const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '-4px 0 0 0',
     padding: 0,
     borderRadius: 4,
@@ -183,7 +182,7 @@ class StixSightingRelationshipExternalReferencesLinesContainer extends Component
         <Typography variant="h4" gutterBottom={true} style={{ float: 'left' }}>
           {t('External references')}
         </Typography>
-        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+        <Security needs={[KNOWLEDGE_KNUPDATE]} placeholder={<div style={{ height: 29 }} />}>
           <AddExternalReferences
             stixCoreObjectOrStixCoreRelationshipId={stixSightingRelationshipId}
             stixCoreObjectOrStixCoreRelationshipReferences={
@@ -192,7 +191,7 @@ class StixSightingRelationshipExternalReferencesLinesContainer extends Component
           />
         </Security>
         <div className="clearfix" />
-        <Paper classes={{ root: classes.paper }} variant="outlined">
+        <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
           {externalReferencesEdges.length > 0 ? (
             <List style={{ marginBottom: 0 }}>
               {R.take(expanded ? 200 : 7, externalReferencesEdges).map(
@@ -273,6 +272,7 @@ class StixSightingRelationshipExternalReferencesLinesContainer extends Component
                                   this,
                                   externalReferenceEdge,
                                 )}
+                                variant="inLine"
                               />
                             </Security>
                           </ListItemSecondaryAction>
@@ -328,6 +328,7 @@ class StixSightingRelationshipExternalReferencesLinesContainer extends Component
                                 this,
                                 externalReferenceEdge,
                               )}
+                              variant="inLine"
                             />
                           </Security>
                         </ListItemSecondaryAction>
@@ -359,7 +360,7 @@ class StixSightingRelationshipExternalReferencesLinesContainer extends Component
                   textAlign: 'center',
                 }}
               >
-                {t('No entities of this type has been found.')}
+                {t(NO_DATA_WIDGET_MESSAGE)}
               </span>
             </div>
           )}

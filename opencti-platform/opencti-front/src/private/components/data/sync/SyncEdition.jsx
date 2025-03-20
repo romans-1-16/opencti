@@ -15,7 +15,7 @@ import AccordionDetails from '@mui/material/AccordionDetails';
 import { useFormatter } from '../../../../components/i18n';
 import { commitMutation, fetchQuery, MESSAGING$ } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import { syncCheckMutation, syncStreamCollectionQuery } from './SyncCreation';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { buildDate } from '../../../../utils/Time';
@@ -23,7 +23,10 @@ import CreatorField from '../../common/form/CreatorField';
 import { isNotEmptyField } from '../../../../utils/utils';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { Accordion, AccordionSummary } from '../../../../components/Accordion';
+import PasswordTextField from '../../../../components/PasswordTextField';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   buttons: {
     marginTop: 20,
@@ -53,10 +56,10 @@ const syncMutationFieldPatch = graphql`
 `;
 
 const syncValidation = (t) => Yup.object().shape({
-  name: Yup.string().required(t('This field is required')),
-  uri: Yup.string().required(t('This field is required')),
+  name: Yup.string().trim().required(t('This field is required')),
+  uri: Yup.string().trim().required(t('This field is required')),
   token: Yup.string(),
-  stream_id: Yup.string().required(t('This field is required')),
+  stream_id: Yup.string().trim().required(t('This field is required')),
   current_state_date: Yup.date()
     .nullable()
     .typeError(t('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
@@ -157,7 +160,7 @@ const SyncEditionContainer = ({ synchronizer }) => {
       validationSchema={syncValidation(t_i18n)}
     >
       {({ values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"
@@ -205,13 +208,9 @@ const SyncEditionContainer = ({ synchronizer }) => {
               style={{ marginTop: 20 }}
               disabled={true}
             />
-            <Field
-              component={TextField}
-              variant="standard"
+            <PasswordTextField
               name="token"
-              label={t_i18n('Remote OpenCTI token')}
-              fullWidth={true}
-              style={{ marginTop: 20 }}
+              label={t_i18n('token')}
               disabled={true}
             />
             <Field
@@ -233,6 +232,7 @@ const SyncEditionContainer = ({ synchronizer }) => {
             label={t_i18n('User responsible for data creation (empty = System)')}
             containerStyle={fieldSpacingContainerStyle}
             onChange={handleSubmitField}
+            showConfidence
           />
           <Field
             component={DateTimePickerField}

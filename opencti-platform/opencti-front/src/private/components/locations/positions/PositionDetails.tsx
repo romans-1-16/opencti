@@ -14,11 +14,11 @@ import usePreloadedFragment from '../../../../utils/hooks/usePreloadedFragment';
 import { PositionDetails_positionRelationships$key } from './__generated__/PositionDetails_positionRelationships.graphql';
 import { isNotEmptyField } from '../../../../utils/utils';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -160,9 +160,9 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={12}>
+          <Grid item xs={12}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Description')}
             </Typography>
@@ -170,7 +170,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
               <ExpandableMarkdown source={position.description} limit={300} />
             )}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Latitude')}
             </Typography>
@@ -181,7 +181,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
               />
             )}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Longitude')}
             </Typography>
@@ -192,7 +192,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
               />
             )}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Street address')}
             </Typography>
@@ -203,7 +203,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
               />
             )}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Postal code')}
             </Typography>
@@ -211,7 +211,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
               <ExpandableMarkdown source={position.postal_code} limit={300} />
             )}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('City')}
             </Typography>
@@ -224,7 +224,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
                 />
               ))}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Country')}
             </Typography>
@@ -237,7 +237,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
                 />
               ))}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Region')}
             </Typography>
@@ -250,7 +250,7 @@ const PositionDetails: FunctionComponent<PositionDetailsProps> = ({
                 />
               ))}
           </Grid>
-          <Grid item={true} xs={6}>
+          <Grid item xs={6}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('entity_Administrative-Area')}
             </Typography>

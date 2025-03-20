@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -14,9 +14,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 */
 
 import { clearIntervalAsync, setIntervalAsync, type SetIntervalAsyncTimer } from 'set-interval-async/fixed';
-import { ACTIVITY_STREAM_NAME, createStreamProcessor, lockResource, storeNotificationEvent, type StreamProcessor } from '../database/redis';
+import { ACTIVITY_STREAM_NAME, createStreamProcessor, storeNotificationEvent, type StreamProcessor } from '../database/redis';
 import conf, { booleanConf, ENABLED_DEMO_MODE, logApp } from '../config/conf';
-import { INDEX_HISTORY, isEmptyField, isNotEmptyField } from '../database/utils';
+import { INDEX_HISTORY, isEmptyField } from '../database/utils';
 import { TYPE_LOCK_ERROR } from '../config/errors';
 import { executionContext, REDACTED_USER, SYSTEM_USER } from '../utils/access';
 import type { SseEvent } from '../types/event';
@@ -34,6 +34,8 @@ import type { BasicStoreSettings } from '../types/settings';
 import type { ActivityNotificationEvent, NotificationUser, ResolvedLive, ResolvedTrigger } from './notificationManager';
 import { convertToNotificationUser, EVENT_NOTIFICATION_VERSION, getNotifications } from './notificationManager';
 import { isActivityEventMatchFilterGroup } from '../utils/filtering/filtering-activity-event/activity-event-filtering';
+import { ENTITY_TYPE_MARKING_DEFINITION } from '../schema/stixMetaObject';
+import { lockResources } from '../lock/master-lock';
 
 const ACTIVITY_ENGINE_KEY = conf.get('activity_manager:lock_key');
 const SCHEDULE_TIME = 10000;
@@ -51,7 +53,7 @@ const alertingTriggers = async (context: AuthContext, events: Array<SseEvent<Act
   const triggers = await getLiveActivityNotifications(context);
   for (let index = 0; index < events.length; index += 1) {
     // type: 'authentication' | 'read' | 'mutation' | 'file' | 'command'
-    // event_scope: 'read' | 'create' | 'update' | 'delete' | 'merge' | 'login' | 'logout' | 'unauthorized' | 'export' | 'import' | 'enrich'
+    // event_scope: 'read' | 'create' | 'update' | 'delete' | 'merge' | 'login' | 'logout' | 'unauthorized' | 'export' | 'import' | 'enrich' | 'analyze'
     // status: 'error' | 'success'
     const event = events[index];
     const { message, data, origin, event_scope } = event.data;
@@ -70,7 +72,7 @@ const alertingTriggers = async (context: AuthContext, events: Array<SseEvent<Act
           const user = users[indexUser];
           targets.push({ user: convertToNotificationUser(user, notifiers), type: event_scope, message: `\`${sourceUser?.name}\` ${message}` });
         }
-        const notificationEvent: ActivityNotificationEvent = { version, notification_id, type: 'live', targets, data };
+        const notificationEvent: ActivityNotificationEvent = { version, notification_id, type: 'live', targets, data, origin };
         await storeNotificationEvent(context, notificationEvent);
       }
     }
@@ -78,11 +80,15 @@ const alertingTriggers = async (context: AuthContext, events: Array<SseEvent<Act
 };
 
 const historyIndexing = async (context: AuthContext, events: Array<SseEvent<ActivityStreamEvent>>) => {
+  const markingDefinitions = await getEntitiesMapFromCache<BasicStoreSettings>(context, SYSTEM_USER, ENTITY_TYPE_MARKING_DEFINITION);
   const historyElements = events.filter((e) => !e.data.prevent_indexing)
     .map((event: SseEvent<ActivityStreamEvent>) => {
       const [time] = event.id.split('-');
       const eventDate = utcDate(parseInt(time, 10)).toISOString();
       const contextData = { ...event.data.data, message: event.data.message };
+      if ((event.data.data.object_marking_refs_ids ?? []).length > 0) {
+        contextData.marking_definitions = (event.data.data.object_marking_refs_ids ?? []).map((n) => markingDefinitions.get(n)?.definition ?? 'Unknown');
+      }
       const activityDate = utcDate(eventDate).toDate();
       const isAdminEvent = event.data.event_access === 'administration';
       return {
@@ -108,14 +114,14 @@ const historyIndexing = async (context: AuthContext, events: Array<SseEvent<Acti
       };
     });
   // Bulk the history data insertions
-  return elIndexElements(context, SYSTEM_USER, `activity (${historyElements.length})`, historyElements);
+  return elIndexElements(context, SYSTEM_USER, ENTITY_TYPE_ACTIVITY, historyElements);
 };
 
 const eventsApplyHandler = async (context: AuthContext, events: Array<SseEvent<ActivityStreamEvent>>) => {
   if (events.length > 0) {
     const settings = await getEntityFromCache<BasicStoreSettings>(context, SYSTEM_USER, ENTITY_TYPE_SETTINGS);
     // If no events or enterprise edition is not activated
-    if (isEmptyField(settings.enterprise_edition) || isEmptyField(events) || events.length === 0) {
+    if (settings.valid_enterprise_edition !== true || isEmptyField(events) || events.length === 0) {
       return;
     }
     // Handle alerting and indexing
@@ -130,7 +136,7 @@ const activityStreamHandler = async (streamEvents: Array<SseEvent<ActivityStream
     const context = executionContext('activity_manager');
     await eventsApplyHandler(context, streamEvents);
   } catch (e) {
-    logApp.error(e, { manager: 'ACTIVITY_MANAGER' });
+    logApp.error('Error in activity stream apply handler', { cause: e, manager: 'ACTIVITY_MANAGER' });
   }
 };
 
@@ -149,7 +155,7 @@ const initActivityManager = () => {
     let lock;
     try {
       // Lock the manager
-      lock = await lockResource([ACTIVITY_ENGINE_KEY], { retryCount: 0 });
+      lock = await lockResources([ACTIVITY_ENGINE_KEY], { retryCount: 0 });
       running = true;
       logApp.info('[OPENCTI-MODULE] Running activity manager');
       const streamOpts = { streamName: ACTIVITY_STREAM_NAME };
@@ -164,7 +170,7 @@ const initActivityManager = () => {
       if (e.name === TYPE_LOCK_ERROR) {
         logApp.debug('[OPENCTI-MODULE] Activity manager already started by another API');
       } else {
-        logApp.error(e, { manager: 'ACTIVITY_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Activity manager execution error', { cause: e, manager: 'ACTIVITY_MANAGER' });
       }
     } finally {
       running = false;
@@ -204,7 +210,7 @@ const initActivityManager = () => {
     status: (settings?: BasicStoreSettings) => {
       return {
         id: 'ACTIVITY_MANAGER',
-        enable: isNotEmptyField(settings?.enterprise_edition) && booleanConf('activity_manager:enabled', false),
+        enable: settings?.valid_enterprise_edition === true && booleanConf('activity_manager:enabled', false),
         running,
       };
     },

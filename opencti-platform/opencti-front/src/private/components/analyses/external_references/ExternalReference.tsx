@@ -2,6 +2,7 @@ import React, { FunctionComponent } from 'react';
 import { createFragmentContainer, graphql } from 'react-relay';
 import Grid from '@mui/material/Grid';
 import makeStyles from '@mui/styles/makeStyles';
+import useHelper from 'src/utils/hooks/useHelper';
 import ExternalReferenceOverview from './ExternalReferenceOverview';
 import ExternalReferenceDetails from './ExternalReferenceDetails';
 import ExternalReferenceEdition from './ExternalReferenceEdition';
@@ -12,7 +13,10 @@ import ExternalReferenceFileImportViewer from './ExternalReferenceFileImportView
 import ExternalReferenceStixCoreObjects from './ExternalReferenceStixCoreObjects';
 import { ExternalReference_externalReference$data } from './__generated__/ExternalReference_externalReference.graphql';
 import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import useOverviewLayoutCustomization from '../../../../utils/hooks/useOverviewLayoutCustomization';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -37,40 +41,69 @@ const ExternalReferenceComponent: FunctionComponent<
 ExternalReferenceComponentProps
 > = ({ externalReference, connectorsImport }) => {
   const classes = useStyles();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const overviewLayoutCustomization = useOverviewLayoutCustomization('External-Reference');
   return (
     <div className={classes.container}>
       <ExternalReferenceHeader
         externalReference={externalReference}
         PopoverComponent={
-          <ExternalReferencePopover id={''} handleRemove={undefined} />
+          <ExternalReferencePopover id={externalReference.id} handleRemove={undefined} variant={'inLine'}/>
         }
+        EditComponent={isFABReplaced && (
+          <Security needs={[KNOWLEDGE_KNUPDATE]}>
+            <ExternalReferenceEdition externalReferenceId={externalReference.id} />
+          </Security>
+        )}
       />
       <Grid
         container={true}
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <ExternalReferenceOverview externalReference={externalReference} />
-        </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <ExternalReferenceDetails externalReference={externalReference} />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <ExternalReferenceStixCoreObjects
-            externalReference={externalReference}
-          />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <ExternalReferenceFileImportViewer
-            externalReference={externalReference}
-            connectorsImport={connectorsImport}
-          />
-        </Grid>
+        {overviewLayoutCustomization.map(({ key, width }) => {
+          switch (key) {
+            case 'basicInformation':
+              return (
+                <Grid key={key} item xs={width}>
+                  <ExternalReferenceOverview externalReference={externalReference} />
+                </Grid>
+              );
+            case 'details':
+              return (
+                <Grid key={key} item xs={width}>
+                  <ExternalReferenceDetails externalReference={externalReference} />
+                </Grid>
+              );
+            case 'linkedObjects':
+              return (
+                <Grid key={key} item xs={width}>
+                  <ExternalReferenceStixCoreObjects
+                    externalReference={externalReference}
+                  />
+                </Grid>
+              );
+            case 'uploadedFiles':
+              return (
+                <Grid key={key} item xs={width}>
+                  <ExternalReferenceFileImportViewer
+                    externalReference={externalReference}
+                    connectorsImport={connectorsImport}
+                  />
+                </Grid>
+              );
+            default:
+              return null;
+          }
+        })
+        }
       </Grid>
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <ExternalReferenceEdition externalReferenceId={externalReference.id} />
-      </Security>
+      {!isFABReplaced && (
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <ExternalReferenceEdition externalReferenceId={externalReference.id} />
+        </Security>
+      )}
     </div>
   );
 };

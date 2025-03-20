@@ -1,10 +1,10 @@
 import type { AuthContext, AuthUser } from '../../../types/user';
-import { internalFindByIdsMapped, listEntitiesPaginated, storeLoadById } from '../../../database/middleware-loader';
+import { internalFindByIdsMapped, listAllEntities, listEntitiesPaginated, storeLoadById } from '../../../database/middleware-loader';
 import { type BasicStoreEntityCsvMapper, ENTITY_TYPE_CSV_MAPPER, type StoreEntityCsvMapper } from './csvMapper-types';
-import type { CsvMapperAddInput, EditInput, QueryCsvMappersArgs } from '../../../generated/graphql';
+import { type CsvMapperAddInput, type EditInput, FilterMode, type QueryCsvMappersArgs } from '../../../generated/graphql';
 import { createInternalObject, deleteInternalObject, editInternalObject } from '../../../domain/internalObject';
-import { bundleProcess } from '../../../parser/csv-bundler';
-import { type CsvMapperSchemaAttribute, type CsvMapperSchemaAttributes, parseCsvMapper, parseCsvMapperWithDefaultValues } from './csvMapper-utils';
+import { type CsvBundlerTestOpts, getCsvTestObjects, removeHeaderFromFullFile } from '../../../parser/csv-bundler';
+import { type CsvMapperSchemaAttribute, type CsvMapperSchemaAttributes, parseCsvMapper, parseCsvMapperWithDefaultValues, validateCsvMapper } from './csvMapper-utils';
 import { schemaAttributesDefinition } from '../../../schema/schema-attributes';
 import { schemaRelationsRefDefinition } from '../../../schema/schema-relationsRef';
 import { INTERNAL_ATTRIBUTES, INTERNAL_REFS } from '../../../domain/attribute-utils';
@@ -15,17 +15,35 @@ import { isStixCoreRelationship } from '../../../schema/stixCoreRelationship';
 import { isStixSightingRelationship, STIX_SIGHTING_RELATIONSHIP } from '../../../schema/stixSightingRelationship';
 import { schemaTypesDefinition } from '../../../schema/schema-types';
 import { ABSTRACT_STIX_CORE_RELATIONSHIP, ABSTRACT_STIX_CYBER_OBSERVABLE, ABSTRACT_STIX_DOMAIN_OBJECT, ABSTRACT_STIX_META_OBJECT } from '../../../schema/general';
+import { type BasicStoreEntityIngestionCsv, ENTITY_TYPE_INGESTION_CSV } from '../../ingestion/ingestion-types';
+import { FunctionalError } from '../../../config/errors';
+import { parseReadableToLines } from '../../../parser/csv-parser';
+import type { FileUploadData } from '../../../database/file-storage-helper';
 
 // -- UTILS --
 
-export const csvMapperTest = async (context: AuthContext, user: AuthUser, configuration: string, content: string) => {
-  const limitedTestingText = content.split(/\r?\n/).slice(0, 100).join('\n'); // Get 100 lines max
-  const csvMapper = parseCsvMapper(JSON.parse(configuration));
-  const bundle = await bundleProcess(context, user, Buffer.from(limitedTestingText), csvMapper);
+export const csvMapperTest = async (context: AuthContext, user: AuthUser, configuration: string, fileUpload: Promise<FileUploadData>) => {
+  let parsedConfiguration;
+  try {
+    parsedConfiguration = JSON.parse(configuration);
+  } catch (error) {
+    throw FunctionalError('Could not parse CSV mapper configuration', { error });
+  }
+  const csvMapperParsed = parseCsvMapper(parsedConfiguration);
+  const { createReadStream } = await fileUpload;
+  const csvLines = await parseReadableToLines(createReadStream(), 100);
+  if (csvMapperParsed.has_header) {
+    removeHeaderFromFullFile(csvLines, csvMapperParsed.skipLineChar);
+  }
+  const bundlerOpts : CsvBundlerTestOpts = {
+    applicantUser: user,
+    csvMapper: csvMapperParsed
+  };
+  const allObjects = await getCsvTestObjects(context, csvLines, bundlerOpts);
   return {
-    objects: JSON.stringify(bundle.objects, null, 2),
-    nbRelationships: bundle.objects.filter((object) => object.type === 'relationship').length,
-    nbEntities: bundle.objects.filter((object) => object.type !== 'relationship').length,
+    objects: JSON.stringify(allObjects, null, 2),
+    nbRelationships: allObjects.filter((object) => object.type === 'relationship').length,
+    nbEntities: allObjects.filter((object) => object.type !== 'relationship').length,
   };
 };
 
@@ -40,6 +58,10 @@ export const findAll = (context: AuthContext, user: AuthUser, opts: QueryCsvMapp
 };
 
 export const createCsvMapper = async (context: AuthContext, user: AuthUser, csvMapperInput: CsvMapperAddInput) => {
+  // attempt to parse and validate the mapper representations ; this can throw errors
+  const parsedMapper = parseCsvMapper(csvMapperInput);
+  await validateCsvMapper(context, user, parsedMapper);
+
   return createInternalObject<StoreEntityCsvMapper>(context, user, csvMapperInput, ENTITY_TYPE_CSV_MAPPER);
 };
 
@@ -48,6 +70,20 @@ export const fieldPatchCsvMapper = async (context: AuthContext, user: AuthUser, 
 };
 
 export const deleteCsvMapper = async (context: AuthContext, user: AuthUser, csvMapperId: string) => {
+  // detect if ingesters are using this mapper
+  const opts = {
+    filters: {
+      mode: FilterMode.Or,
+      filterGroups: [],
+      filters: [{ key: ['csv_mapper_id'], values: [csvMapperId] }]
+    }
+  };
+  const ingesters = await listAllEntities<BasicStoreEntityIngestionCsv>(context, user, [ENTITY_TYPE_INGESTION_CSV], opts);
+  // prevent deletion if an ingester uses the mapper
+  if (ingesters.length > 0) {
+    throw FunctionalError('Cannot delete this CSV Mapper: it is used by one or more IngestionCsv ingester(s)', { id: csvMapperId });
+  }
+
   return deleteInternalObject(context, user, csvMapperId, ENTITY_TYPE_CSV_MAPPER);
 };
 
@@ -160,7 +196,7 @@ export const csvMapperSchemaAttributes = async (context: AuthContext, user: Auth
             attribute.mandatory = userDefinedAttr.mandatory;
           }
           if (isNotEmptyField(userDefinedAttr.default_values)) {
-            attribute.defaultValues = userDefinedAttr.default_values?.map((v) => ({ id: v, name: v }));
+            attribute.defaultValues = (userDefinedAttr.default_values as string[])?.map((v) => ({ id: v, name: v }));
             // If the default value is a ref with an id, save it to resolve it below.
             if (attribute.name !== 'objectMarking' && refsNames.includes(attribute.name)) {
               attributesDefaultValuesToResolve[`${schemaIndex}-${attributeIndex}`] = userDefinedAttr.default_values ?? [];

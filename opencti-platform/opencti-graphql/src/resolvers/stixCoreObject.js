@@ -1,20 +1,26 @@
-import { withFilter } from 'graphql-subscriptions';
 import {
+  aiActivity,
+  aiForecast,
+  aiHistory,
+  analysisClear,
+  askElementAnalysisForConnector,
   askElementEnrichmentForConnector,
   batchMarkingDefinitions,
   casesPaginated,
   containersPaginated,
   externalReferencesPaginated,
   findAll,
+  findAllAuthMemberRestricted,
   findById,
-  findFiltersRepresentatives,
   groupingsPaginated,
   notesPaginated,
   observedDataPaginated,
   opinionsPaginated,
   reportsPaginated,
+  stixCoreAnalysis,
   stixCoreObjectAddRelation,
   stixCoreObjectAddRelations,
+  stixCoreObjectAnalysisPush,
   stixCoreObjectCleanContext,
   stixCoreObjectDelete,
   stixCoreObjectDeleteRelation,
@@ -35,12 +41,12 @@ import {
   stixCoreObjectsTimeSeriesByAuthor,
   stixCoreRelationships
 } from '../domain/stixCoreObject';
-import { fetchEditContext, pubSubAsyncIterator } from '../database/redis';
+import { fetchEditContext } from '../database/redis';
 import { batchLoader, distributionRelations, stixLoadByIdStringify } from '../database/middleware';
 import { worksForSource } from '../domain/work';
 import { BUS_TOPICS } from '../config/conf';
 import { ABSTRACT_STIX_CORE_OBJECT, INPUT_CREATED_BY, INPUT_GRANTED_REFS, INPUT_LABELS } from '../schema/general';
-import withCancel from '../graphql/subscriptionWrapper';
+import { subscribeToInstanceEvents } from '../graphql/subscriptionWrapper';
 import { connectorsForEnrichment } from '../database/repository';
 import { addOrganizationRestriction, removeOrganizationRestriction } from '../domain/stix';
 import { stixCoreObjectOptions } from '../schema/stixCoreObject';
@@ -57,6 +63,7 @@ const stixCoreObjectResolvers = {
     stixCoreObjectRaw: (_, { id }, context) => stixLoadByIdStringify(context, context.user, id),
     globalSearch: (_, args, context) => findAll(context, context.user, { ...args, globalSearch: true }),
     stixCoreObjects: (_, args, context) => findAll(context, context.user, args),
+    stixCoreObjectsRestricted: (_, args, context) => findAllAuthMemberRestricted(context, context.user, args),
     stixCoreObjectsTimeSeries: (_, args, context) => {
       if (args.authorId && args.authorId.length > 0) {
         return stixCoreObjectsTimeSeriesByAuthor(context, context.user, args);
@@ -75,10 +82,13 @@ const stixCoreObjectResolvers = {
     stixCoreObjectsMultiDistribution: (_, args, context) => stixCoreObjectsMultiDistribution(context, context.user, args),
     stixCoreObjectsExportFiles: (_, { exportContext, first }, context) => {
       const path = `export/${exportContext.entity_type}${exportContext.entity_id ? `/${exportContext.entity_id}` : ''}`;
-      const opts = { first, entity_type: exportContext.entity_type };
+      const opts = { first, entity_id: exportContext.entity_id, entity_type: exportContext.entity_type };
       return paginatedForPathWithEnrichment(context, context.user, path, exportContext.entity_id, opts);
     },
-    filtersRepresentatives: (_, { filters }, context) => findFiltersRepresentatives(context, context.user, filters),
+    stixCoreObjectAnalysis: (_, { id, contentSource, contentType }, context) => stixCoreAnalysis(context, context.user, id, contentSource, contentType),
+    stixCoreObjectAskAiActivity: (_, args, context) => aiActivity(context, context.user, args),
+    stixCoreObjectAskAiForecast: (_, args, context) => aiForecast(context, context.user, args),
+    stixCoreObjectAskAiHistory: (_, args, context) => aiHistory(context, context.user, args),
   },
   StixCoreObjectsOrdering: stixCoreObjectOptions.StixCoreObjectsOrdering,
   StixCoreObject: {
@@ -132,6 +142,15 @@ const stixCoreObjectResolvers = {
     // Retro compatibility
     spec_version: getSpecVersionOrDefault
   },
+  Analysis: {
+    __resolveType(obj) {
+      if (obj.analysisType) {
+        if (obj.analysisType === 'mapping_analysis') return 'MappingAnalysis';
+      }
+      /* v8 ignore next */
+      return 'Unknown';
+    },
+  },
   Mutation: {
     stixCoreObjectEdit: (_, { id }, context) => ({
       delete: () => stixCoreObjectDelete(context, context.user, id),
@@ -143,29 +162,25 @@ const stixCoreObjectResolvers = {
       relationDelete: ({ toId, relationship_type: relationshipType, commitMessage, references }) => stixCoreObjectDeleteRelation(context, context.user, id, toId, relationshipType, { commitMessage, references }),
       askEnrichment: ({ connectorId }) => askElementEnrichmentForConnector(context, context.user, id, connectorId),
       importPush: (args) => stixCoreObjectImportPush(context, context.user, id, args.file, args),
-      exportAsk: (args) => stixCoreObjectExportAsk(context, context.user, id, args),
-      exportPush: ({ file }) => stixCoreObjectExportPush(context, context.user, id, file),
+      askAnalysis: ({ contentSource, contentType, connectorId }) => askElementAnalysisForConnector(context, context.user, id, contentSource, contentType, connectorId),
+      analysisPush: (args) => stixCoreObjectAnalysisPush(context, context.user, id, args),
+      analysisClear: ({ contentSource, contentType }) => analysisClear(context, context.user, id, contentSource, contentType),
+      exportAsk: ({ input }) => stixCoreObjectExportAsk(context, context.user, id, input),
+      exportPush: (args) => stixCoreObjectExportPush(context, context.user, id, args),
     }),
-    stixCoreObjectsExportAsk: (_, args, context) => stixCoreObjectsExportAsk(context, context.user, args),
-    stixCoreObjectsExportPush: (_, { entity_id, entity_type, file, listFilters }, context) => {
-      return stixCoreObjectsExportPush(context, context.user, entity_id, entity_type, file, listFilters);
+    stixCoreObjectsExportAsk: (_, { input }, context) => stixCoreObjectsExportAsk(context, context.user, input),
+    stixCoreObjectsExportPush: (_, { entity_id, entity_type, file, file_markings, listFilters }, context) => {
+      return stixCoreObjectsExportPush(context, context.user, entity_id, entity_type, file, file_markings, listFilters);
     },
   },
   Subscription: {
     stixCoreObject: {
       resolve: /* v8 ignore next */ (payload) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        stixCoreObjectEditContext(context, context.user, id);
-        const filtering = withFilter(
-          () => pubSubAsyncIterator(BUS_TOPICS[ABSTRACT_STIX_CORE_OBJECT].EDIT_TOPIC),
-          (payload) => {
-            if (!payload) return false; // When disconnect, an empty payload is dispatched.
-            return payload.user.id !== context.user.id && payload.instance.id === id;
-          }
-        )(_, { id }, context);
-        return withCancel(filtering, () => {
-          stixCoreObjectCleanContext(context, context.user, id);
-        });
+        const preFn = () => stixCoreObjectEditContext(context, context.user, id);
+        const cleanFn = () => stixCoreObjectCleanContext(context, context.user, id);
+        const bus = BUS_TOPICS[ABSTRACT_STIX_CORE_OBJECT];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ABSTRACT_STIX_CORE_OBJECT, preFn, cleanFn });
       },
     },
   },

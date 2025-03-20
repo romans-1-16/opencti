@@ -3,12 +3,13 @@ import { graphql, useFragment } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
 import { FormikConfig } from 'formik/dist/types';
+import { useTheme } from '@mui/styles';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
@@ -24,6 +25,9 @@ import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEdito
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import { GenericContext } from '../../common/model/GenericContextModel';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import type { Theme } from '../../../../components/Theme';
+import IncidentDeletion from './IncidentDeletion';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const incidentMutationFieldPatch = graphql`
   mutation IncidentEditionOverviewFieldPatchMutation(
@@ -92,6 +96,7 @@ const incidentEditionOverviewFragment = graphql`
     id
     name
     confidence
+    entity_type
     description
     source
     incident_type
@@ -155,9 +160,11 @@ const IncidentEditionOverviewComponent: FunctionComponent<
 IncidentEditionOverviewProps
 > = ({ incidentRef, context, enableReferences = false, handleClose }) => {
   const { t_i18n } = useFormatter();
+  const theme = useTheme<Theme>();
+
   const incident = useFragment(incidentEditionOverviewFragment, incidentRef);
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     incident_type: Yup.string().nullable(),
     severity: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
@@ -240,8 +247,10 @@ IncidentEditionOverviewProps
     confidence: incident.confidence,
     references: [],
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   return (
-    <Formik
+    <Formik<IncidentEditionFormValues>
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={incidentValidator}
@@ -255,7 +264,7 @@ IncidentEditionOverviewProps
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form style={{ marginTop: theme.spacing(2) }}>
           <AlertConfidenceForEntity entity={incident} />
           <Field
             component={TextField}
@@ -366,7 +375,14 @@ IncidentEditionOverviewProps
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <IncidentDeletion
+                  id={incident.id}
+                />
+              : <div/>
+              }
+            {enableReferences && (
             <CommitMessage
               submitForm={submitForm}
               disabled={isSubmitting || !isValid || !dirty}
@@ -375,7 +391,8 @@ IncidentEditionOverviewProps
               setFieldValue={setFieldValue}
               id={incident.id}
             />
-          )}
+            )}
+          </div>
         </Form>
       )}
     </Formik>

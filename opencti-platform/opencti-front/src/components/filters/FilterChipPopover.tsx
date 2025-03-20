@@ -1,4 +1,4 @@
-import React, { FunctionComponent, ReactNode, useState } from 'react';
+import React, { Dispatch, FunctionComponent, ReactNode, SyntheticEvent, useState } from 'react';
 import Popover from '@mui/material/Popover';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
@@ -9,21 +9,26 @@ import { SelectChangeEvent } from '@mui/material/Select';
 import SearchScopeElement from '@components/common/lists/SearchScopeElement';
 import Chip from '@mui/material/Chip';
 import { OptionValue } from '@components/common/lists/FilterAutocomplete';
+import { addDays, subDays } from 'date-fns';
 import {
-  isNumericFilter,
-  isBasicTextFilter,
-  useFilterDefinition,
-  Filter,
+  FilterSearchContext,
   getAvailableOperatorForFilter,
   getSelectedOptions,
+  isBasicTextFilter,
+  isNumericFilter,
   isStixObjectTypes,
+  SELF_ID,
+  SELF_ID_VALUE,
+  useFilterDefinition,
 } from '../../utils/filters/filtersUtils';
 import { useFormatter } from '../i18n';
 import ItemIcon from '../ItemIcon';
-import { getOptionsFromEntities, getUseSearch } from '../../utils/filters/SearchEntitiesUtil';
-import { handleFilterHelpers } from '../../utils/hooks/useLocalStorage';
+import { getOptionsFromEntities } from '../../utils/filters/SearchEntitiesUtil';
 import { FilterDefinition } from '../../utils/hooks/useAuth';
 import { FilterRepresentative } from './FiltersModel';
+import useSearchEntities from '../../utils/filters/useSearchEntities';
+import { Filter, handleFilterHelpers } from '../../utils/filters/filtersHelpers-types';
+import useAttributes from '../../utils/hooks/useAttributes';
 
 interface FilterChipMenuProps {
   handleClose: () => void;
@@ -34,6 +39,10 @@ interface FilterChipMenuProps {
   availableRelationFilterTypes?: Record<string, string[]>;
   filtersRepresentativesMap: Map<string, FilterRepresentative>;
   entityTypes?: string[];
+  searchContext?: FilterSearchContext;
+  availableEntityTypes?: string[];
+  availableRelationshipTypes?: string[];
+  fintelTemplatesContext?: boolean;
 }
 
 export interface FilterChipsParameter {
@@ -68,6 +77,7 @@ interface BasicNumberInputProps {
   filterValues: string[];
   label: string;
 }
+
 const BasicNumberInput: FunctionComponent<BasicNumberInputProps> = ({
   filter,
   filterKey,
@@ -142,8 +152,12 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
   filters,
   helpers,
   availableRelationFilterTypes,
+  availableEntityTypes,
+  availableRelationshipTypes,
   filtersRepresentativesMap,
   entityTypes,
+  searchContext,
+  fintelTemplatesContext,
 }) => {
   const { t_i18n } = useFormatter();
   const filter = filters.find((f) => f.id === params.filterId);
@@ -152,23 +166,14 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
   const filterValues = filter?.values ?? [];
   const filterDefinition = useFilterDefinition(filterKey, entityTypes);
   const filterLabel = t_i18n(filterDefinition?.label ?? filterKey);
-  const [inputValues, setInputValues] = useState<
-  {
+  const { typesWithFintelTemplates } = useAttributes();
+
+  const [inputValues, setInputValues] = useState<{
     key: string;
     values: string[];
     operator?: string;
-  }[]
-  >(filter ? [filter] : []);
-  const [cacheEntities, setCacheEntities] = useState<
-  Record<
-  string,
-  {
-    label: string;
-    value: string;
-    type: string;
-  }[]
-  >
-  >({});
+  }[]>(filter ? [filter] : []);
+  const [cacheEntities, setCacheEntities] = useState<Record<string, OptionValue[]>>({});
   const [searchScope, setSearchScope] = useState<Record<string, string[]>>(
     availableRelationFilterTypes || {
       targets: [
@@ -186,18 +191,33 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
       ],
     },
   );
-  const [entities, searchEntities] = getUseSearch(searchScope, entityTypes);
+  const [entities, searchEntities] = useSearchEntities({
+    availableEntityTypes,
+    availableRelationshipTypes,
+    setInputValues,
+    searchContext: { ...searchContext, entityTypes: [...(searchContext?.entityTypes ?? []), ...(entityTypes ?? [])] },
+    searchScope,
+  }) as [Record<string, OptionValue[]>, (
+    filterKey: string,
+    cacheEntities: Record<string, OptionValue[]>,
+    setCacheEntities: Dispatch<Record<string, OptionValue[]>>,
+    event: SyntheticEvent,
+    isSubKey?: boolean,
+  ) => Record<string, OptionValue[]>,
+  ];
   const handleChange = (checked: boolean, value: string, childKey?: string) => {
-    if (childKey) { // case 'regardingOf' filter
+    if (childKey) {
       const childFilters = filter?.values.filter((val) => val.key === childKey) as Filter[];
       const childFilter = childFilters && childFilters.length > 0 ? childFilters[0] : undefined;
       const alreadySelectedValues = childFilter?.values ?? [];
       let representationToAdd;
       if (checked) {
-        representationToAdd = { key: childKey, values: [...alreadySelectedValues, value] }; // the representation to add = the former values + the added value
+        // the representation to add = the former values + the added value
+        representationToAdd = { key: childKey, values: [...alreadySelectedValues, value] };
       } else {
         const cleanedValues = alreadySelectedValues.filter((val) => val !== value);
-        representationToAdd = cleanedValues.length > 0 ? { key: childKey, values: cleanedValues } : undefined; // the representation to add = the former values - the removed value
+        // the representation to add = the former values - the removed value
+        representationToAdd = cleanedValues.length > 0 ? { key: childKey, values: cleanedValues } : undefined;
       }
       helpers?.handleChangeRepresentationFilter(filter?.id ?? '', childFilter, representationToAdd);
     } else if (checked) {
@@ -207,11 +227,36 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
     }
   };
 
-  const handleChangeOperator = (event: SelectChangeEvent) => {
-    helpers?.handleChangeOperatorFilters(filter?.id ?? '', event.target.value);
+  const handleChangeOperator = (event: SelectChangeEvent, fDef?: FilterDefinition) => {
+    const filterType = fDef?.type;
+    const newOperator = event.target.value;
+    // for date check (date in days, operator) correspond to (timestamp in seconds, operator)
+    if (filterType === 'date' && filter && filter.values.length > 0) {
+      const formerOperator = filter?.operator;
+      const formerDate = filter.values[0]; // dates filters have a single value
+      if (formerOperator && ['lte', 'gt'].includes(formerOperator) && ['lt', 'gte'].includes(newOperator)) {
+        const newDate = subDays(new Date(formerDate), -1).toISOString();
+        const newInputValue = { key: filterKey, values: [newDate], newOperator };
+        setInputValues([newInputValue]);
+        helpers?.handleAddSingleValueFilter(filter?.id ?? '', newDate);
+      } else if (formerOperator && ['lt', 'gte'].includes(formerOperator) && ['lte', 'gt'].includes(newOperator)) {
+        const newDate = addDays(new Date(formerDate), 1).toISOString();
+        const newInputValue = { key: filterKey, values: [newDate], newOperator };
+        setInputValues([newInputValue]);
+        helpers?.handleAddSingleValueFilter(filter?.id ?? '', newDate);
+      }
+    }
+    // modify the operator
+    helpers?.handleChangeOperatorFilters(filter?.id ?? '', newOperator);
   };
   const handleDateChange = (_: string, value: string) => {
-    helpers?.handleAddSingleValueFilter(filter?.id ?? '', value);
+    // convert the date to handle comparison with a timestamp
+    const date = new Date(value);
+    let filterDate = date;
+    if (filter?.operator === 'lte' || filter?.operator === 'gt') { // lte date <=> lte (date+1 0:0:0)  /// gt date <=> gt (date+1 0:0:0)
+      filterDate = addDays(date, 1);
+    }
+    helpers?.handleAddSingleValueFilter(filter?.id ?? '', filterDate.toISOString());
   };
 
   const isSpecificFilter = (fDef?: FilterDefinition) => {
@@ -245,10 +290,32 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
   );
 
   const buildAutocompleteFilter = (fKey: string, fLabel?: string, subKey?: string): ReactNode => {
-    const getOptions = getOptionsFromEntities(entities, searchScope, fKey);
+    const getEntitiesOptions = getOptionsFromEntities(entities, searchScope, fKey);
     const optionsValues = subKey ? (filterValues.find((f) => f.key === subKey)?.values ?? []) : filterValues;
+
+    const completedTypesWithFintelTemplates = typesWithFintelTemplates.concat(['Container', 'Stix-Domain-Object', 'Stix-Core-Object']);
+    const shouldAddSelfId = fintelTemplatesContext
+      && (filterDefinition?.type === 'id' || (filterDefinition?.filterKey === 'regardingOf' && subKey === 'id'))
+      && (filterDefinition?.elementsForFilterValuesSearch ?? []).every((type) => completedTypesWithFintelTemplates.includes(type));
+
+    const getOptions = shouldAddSelfId
+      ? [
+        {
+          value: SELF_ID,
+          label: SELF_ID_VALUE,
+          group: 'Instance',
+          parentTypes: [],
+          color: 'primary',
+          type: 'Instance',
+        },
+        ...getEntitiesOptions,
+      ]
+      : getEntitiesOptions;
+
     const entitiesOptions = getOptions.filter((option) => !optionsValues.includes(option.value));
     const selectedOptions: OptionValue[] = getSelectedOptions(getOptions, optionsValues, filtersRepresentativesMap, t_i18n);
+
+    const options = [...selectedOptions, ...entitiesOptions];
 
     const groupByEntities = (option: OptionValue, label?: string) => {
       return t_i18n(option?.group ? option?.group : label);
@@ -259,7 +326,7 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
         key={fKey}
         getOptionLabel={(option) => option.label ?? ''}
         noOptionsText={t_i18n('No available options')}
-        options={[...selectedOptions, ...entitiesOptions]}
+        options={options}
         groupBy={(option) => groupByEntities(option, fLabel)}
         onInputChange={(event) => searchEntities(fKey, cacheEntities, setCacheEntities, event, !!subKey)}
         renderInput={(paramsInput) => (
@@ -360,7 +427,7 @@ export const FilterChipPopover: FunctionComponent<FilterChipMenuProps> = ({
           value={filterOperator}
           label="Operator"
           fullWidth={true}
-          onChange={handleChangeOperator}
+          onChange={(event) => handleChangeOperator(event, finalFilterDefinition)}
           style={{ marginBottom: 15 }}
         >
           {availableOperators.map((value) => (

@@ -2,10 +2,10 @@ import * as R from 'ramda';
 import moment from 'moment/moment';
 import { createEntity, createRelation, distributionEntities, patchAttribute, storeLoadByIdWithRefs, timeSeriesEntities } from '../../database/middleware';
 import { type EntityOptions, listAllEntities, listEntitiesPaginated, listEntitiesThroughRelationsPaginated, storeLoadById } from '../../database/middleware-loader';
-import { BUS_TOPICS, logApp } from '../../config/conf';
+import { BUS_TOPICS, extendedErrors, logApp } from '../../config/conf';
 import { notify } from '../../database/redis';
 import { checkIndicatorSyntax } from '../../python/pythonBridge';
-import { DatabaseError, FunctionalError } from '../../config/errors';
+import { DatabaseError, FunctionalError, ValidationError } from '../../config/errors';
 import { isStixCyberObservable } from '../../schema/stixCyberObservable';
 import { RELATION_BASED_ON, RELATION_INDICATES } from '../../schema/stixCoreRelationship';
 import {
@@ -20,7 +20,7 @@ import {
 } from '../../schema/general';
 import { elCount } from '../../database/engine';
 import { isEmptyField, READ_INDEX_STIX_DOMAIN_OBJECTS } from '../../database/utils';
-import { cleanupIndicatorPattern, extractObservablesFromIndicatorPattern } from '../../utils/syntax';
+import { cleanupIndicatorPattern, extractObservablesFromIndicatorPattern, extractValidObservablesFromIndicatorPattern } from '../../utils/syntax';
 import { computeValidPeriod } from './indicator-utils';
 import { addFilter } from '../../utils/filtering/filtering-utils';
 import type { AuthContext, AuthUser } from '../../types/user';
@@ -30,6 +30,7 @@ import {
   type QueryIndicatorsArgs,
   type QueryIndicatorsNumberArgs,
   type EditInput,
+  type StixCyberObservable,
   FilterMode,
   FilterOperator,
   OrderingMode
@@ -51,6 +52,7 @@ import {
 import { isModuleActivated } from '../../domain/settings';
 import { stixDomainObjectEditField } from '../../domain/stixDomainObject';
 import { prepareDate, utcDate } from '../../utils/format';
+import { checkObservableValue, isCacheEmpty } from '../../database/exclusionListCache';
 
 export const findById = (context: AuthContext, user: AuthUser, indicatorId: string) => {
   return storeLoadById<BasicStoreEntityIndicator>(context, user, indicatorId, ENTITY_TYPE_INDICATOR);
@@ -159,7 +161,7 @@ export const createObservablesFromIndicator = async (
   indicator: StoreEntityIndicator,
 ) => {
   const { pattern } = indicator;
-  const observables = extractObservablesFromIndicatorPattern(pattern);
+  const observables = extractValidObservablesFromIndicatorPattern(pattern);
   const observablesToLink = [];
   for (let index = 0; index < observables.length; index += 1) {
     const observable = observables[index];
@@ -177,17 +179,17 @@ export const createObservablesFromIndicator = async (
       update: true,
     };
     try {
-      const createdObservable = await createEntity(context, user, observableInput, observable.type);
-      observablesToLink.push(createdObservable.id);
+      const createdObservable: StixCyberObservable = await createEntity(context, user, observableInput, observable.type);
+      observablesToLink.push(createdObservable);
     } catch (err) {
-      logApp.error(err, { input: observableInput });
+      logApp.error('[API] Create observable from indicator fail', { index, cause: err, ...extendedErrors({ input: observableInput }) });
     }
   }
   await Promise.all(
     observablesToLink.map((observableToLink) => {
       const relationInput = {
         fromId: indicator.id,
-        toId: observableToLink,
+        toId: observableToLink.id,
         relationship_type: RELATION_BASED_ON,
         objectMarking: input.objectMarking,
         objectOrganization: input.objectOrganization,
@@ -195,9 +197,10 @@ export const createObservablesFromIndicator = async (
       return createRelation(context, user, relationInput);
     })
   );
+  return observablesToLink;
 };
 
-export const promoteIndicatorToObservable = async (context: AuthContext, user: AuthUser, indicatorId: string) => {
+export const promoteIndicatorToObservables = async (context: AuthContext, user: AuthUser, indicatorId: string) => {
   const indicator: StoreEntityIndicator = await storeLoadByIdWithRefs(context, user, indicatorId) as StoreEntityIndicator;
   const objectLabel = (indicator[INPUT_LABELS] ?? []).map((n) => n.internal_id);
   const objectMarking = (indicator[INPUT_MARKINGS] ?? []).map((n) => n.internal_id);
@@ -206,6 +209,36 @@ export const promoteIndicatorToObservable = async (context: AuthContext, user: A
   const createdBy = indicator[INPUT_CREATED_BY]?.internal_id;
   const input = { objectLabel, objectMarking, objectOrganization, createdBy, externalReferences };
   return createObservablesFromIndicator(context, user, input, indicator);
+};
+
+export const getObservableValuesFromPattern = (pattern: string) => extractObservablesFromIndicatorPattern(pattern);
+
+const validateIndicatorPattern = async (context: AuthContext, user: AuthUser, patternType: string, patternValue: string) => {
+  // check indicator syntax
+  const loweredPatternType = patternType.toLowerCase();
+  const formattedPattern = cleanupIndicatorPattern(loweredPatternType, patternValue);
+  const check = await checkIndicatorSyntax(context, user, loweredPatternType, formattedPattern);
+  if (check === false) {
+    throw FunctionalError(`Indicator of type ${patternType} is not correctly formatted.`, { doc_code: 'INCORRECT_INDICATOR_FORMAT' });
+  }
+
+  // Check that indicator is not excluded from an exclusion list
+  // no need to check if the exclusion list cache is empty
+  if (!isCacheEmpty()) {
+    const observableValues = getObservableValuesFromPattern(formattedPattern);
+    for (let i = 0; i < observableValues.length; i += 1) {
+      const exclusionListCheck = await checkObservableValue(observableValues[i]);
+      if (exclusionListCheck) {
+        throw FunctionalError(`Indicator of type ${patternType} is contained in exclusion list.`, {
+          doc_code: 'INDICATOR_PATTERN_EXCLUDED',
+          excludedValue: exclusionListCheck.value,
+          exclusionList: exclusionListCheck.listId
+        });
+      }
+    }
+  }
+
+  return { formattedPattern };
 };
 
 export const addIndicator = async (context: AuthContext, user: AuthUser, indicator: IndicatorAddInput) => {
@@ -217,13 +250,9 @@ export const addIndicator = async (context: AuthContext, user: AuthUser, indicat
   if (isKnownObservable && !isStixCyberObservable(observableType)) {
     throw FunctionalError(`Observable type ${observableType} is not supported.`);
   }
-  // check indicator syntax
-  const patternType = indicator.pattern_type.toLowerCase();
-  const formattedPattern = cleanupIndicatorPattern(patternType, indicator.pattern);
-  const check = await checkIndicatorSyntax(context, user, patternType, formattedPattern);
-  if (check === false) {
-    throw FunctionalError(`Indicator of type ${indicator.pattern_type} is not correctly formatted.`);
-  }
+
+  const { formattedPattern } = await validateIndicatorPattern(context, user, indicator.pattern_type, indicator.pattern);
+
   const indicatorBaseScore = indicator.x_opencti_score ?? 50;
   const isDecayActivated = await isModuleActivated('INDICATOR_DECAY_MANAGER');
   // find default decay rule (even if decay is not activated, it is used to compute default validFrom and validUntil)
@@ -299,12 +328,21 @@ export const addIndicator = async (context: AuthContext, user: AuthUser, indicat
 
 export const indicatorEditField = async (context: AuthContext, user: AuthUser, id: string, input: EditInput[], opts = {}) => {
   const finalInput = [...input];
+  const indicator = await findById(context, user, id);
+  if (!indicator) {
+    throw FunctionalError('Cannot edit the field, Indicator cannot be found.');
+  }
+  // validation check because according to STIX 2.1 specification the valid_until must be greater than the valid_from
+  let { valid_from, valid_until } = indicator;
+  input.forEach((e) => {
+    if (e.key === 'valid_from') [valid_from] = e.value;
+    if (e.key === 'valid_until') [valid_until] = e.value;
+  });
+  if (new Date(valid_until) <= new Date(valid_from)) {
+    throw ValidationError('The valid until date must be greater than the valid from date', 'valid_from');
+  }
   const scoreEditInput = input.find((e) => e.key === 'x_opencti_score');
   if (scoreEditInput) {
-    const indicator = await findById(context, user, id);
-    if (!indicator) {
-      throw FunctionalError('Cannot edit the field, Indicator cannot be found.');
-    }
     if (indicator.decay_applied_rule && !scoreEditInput.value.includes(indicator.decay_base_score)) {
       const newScore = scoreEditInput.value[0];
       const updateDate = utcDate();
@@ -325,8 +363,14 @@ export const indicatorEditField = async (context: AuthContext, user: AuthUser, i
       finalInput.push({ key: 'valid_until', value: [newValidUntilDate.toISOString()] });
     }
   }
+  // check indicator pattern syntax
+  const patternEditInput = input.find((e) => e.key === 'pattern');
+  if (patternEditInput) {
+    await validateIndicatorPattern(context, user, indicator.pattern_type, patternEditInput.value[0]);
+  }
+
   logApp.info('indicatorEditField finalInput', { finalInput });
-  return stixDomainObjectEditField(context, context.user, id, finalInput, opts);
+  return stixDomainObjectEditField(context, user, id, finalInput, opts);
 };
 
 export interface IndicatorPatch {

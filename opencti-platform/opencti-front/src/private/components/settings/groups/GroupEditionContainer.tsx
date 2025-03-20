@@ -4,7 +4,11 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { graphql, PreloadedQuery, useFragment, usePreloadedQuery } from 'react-relay';
 import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import { usersLinesSearchQuery } from '@components/settings/users/UsersLines';
+import { UsersLinesSearchQuery, UsersLinesSearchQuery$variables } from '@components/settings/users/__generated__/UsersLinesSearchQuery.graphql';
 import { GroupUsersLinesQuery$variables } from '@components/settings/users/__generated__/GroupUsersLinesQuery.graphql';
+import { initialStaticPaginationForGroupUsers } from '@components/settings/users/GroupUsers';
+import GroupEditionConfidence from './GroupEditionConfidence';
 import GroupEditionOverview from './GroupEditionOverview';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import GroupEditionRoles, { groupEditionRolesLinesSearchQuery } from './GroupEditionRoles';
@@ -15,8 +19,11 @@ import { GroupEditionRolesLinesSearchQuery } from './__generated__/GroupEditionR
 import { GroupEditionContainerQuery } from './__generated__/GroupEditionContainerQuery.graphql';
 import { GroupEditionContainer_group$key } from './__generated__/GroupEditionContainer_group.graphql';
 import GroupEditionMarkings from './GroupEditionMarkings';
-import { usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStorage';
 import ErrorNotFound from '../../../../components/ErrorNotFound';
+import { PaginationLocalStorage, usePaginationLocalStorage } from '../../../../utils/hooks/useLocalStorage';
+import useGranted, { SETTINGS_SETACCESSES } from '../../../../utils/hooks/useGranted';
+import SearchInput from '../../../../components/SearchInput';
+import { useDataTablePaginationLocalStorage } from '../../../../components/dataGrid/dataTableHooks';
 
 export const groupEditionContainerQuery = graphql`
   query GroupEditionContainerQuery($id: String!) {
@@ -33,7 +40,7 @@ const GroupEditionContainerFragment = graphql`
     rolesOrderMode: { type: "OrderingMode", defaultValue: asc }
   ) {
     id
-    members {
+    members(first: 500) {
       edges {
         node {
           id
@@ -43,6 +50,7 @@ const GroupEditionContainerFragment = graphql`
     }
     ...GroupEditionOverview_group
     ...GroupEditionMarkings_group
+    ...GroupEditionConfidence_group
     ...GroupEditionRoles_group
     @arguments(
       orderBy: $rolesOrderBy
@@ -59,28 +67,47 @@ interface GroupEditionContainerProps {
   groupQueryRef: PreloadedQuery<GroupEditionContainerQuery>
   handleClose?: () => void
   open?: boolean
+  disabled?: boolean
 }
 
 const GroupEditionContainer: FunctionComponent<GroupEditionContainerProps> = ({
-  groupQueryRef, handleClose = () => {
-  }, open,
+  groupQueryRef,
+  handleClose = () => {},
+  open,
+  disabled = false,
 }) => {
   const { t_i18n } = useFormatter();
 
   const [currentTab, setTab] = useState(0);
 
+  const hasSetAccess = useGranted([SETTINGS_SETACCESSES]);
   const groupData = usePreloadedQuery<GroupEditionContainerQuery>(groupEditionContainerQuery, groupQueryRef);
   const roleQueryRef = useQueryLoading<GroupEditionRolesLinesSearchQuery>(groupEditionRolesLinesSearchQuery);
+
   const group = useFragment<GroupEditionContainer_group$key>(
     GroupEditionContainerFragment,
     groupData.group,
   );
 
-  const { paginationOptions } = usePaginationLocalStorage<GroupUsersLinesQuery$variables>(`group-${group?.id}-users`, {});
-
   if (!group) {
     return <ErrorNotFound />;
   }
+
+  const { viewStorage: { searchTerm }, paginationOptions: paginationOptionsForUserEdition, helpers } = usePaginationLocalStorage<GroupUsersLinesQuery$variables>(
+    `group-${group.id}-users`,
+    {
+      id: group.id,
+      ...initialStaticPaginationForGroupUsers,
+    },
+    true,
+  );
+  const LOCAL_STORAGE_KEY = `group-${group.id}-users`;
+  const paginationLocalStorage: PaginationLocalStorage<UsersLinesSearchQuery$variables> = useDataTablePaginationLocalStorage(LOCAL_STORAGE_KEY, {});
+  const { orderMode, orderBy } = paginationLocalStorage.paginationOptions;
+  const userQueryRef = useQueryLoading<UsersLinesSearchQuery>(
+    usersLinesSearchQuery,
+    { search: searchTerm, orderBy, orderMode },
+  );
 
   const { editContext } = group;
   return (
@@ -90,6 +117,7 @@ const GroupEditionContainer: FunctionComponent<GroupEditionContainerProps> = ({
       context={editContext}
       onClose={handleClose}
       open={open}
+      disabled={disabled}
     >
       <>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -98,6 +126,7 @@ const GroupEditionContainer: FunctionComponent<GroupEditionContainerProps> = ({
             <Tab label={t_i18n('Roles')} />
             <Tab label={t_i18n('Markings')} />
             <Tab label={t_i18n('Members')} />
+            <Tab label={t_i18n('Confidences')} />
           </Tabs>
         </Box>
         {currentTab === 0 && (
@@ -105,13 +134,37 @@ const GroupEditionContainer: FunctionComponent<GroupEditionContainerProps> = ({
         )}
         {currentTab === 1 && roleQueryRef && (
           <React.Suspense
-            fallback={<Loader variant={LoaderVariant.inElement} />}
+            fallback={<Loader variant={LoaderVariant.inline} />}
           >
             <GroupEditionRoles group={group} queryRef={roleQueryRef} />
           </React.Suspense>
         )}
         {currentTab === 2 && <GroupEditionMarkings group={group} />}
-        {currentTab === 3 && <GroupEditionUsers group={group} paginationOptions={paginationOptions} />}
+        {currentTab === 3 && userQueryRef && (
+          <React.Suspense
+            fallback={<Loader variant={LoaderVariant.inline} />}
+          >
+            <GroupEditionUsers
+              group={group}
+              queryRef={userQueryRef}
+              paginationOptionsForUpdater={paginationOptionsForUserEdition}
+              storageKey={LOCAL_STORAGE_KEY}
+            >
+              <SearchInput
+                variant="thin"
+                onSubmit={helpers.handleSearch}
+                keyword={searchTerm}
+                sx={{
+                  marginTop: 2,
+                  marginBottom: 2,
+                }}
+              />
+            </GroupEditionUsers>
+          </React.Suspense>
+        )}
+        {hasSetAccess && currentTab === 4 && (
+          <GroupEditionConfidence group={group} context={editContext} />
+        )}
       </>
     </Drawer>
   );

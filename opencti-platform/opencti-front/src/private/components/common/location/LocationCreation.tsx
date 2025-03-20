@@ -1,7 +1,7 @@
 import React, { FunctionComponent, useState } from 'react';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -21,11 +21,14 @@ import { FormikConfig } from 'formik/dist/types';
 import { useFormatter } from '../../../../components/i18n';
 import { handleErrorInForm } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
-import SelectField from '../../../../components/SelectField';
-import MarkdownField from '../../../../components/MarkdownField';
+import SelectField from '../../../../components/fields/SelectField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import type { Theme } from '../../../../components/Theme';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   createButton: {
     position: 'fixed',
@@ -85,9 +88,9 @@ const locations = [
 ];
 
 const locationValidation = (t: (name: string | object) => string) => Yup.object().shape({
-  name: Yup.string().required(t('This field is required')),
+  name: Yup.string().trim().required(t('This field is required')),
   description: Yup.string().nullable(),
-  type: Yup.string().required(t('This field is required')),
+  type: Yup.string().trim().required(t('This field is required')),
 });
 
 const LocationCreationForm: FunctionComponent<LocationCreationFormProps> = ({
@@ -102,7 +105,7 @@ const LocationCreationForm: FunctionComponent<LocationCreationFormProps> = ({
   const classes = useStyles();
   const { t_i18n } = useFormatter();
 
-  const [commit] = useMutation<LocationCreationMutation>(locationMutation);
+  const [commit] = useApiMutation<LocationCreationMutation>(locationMutation);
 
   const onSubmit: FormikConfig<LocationAddInput>['onSubmit'] = (
     values,
@@ -156,7 +159,7 @@ const LocationCreationForm: FunctionComponent<LocationCreationFormProps> = ({
         handleReset,
         isSubmitting,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"

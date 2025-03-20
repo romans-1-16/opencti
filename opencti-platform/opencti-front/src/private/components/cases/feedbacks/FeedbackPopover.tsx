@@ -8,9 +8,9 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router-dom';
 import { PopoverProps } from '@mui/material/Popover';
 import { useFormatter } from '../../../../components/i18n';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
@@ -21,7 +21,11 @@ import { KNOWLEDGE_KNUPDATE_KNDELETE } from '../../../../utils/hooks/useGranted'
 import useDeletion from '../../../../utils/hooks/useDeletion';
 import FeedbackEditionContainer, { feedbackEditionQuery } from './FeedbackEditionContainer';
 import { FeedbackEditionContainerQuery } from './__generated__/FeedbackEditionContainerQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -43,7 +47,7 @@ const FeedbackPopover = ({ id }: { id: string }) => {
   const [anchorEl, setAnchorEl] = useState<PopoverProps['anchorEl']>();
   const [displayEdit, setDisplayEdit] = useState<boolean>(false);
 
-  const [commit] = useMutation(feedbackPopoverDeletionMutation);
+  const [commit] = useApiMutation(feedbackPopoverDeletionMutation);
   const queryRef = useQueryLoading<FeedbackEditionContainerQuery>(
     feedbackEditionQuery,
     { id },
@@ -83,44 +87,48 @@ const FeedbackPopover = ({ id }: { id: string }) => {
       },
     });
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
 
-  return (
-    <div className={classes.container}>
-      <ToggleButton
-        value="popover"
-        size="small"
-        onClick={handleOpen}
-      >
-        <MoreVert fontSize="small" color="primary" />
-      </ToggleButton>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
-        <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
-          <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
-        </Security>
-      </Menu>
-      <Dialog
-        PaperProps={{ elevation: 1 }}
-        open={displayDelete}
-        keepMounted={true}
-        TransitionComponent={Transition}
-        onClose={handleCloseDelete}
-      >
-        <DialogContent>
-          <DialogContentText>
-            {t_i18n('Do you want to delete this feedback ?')}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDelete} disabled={deleting}>
-            {t_i18n('Cancel')}
-          </Button>
-          <Button color="secondary" onClick={submitDelete} disabled={deleting}>
-            {t_i18n('Delete')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      {queryRef && (
+  return isFABReplaced
+    ? (<></>)
+    : (
+      <div className={classes.container}>
+        <ToggleButton
+          value="popover"
+          size="small"
+          onClick={handleOpen}
+        >
+          <MoreVert fontSize="small" color="primary" />
+        </ToggleButton>
+        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
+          <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
+          <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
+            <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+          </Security>
+        </Menu>
+        <Dialog
+          PaperProps={{ elevation: 1 }}
+          open={displayDelete}
+          keepMounted={true}
+          TransitionComponent={Transition}
+          onClose={handleCloseDelete}
+        >
+          <DialogContent>
+            <DialogContentText>
+              {t_i18n('Do you want to delete this feedback ?')}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDelete} disabled={deleting}>
+              {t_i18n('Cancel')}
+            </Button>
+            <Button color="secondary" onClick={submitDelete} disabled={deleting}>
+              {t_i18n('Delete')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        {queryRef && (
         <React.Suspense
           fallback={<Loader variant={LoaderVariant.inElement} />}
         >
@@ -130,9 +138,9 @@ const FeedbackPopover = ({ id }: { id: string }) => {
             open={displayEdit}
           />
         </React.Suspense>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
 };
 
 export default FeedbackPopover;

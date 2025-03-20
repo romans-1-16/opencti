@@ -2,9 +2,6 @@ import React, { FunctionComponent } from 'react';
 import { createFragmentContainer, graphql } from 'react-relay';
 import Grid from '@mui/material/Grid';
 import makeStyles from '@mui/styles/makeStyles';
-import PositionEdition from './PositionEdition';
-import Security from '../../../../utils/Security';
-import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import StixCoreObjectOrStixCoreRelationshipNotes from '../../analyses/notes/StixCoreObjectOrStixCoreRelationshipNotes';
 import StixDomainObjectOverview from '../../common/stix_domain_objects/StixDomainObjectOverview';
 import StixCoreObjectExternalReferences from '../../analyses/external_references/StixCoreObjectExternalReferences';
@@ -18,6 +15,8 @@ import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import { PositionDetailsLocationRelationshipsLinesQueryLinesPaginationQuery } from './__generated__/PositionDetailsLocationRelationshipsLinesQueryLinesPaginationQuery.graphql';
 import StixCoreObjectOrStixRelationshipLastContainers from '../../common/containers/StixCoreObjectOrStixRelationshipLastContainers';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   gridContainer: {
     marginBottom: 20,
@@ -47,7 +46,7 @@ const PositionComponent: FunctionComponent<PositionComponentProps> = ({
         spacing={3}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={4} style={{ paddingTop: 10 }}>
+        <Grid item xs={4}>
           {queryRef && (
             <React.Suspense
               fallback={<Loader variant={LoaderVariant.inElement} />}
@@ -56,7 +55,7 @@ const PositionComponent: FunctionComponent<PositionComponentProps> = ({
             </React.Suspense>
           )}
         </Grid>
-        <Grid item={true} xs={4} style={{ paddingTop: 10 }}>
+        <Grid item xs={4}>
           <LocationMiniMap
             center={
               position.latitude && position.longitude
@@ -67,26 +66,26 @@ const PositionComponent: FunctionComponent<PositionComponentProps> = ({
             zoom={8}
           />
         </Grid>
-        <Grid item={true} xs={4} style={{ paddingTop: 10 }}>
+        <Grid item xs={4}>
           <StixDomainObjectOverview
             stixDomainObject={position}
           />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+        <Grid item xs={6}>
           <SimpleStixObjectOrStixRelationshipStixCoreRelationships
             stixObjectOrStixRelationshipId={position.id}
             stixObjectOrStixRelationshipLink={`/dashboard/locations/positions/${position.id}/knowledge`}
           />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+        <Grid item xs={6}>
           <StixCoreObjectOrStixRelationshipLastContainers
             stixCoreObjectOrStixRelationshipId={position.id}
           />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+        <Grid item xs={6}>
           <StixCoreObjectExternalReferences stixCoreObjectId={position.id} />
         </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
+        <Grid item xs={6}>
           <StixCoreObjectLatestHistory stixCoreObjectId={position.id} />
         </Grid>
       </Grid>
@@ -94,9 +93,6 @@ const PositionComponent: FunctionComponent<PositionComponentProps> = ({
         stixCoreObjectOrStixCoreRelationshipId={position.id}
         defaultMarkings={position.objectMarking ?? []}
       />
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <PositionEdition positionId={position.id} />
-      </Security>
     </>
   );
 };

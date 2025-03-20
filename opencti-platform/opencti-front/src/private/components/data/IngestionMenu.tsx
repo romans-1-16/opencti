@@ -1,18 +1,22 @@
 import React from 'react';
 import NavToolbarMenu, { MenuEntry } from '@components/common/menus/NavToolbarMenu';
-import useGranted, { MODULES, SETTINGS } from '../../../utils/hooks/useGranted';
+import useGranted, { MODULES, INGESTION } from '../../../utils/hooks/useGranted';
 
 const IngestionMenu = () => {
   const isConnectorReader = useGranted([MODULES]);
-  const isGrantedSettings = useGranted([SETTINGS]);
+  const isGrantedIngestion = useGranted([INGESTION]);
   const settingsEntries: MenuEntry[] = [
     {
       path: '/dashboard/data/ingestion/sync',
-      label: 'Remote OCTI Streams',
+      label: 'OpenCTI Streams',
     },
     {
       path: '/dashboard/data/ingestion/taxii',
       label: 'TAXII Feeds',
+    },
+    {
+      path: '/dashboard/data/ingestion/collection',
+      label: 'TAXII Push',
     },
     {
       path: '/dashboard/data/ingestion/rss',
@@ -23,9 +27,9 @@ const IngestionMenu = () => {
       label: 'CSV Feeds',
     },
   ];
-  const entries: MenuEntry[] = isGrantedSettings ? [...settingsEntries] : [];
+  const entries: MenuEntry[] = isGrantedIngestion ? [...settingsEntries] : [];
   if (isConnectorReader) {
-    entries.push({
+    entries.unshift({
       path: '/dashboard/data/ingestion/connectors',
       label: 'Connectors',
     });

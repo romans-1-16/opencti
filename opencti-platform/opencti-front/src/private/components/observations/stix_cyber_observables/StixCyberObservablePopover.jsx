@@ -1,7 +1,6 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
 import { compose } from 'ramda';
-import { withRouter } from 'react-router-dom';
 import withStyles from '@mui/styles/withStyles';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -14,12 +13,14 @@ import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
 import { graphql } from 'react-relay';
 import ToggleButton from '@mui/material/ToggleButton';
+import StixCoreObjectEnrollPlaybook from '../../common/stix_core_objects/StixCoreObjectEnrollPlaybook';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import inject18n from '../../../../components/i18n';
 import { QueryRenderer, commitMutation } from '../../../../relay/environment';
 import { stixCyberObservableEditionQuery } from './StixCyberObservableEdition';
 import StixCyberObservableEditionContainer from './StixCyberObservableEditionContainer';
 import Security from '../../../../utils/Security';
-import { KNOWLEDGE_KNUPDATE_KNDELETE } from '../../../../utils/hooks/useGranted';
+import { KNOWLEDGE_KNENRICHMENT, KNOWLEDGE_KNUPDATE_KNDELETE } from '../../../../utils/hooks/useGranted';
 import Transition from '../../../../components/Transition';
 
 const styles = (theme) => ({
@@ -51,6 +52,7 @@ class StixCyberObservablePopover extends Component {
       anchorEl: null,
       displayDelete: false,
       displayEdit: false,
+      displayEnroll: false,
       deleting: false,
     };
   }
@@ -82,7 +84,7 @@ class StixCyberObservablePopover extends Component {
       onCompleted: () => {
         this.setState({ deleting: false });
         this.handleClose();
-        this.props.history.push(
+        this.props.navigate(
           `/dashboard/observations/${
             this.props.isArtifact ? 'artifacts' : 'observables'
           }`,
@@ -98,6 +100,15 @@ class StixCyberObservablePopover extends Component {
 
   handleCloseEdit() {
     this.setState({ displayEdit: false });
+  }
+
+  handleOpenEnroll() {
+    this.setState({ displayEnroll: true });
+    this.handleClose();
+  }
+
+  handleCloseEnroll() {
+    this.setState({ displayEnroll: false });
   }
 
   render() {
@@ -120,12 +131,18 @@ class StixCyberObservablePopover extends Component {
           <MenuItem onClick={this.handleOpenEdit.bind(this)}>
             {t('Update')}
           </MenuItem>
+          <Security needs={[KNOWLEDGE_KNENRICHMENT]}>
+            <MenuItem onClick={this.handleOpenEnroll.bind(this)}>
+              {t('Enroll in playbook')}
+            </MenuItem>
+          </Security>
           <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
             <MenuItem onClick={this.handleOpenDelete.bind(this)}>
               {t('Delete')}
             </MenuItem>
           </Security>
         </Menu>
+        <StixCoreObjectEnrollPlaybook stixCoreObjectId={stixCyberObservableId} open={this.state.displayEnroll} handleClose={this.handleCloseEnroll.bind(this)} />
         <Dialog
           open={this.state.displayDelete}
           PaperProps={{ elevation: 1 }}
@@ -187,7 +204,7 @@ StixCyberObservablePopover.propTypes = {
   stixCyberObservableId: PropTypes.string,
   classes: PropTypes.object,
   t: PropTypes.func,
-  history: PropTypes.object,
+  navigate: PropTypes.func,
   isArtifact: PropTypes.bool,
 };
 

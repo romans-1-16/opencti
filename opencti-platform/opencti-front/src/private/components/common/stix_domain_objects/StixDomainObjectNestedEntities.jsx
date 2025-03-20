@@ -14,8 +14,6 @@ import StixDomainObjectNestedEntitiesLines, { stixDomainObjectNestedEntitiesLine
 
 const styles = (theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: 0,
     padding: 15,
     borderRadius: 4,
@@ -196,7 +194,7 @@ StixDomainObjectNestedEntities.propTypes = {
   paginationOptions: PropTypes.object,
   classes: PropTypes.object,
   t: PropTypes.func,
-  history: PropTypes.object,
+  navigate: PropTypes.object,
   defaultStartTime: PropTypes.string,
   defaultStopTime: PropTypes.string,
 };

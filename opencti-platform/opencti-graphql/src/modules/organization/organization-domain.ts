@@ -1,4 +1,4 @@
-import { createEntity, patchAttribute } from '../../database/middleware';
+import { createEntity, deleteElementById, patchAttribute } from '../../database/middleware';
 import {
   type EntityOptions,
   internalFindByIds,
@@ -10,6 +10,7 @@ import {
 } from '../../database/middleware-loader';
 import { BUS_TOPICS } from '../../config/conf';
 import { notify } from '../../database/redis';
+import { verifyCanDeleteOrganization } from '../../database/data-consistency';
 import { ENTITY_TYPE_IDENTITY_SECTOR } from '../../schema/stixDomainObject';
 import { RELATION_PART_OF } from '../../schema/stixCoreRelationship';
 import { ABSTRACT_STIX_DOMAIN_OBJECT } from '../../schema/general';
@@ -18,7 +19,7 @@ import { ENTITY_TYPE_USER } from '../../schema/internalObject';
 import { type BasicStoreEntityOrganization, ENTITY_TYPE_IDENTITY_ORGANIZATION } from './organization-types';
 import type { AuthContext, AuthUser } from '../../types/user';
 import type { BasicObject, OrganizationAddInput, ResolversTypes } from '../../generated/graphql';
-import { FunctionalError } from '../../config/errors';
+import { AlreadyDeletedError, FunctionalError } from '../../config/errors';
 import { isUserHasCapability, SETTINGS_SET_ACCESSES } from '../../utils/access';
 import { publishUserAction } from '../../listener/UserActionListener';
 import type { BasicStoreCommon, BasicStoreEntity } from '../../types/store';
@@ -47,14 +48,17 @@ export const editAuthorizedAuthorities = async (context: AuthContext, user: Auth
 export const organizationAdminAdd = async (context: AuthContext, user: AuthUser, organizationId: string, memberId: string) => {
   // Get Orga and members
   const organization = await findById(context, user, organizationId);
-  const members: BasicStoreEntity[] = await listAllFromEntitiesThroughRelations(context, user, organizationId, RELATION_PARTICIPATE_TO, ENTITY_TYPE_USER);
+  if (!organization) {
+    throw FunctionalError('Organization not found');
+  }
+  const members: BasicStoreEntity[] = await listAllFromEntitiesThroughRelations(context, user, organization.id, RELATION_PARTICIPATE_TO, ENTITY_TYPE_USER);
   const updatedUser = members.find(({ id }) => id === memberId);
   // Check if user is part of Orga. If not, throw exception
   if (!updatedUser) {
     throw FunctionalError('User is not part of the organization');
   }
   // Add user to organization admins list
-  const updated = await editAuthorizedAuthorities(context, user, organizationId, [...(organization.authorized_authorities ?? []), memberId]);
+  const updated = await editAuthorizedAuthorities(context, user, organization.id, [...(organization.authorized_authorities ?? []), memberId]);
   await publishUserAction({
     user,
     event_type: 'mutation',
@@ -70,7 +74,10 @@ export const organizationAdminAdd = async (context: AuthContext, user: AuthUser,
 export const organizationAdminRemove = async (context: AuthContext, user: AuthUser, organizationId: string, memberId: string) => {
   // Get Orga and members
   const organization = await findById(context, user, organizationId);
-  const members: BasicStoreEntity[] = await listAllFromEntitiesThroughRelations(context, user, organizationId, RELATION_PARTICIPATE_TO, ENTITY_TYPE_USER);
+  if (!organization) {
+    throw FunctionalError('Organization not found');
+  }
+  const members: BasicStoreEntity[] = await listAllFromEntitiesThroughRelations(context, user, organization.id, RELATION_PARTICIPATE_TO, ENTITY_TYPE_USER);
   const updatedUser = members.find(({ id }) => id === memberId);
   // Check if user is part of Orga and is orga_admin. If not, throw exception
   if (!updatedUser) {
@@ -126,6 +133,17 @@ export const parentOrganizationsPaginated = async <T extends BasicStoreCommon> (
 export const childOrganizationsPaginated = async <T extends BasicStoreCommon> (context: AuthContext, user: AuthUser, organizationId: string,
   args: EntityOptions<T>) => {
   return listEntitiesThroughRelationsPaginated<T>(context, user, organizationId, RELATION_PART_OF, ENTITY_TYPE_IDENTITY_ORGANIZATION, true, args);
+};
+
+export const organizationDelete = async (context: AuthContext, user: AuthUser, organizationId: string) => {
+  const organization = await findById(context, user, organizationId);
+  if (!organization) {
+    throw AlreadyDeletedError({ organizationId });
+  }
+  await verifyCanDeleteOrganization(context, user, organization);
+  await deleteElementById(context, user, organizationId, ENTITY_TYPE_IDENTITY_ORGANIZATION);
+  await notify(BUS_TOPICS[ABSTRACT_STIX_DOMAIN_OBJECT].DELETE_TOPIC, organizationId, user);
+  return organizationId;
 };
 
 // endregion

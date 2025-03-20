@@ -5,10 +5,10 @@ import { ENTITY_TYPE_CONTAINER_CASE } from '../modules/case/case-types';
 export const STIX_TYPE_RELATION = 'relationship';
 export const STIX_TYPE_SIGHTING = 'sighting';
 
-export const KNOWLEDGE_ORGANIZATION_RESTRICT = 'KNORGARESTRICT';
 export const KNOWLEDGE_DELETE = 'KNDELETE';
 export const KNOWLEDGE_MANAGE_AUTH_MEMBERS = 'KNMANAGEAUTHMEMBERS';
 export const KNOWLEDGE_UPDATE = 'KNUPDATE';
+export const KNOWLEDGE_FRONTEND_EXPORT = 'KNFRONTENDEXPORT';
 export const KNOWLEDGE_COLLABORATION = 'KNPARTICIPATE';
 
 export const ID_INTERNAL = 'internal_id';
@@ -22,6 +22,8 @@ export const BASE_TYPE_ENTITY = 'ENTITY';
 // Inputs
 export const INPUT_GRANTED_REFS = 'objectOrganization'; // granted_refs
 export const INPUT_EXTERNAL_REFS = 'externalReferences'; // external_references
+export const INPUT_WORKS = 'works'; // works
+export const INPUT_INTERNAL_FILES = 'internalFiles'; // internal_files
 export const INPUT_KILLCHAIN = 'killChainPhases'; // kill_chain_phases
 export const INPUT_CREATED_BY = 'createdBy'; // created_by_ref
 export const INPUT_LABELS = 'objectLabel'; // labels
@@ -45,8 +47,10 @@ export const buildRefRelationSearchKey = (type, field = ID_INTERNAL) => `${build
 // Connectors
 export const CONNECTOR_INTERNAL_ENRICHMENT = 'INTERNAL_ENRICHMENT'; // Entity types to support (Report, Hash, ...) -> enrich-
 export const CONNECTOR_INTERNAL_IMPORT_FILE = 'INTERNAL_IMPORT_FILE'; // Files mime types to support (application/json, ...) -> import-
+export const CONNECTOR_INTERNAL_ANALYSIS = 'INTERNAL_ANALYSIS'; // Analysis to support (fields, file ...) -> import-
 export const CONNECTOR_INTERNAL_EXPORT_FILE = 'INTERNAL_EXPORT_FILE'; // Files mime types to generate (application/pdf, ...) -> export-
 export const CONNECTOR_INTERNAL_NOTIFICATION = 'INTERNAL_NOTIFICATION'; // Notifier connectors -> notifier-
+export const CONNECTOR_INTERNAL_INGESTION = 'INTERNAL_INGESTION'; // Currently only used for draft validation
 
 // General UUID
 export const OASIS_NAMESPACE = '00abedb4-aa42-466c-9c01-fed23315a9b7';
@@ -88,6 +92,7 @@ export const ABSTRACT_TYPES = [
   ABSTRACT_STIX_CORE_OBJECT,
   ABSTRACT_STIX_DOMAIN_OBJECT,
   ENTITY_TYPE_CONTAINER,
+  ENTITY_TYPE_CONTAINER_CASE,
   ENTITY_TYPE_IDENTITY,
   ENTITY_TYPE_THREAT_ACTOR,
   ENTITY_TYPE_LOCATION,

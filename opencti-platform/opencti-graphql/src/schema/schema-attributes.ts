@@ -1,9 +1,10 @@
 import * as R from 'ramda';
 import { RULE_PREFIX } from './general';
 import { FunctionalError, UnsupportedError } from '../config/errors';
-import type { AttributeDefinition, AttrType, ComplexAttributeWithMappings } from './attribute-definition';
+import type { AttributeDefinition, AttrType, ComplexAttributeWithMappings, MappingDefinition } from './attribute-definition';
 import { shortStringFormats } from './attribute-definition';
 import { getParentTypes } from './schemaUtils';
+import { isFeatureEnabled } from '../config/conf';
 
 export const depsKeysRegister = {
   deps: [] as { src: string, types?: string[] }[],
@@ -16,7 +17,45 @@ export const depsKeysRegister = {
   },
 };
 
+// -- Utilities to manipulate AttributeDefinitions --
+
+const isMandatoryAttributeDefinition = (schemaDef: AttributeDefinition) => schemaDef.mandatoryType === 'external' || schemaDef.mandatoryType === 'internal';
+
+const isNonFlatObjectAttributeDefinition = (schemaDef: AttributeDefinition) : schemaDef is ComplexAttributeWithMappings => { // handy typeguard
+  return schemaDef.type === 'object' && schemaDef.format !== 'flat';
+};
+
+/**
+ * Returns the attribute definition for a given dotted path inside the given AttributeDefinition,
+ * following the mappings recursively.
+ */
+const getAttributeMappingFromPath = (path: string, schemaDef: AttributeDefinition | MappingDefinition): MappingDefinition => {
+  const pathTokens = path.split('.');
+  if (pathTokens.length === 1) {
+    return schemaDef;
+  }
+  if (!isNonFlatObjectAttributeDefinition(schemaDef)) {
+    throw FunctionalError(`Cannot resolve path [${path}], [${schemaDef.name}] is not an object`);
+  }
+  const mapping = schemaDef.mappings.find((m) => m.name === pathTokens[1]);
+  if (!mapping) {
+    throw FunctionalError(`Schema definition named [${schemaDef.name}] is missing mapping for attribute [${pathTokens[1]}]`);
+  }
+
+  if (pathTokens.length > 2) {
+    // remove first and recursively check the rest of the path
+    pathTokens.shift();
+    return getAttributeMappingFromPath(pathTokens.join('.'), mapping);
+  }
+  return mapping;
+};
+
+// Flag to track if the schema was rea; when read for the first time the schema is then read-only and new registration is diallowed
 let usageProtection = false;
+
+/**
+ * Main utility object to write and read the schema in the platform
+ */
 export const schemaAttributesDefinition = {
   allAttributes: new Map<string, AttributeDefinition>(),
   attributes: {} as Record<string, Map<string, AttributeDefinition>>,
@@ -40,20 +79,19 @@ export const schemaAttributesDefinition = {
     const directAttributes = this.attributes[entityType] ?? new Map<string, AttributeDefinition>();
     // Register given attribute
     const currentAttributes = Object.values(this.attributes);
-    attributes.forEach((attribute) => {
+    attributes.filter((a) => (!a.featureFlag || isFeatureEnabled(a.featureFlag))).forEach((attribute) => {
       // Check different attributes have different labels
-      let attributesWithSameLabelAndDifferentName: AttributeDefinition[] = [];
       currentAttributes
         .forEach((m) => {
           const attributeDefinitionsList = Array.from(m.values());
-          attributesWithSameLabelAndDifferentName = attributeDefinitionsList.filter((a) => (a.label === attribute.label) && (a.name !== attribute.name));
+          const attributesWithSameLabelAndDifferentName = attributeDefinitionsList.filter((a) => (a.label === attribute.label) && (a.name !== attribute.name));
+          if (attributesWithSameLabelAndDifferentName.length > 0) {
+            throw UnsupportedError('You can\'t have two attributes with the same label and a different name in the platform', {
+              attributesWithSameLabelAndDifferentName,
+              attribute,
+            });
+          }
         });
-      if (attributesWithSameLabelAndDifferentName.length > 0) {
-        throw UnsupportedError('You can\'t have two attributes with the same label and a different name in the platform', {
-          attributesWithSameLabelAndDifferentName,
-          attribute,
-        });
-      }
       // Check the homogeneity of attribute types
       const existingAttribute = currentAttributes.find((a) => a.get(attribute.name))?.get(attribute.name); // Maybe better way ?
       if (existingAttribute) {
@@ -105,6 +143,16 @@ export const schemaAttributesDefinition = {
           entityType
         });
       }
+      // Check sortBy on object
+      if (attribute.type === 'object' && attribute.format !== 'flat' && attribute.sortBy) {
+        const correspondingMapping = getAttributeMappingFromPath(attribute.sortBy.path, attribute);
+        if (correspondingMapping.type !== attribute.sortBy.type) {
+          throw UnsupportedError('You can\'t define a sortBy with path and type that do not match the corresponding mapping', {
+            attributeName: attribute.name,
+            entityType
+          });
+        }
+      }
       // set attribute
       directAttributes.set(attribute.name, attribute);
       // add the attribute name and type in the map of all the attributes
@@ -149,6 +197,14 @@ export const schemaAttributesDefinition = {
     return R.uniqBy((a) => a.name, Object.values(this.attributes).map((a) => Array.from(a.values())).flat());
   },
 
+  getIdAttributes() {
+    return this.getAllAttributes().filter((attr) => attr.type === 'string' && attr.format === 'id');
+  },
+
+  getIdAttributeNames() {
+    return this.getIdAttributes().map((attr) => attr.name);
+  },
+
   getRegisteredTypes() {
     return this.registeredTypes;
   },
@@ -185,9 +241,25 @@ export const schemaAttributesDefinition = {
   },
 
   isSpecificTypeAttribute(attributeName: string, ...attributeType: AttrType[]): boolean {
+    if (attributeName.includes('.') && !attributeName.endsWith('*')) {
+      const attribute = schemaAttributesDefinition.getAttributeByName(attributeName.split('.')[0]);
+      if (attribute && attribute.type === 'object' && attribute.format === 'standard') {
+        const { type } = schemaAttributesDefinition.getAttributeMappingFromPath(attributeName);
+        return attributeType.includes(type);
+      }
+    }
     usageProtection = true;
     return attributeType.reduce((r, fn) => this.attributesByTypes[fn].has(attributeName) || r, false);
   },
+
+  getAttributeMappingFromPath(path: string): MappingDefinition {
+    const pathTokens = path.split('.');
+    const schemaDef = this.getAttributeByName(pathTokens[0]);
+    if (!schemaDef) {
+      throw FunctionalError(`Cannot resolve path [${path}], missing schema definition for attribute [${pathTokens[0]}}]`);
+    }
+    return getAttributeMappingFromPath(path, schemaDef);
+  }
 };
 
 // -- TYPE --
@@ -218,15 +290,6 @@ export const isMultipleAttribute = (entityType: string, k: string): boolean => (
   k.startsWith(RULE_PREFIX) || schemaAttributesDefinition.isMultipleAttribute(entityType, k)
 );
 
-// -- utility functions independent of attribute registration --
-// (inner mappings are not registered like first-level attribute)
-
-export const isMandatoryAttributeMapping = (schemaDef: AttributeDefinition) => schemaDef.mandatoryType === 'external' || schemaDef.mandatoryType === 'internal';
-
-export const isNonFlatObjectAttributeMapping = (schemaDef: AttributeDefinition) : schemaDef is ComplexAttributeWithMappings => { // handy typeguard
-  return schemaDef.type === 'object' && schemaDef.format !== 'flat';
-};
-
 /**
  * Validates that the given input conforms to the constraints in the corresponding schema definition.
  * Recursively checks non-flat objects mappings.
@@ -234,21 +297,21 @@ export const isNonFlatObjectAttributeMapping = (schemaDef: AttributeDefinition) 
  * @param schemaDef AttributeDefinition for the given input data
  */
 const validateInputAgainstSchema = (input: any, schemaDef: AttributeDefinition) => {
-  const isMandatory = isMandatoryAttributeMapping(schemaDef);
+  const isMandatory = isMandatoryAttributeDefinition(schemaDef);
   if (isMandatory && R.isNil(input)) {
-    throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: this mandatory field cannot be nil`, { value: input });
+    throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: this mandatory field cannot be nil`);
   }
 
-  if (isNonFlatObjectAttributeMapping(schemaDef)) {
+  if (isNonFlatObjectAttributeDefinition(schemaDef)) {
     if (!isMandatory && R.isNil(input)) {
       return; // nothing to check (happens on 'remove' operation for instance
     }
     // check 'multiple' constraint
     if (schemaDef.multiple && !Array.isArray(input)) {
-      throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: value must be an array`, { value: input });
+      throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: value must be an array`);
     }
     if (!schemaDef.multiple && (Array.isArray(input) || !R.is(Object, input))) {
-      throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: value must be an object`, { value: input });
+      throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: value must be an object`);
     }
 
     const inputValues = Array.isArray(input) ? input : [input];
@@ -257,8 +320,8 @@ const validateInputAgainstSchema = (input: any, schemaDef: AttributeDefinition) 
       const valueKeys = Object.keys(value);
       schemaDef.mappings.forEach((mapping) => {
         // mandatory fields: the value must have a field with this name
-        if (isMandatoryAttributeMapping(mapping) && !valueKeys.includes(mapping.name)) {
-          throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: mandatory field [${mapping.name}] is not present`, { value });
+        if (isMandatoryAttributeDefinition(mapping) && !valueKeys.includes(mapping.name)) {
+          throw FunctionalError(`Validation against schema failed on attribute [${schemaDef.name}]: mandatory field [${mapping.name}] is not present`);
         }
         // ...we might add more constraints such as a numeric range.
 
@@ -272,22 +335,15 @@ const validateInputAgainstSchema = (input: any, schemaDef: AttributeDefinition) 
 
 export const validateDataBeforeIndexing = (element: any) => {
   if (!element.entity_type) {
-    throw FunctionalError('Validation against schema failed: element has no entity_type', { value: element });
+    throw FunctionalError('Validation against schema failed: element has no entity_type');
   }
 
   // just check the given entity_type is in schema ; this call would throw a DatabaseError
-  try {
-    schemaAttributesDefinition.getAttributes(element.entity_type);
-  } catch (e: any) {
-    if (e.name === 'DATABASE_ERROR') {
-      throw FunctionalError('Validation against schema failed: this entity_type is not supported', { value: element });
-    }
-    throw e;
-  }
+  schemaAttributesDefinition.getAttributes(element.entity_type);
 
   Object.keys(element).forEach((elementKey) => {
     const input = element[elementKey];
-    const attributeSchemaDef = schemaAttributesDefinition.getAttributeByName(elementKey);
+    const attributeSchemaDef = schemaAttributesDefinition.getAttribute(element.entity_type, elementKey);
     if (!attributeSchemaDef) {
       return; // no validation to do, happens for meta fields like "_index"
     }

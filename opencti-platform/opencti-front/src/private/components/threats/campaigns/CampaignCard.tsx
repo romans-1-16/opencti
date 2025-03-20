@@ -3,14 +3,31 @@ import { graphql, useFragment } from 'react-relay';
 import { GenericAttack, GenericAttackCard } from '../../common/cards/GenericAttackCard';
 import { CampaignCard_node$key } from './__generated__/CampaignCard_node.graphql';
 
-const CampaignCardFragment = graphql`
+export const CampaignCardFragment = graphql`
   fragment CampaignCard_node on Campaign {
     id
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     name
     aliases
+    entity_type
     description
     created
     modified
+    draftVersion {
+      draft_id
+      draft_operation
+    }
+    createdBy {
+      id
+      name
+    }
+    creators {
+      id
+      name
+    }
     objectMarking {
       id
       definition_type
@@ -26,7 +43,7 @@ const CampaignCardFragment = graphql`
     targetedCountries: stixCoreRelationships(
       relationship_type: "targets"
       toTypes: ["Country"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {
@@ -43,7 +60,7 @@ const CampaignCardFragment = graphql`
     targetedSectors: stixCoreRelationships(
       relationship_type: "targets"
       toTypes: ["Sector"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {
@@ -60,7 +77,7 @@ const CampaignCardFragment = graphql`
     usedMalware: stixCoreRelationships(
       relationship_type: "uses"
       toTypes: ["Malware"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {

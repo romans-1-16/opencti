@@ -10,6 +10,7 @@ type Channel implements BasicObject & StixObject & StixCoreObject & StixDomainOb
     spec_version: String!
     created_at: DateTime!
     updated_at: DateTime!
+    draftVersion: DraftVersion
     # inferences
     x_opencti_inferences: [Inference]
     # StixCoreObject
@@ -84,6 +85,7 @@ type Channel implements BasicObject & StixObject & StixCoreObject & StixDomainOb
         search: String
         filters: FilterGroup
     ): [Distribution] @auth(for: [KNOWLEDGE, EXPLORE])
+    opinions_metrics: OpinionsMetrics
     # StixDomainObject
     revoked: Boolean!
     confidence: Int
@@ -92,6 +94,7 @@ type Channel implements BasicObject & StixObject & StixCoreObject & StixDomainOb
     modified: DateTime
     x_opencti_graph_data: String
     objectAssignee: [Assignee!]
+    objectParticipant: [Participant!]
     avatar: OpenCtiFile
     # Channel
     name: String!
@@ -101,8 +104,23 @@ type Channel implements BasicObject & StixObject & StixCoreObject & StixDomainOb
     # Technical
     creators: [Creator!]
     toStix: String
-    importFiles(first: Int, prefixMimeType: String): FileConnection
-    pendingFiles(first: Int): FileConnection
+    importFiles(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+    pendingFiles(
+    first: Int
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
     exportFiles(first: Int): FileConnection
     editContext: [EditUserContext!]
     connectors(onlyAlive: Boolean): [Connector]
@@ -123,6 +141,7 @@ enum ChannelsOrdering {
     objectLabel
     x_opencti_workflow_id
     confidence
+    _score
 }
 
 # Relay connections
@@ -152,7 +171,7 @@ type Query {
 input ChannelAddInput {
     stix_id: StixId
     x_opencti_stix_ids: [StixId]
-    name: String! @constraint(minLength: 2)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     channel_types: [String]
     aliases: [String]

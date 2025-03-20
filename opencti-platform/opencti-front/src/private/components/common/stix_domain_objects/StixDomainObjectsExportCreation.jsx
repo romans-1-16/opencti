@@ -8,20 +8,20 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Slide from '@mui/material/Slide';
-import { Add } from '@mui/icons-material';
+import { Add, InfoOutlined } from '@mui/icons-material';
 import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import MenuItem from '@mui/material/MenuItem';
 import * as Yup from 'yup';
 import Tooltip from '@mui/material/Tooltip';
 import Fab from '@mui/material/Fab';
+import ObjectMarkingField from '../form/ObjectMarkingField';
 import inject18n from '../../../../components/i18n';
-import { commitMutation, MESSAGING$, QueryRenderer } from '../../../../relay/environment';
-import { markingDefinitionsLinesSearchQuery } from '../../settings/marking_definitions/MarkingDefinitionsLines';
-import SelectField from '../../../../components/SelectField';
-import Loader from '../../../../components/Loader';
+import { commitMutation, MESSAGING$ } from '../../../../relay/environment';
+import SelectField from '../../../../components/fields/SelectField';
 import { ExportContext } from '../../../../utils/ExportContextProvider';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
+import { CONTENT_MAX_MARKINGS_HELPERTEXT, CONTENT_MAX_MARKINGS_TITLE } from '../files/FileManager';
 
 const Transition = React.forwardRef((props, ref) => (
   <Slide direction="up" ref={ref} {...props} />
@@ -50,7 +50,8 @@ export const StixDomainObjectsExportCreationMutation = graphql`
   mutation StixDomainObjectsExportCreationMutation(
     $format: String!
     $exportType: String!
-    $maxMarkingDefinition: String
+    $contentMaxMarkings: [String]
+    $fileMarkings: [String]
     $exportContext: ExportContext
     $search: String
     $orderBy: StixDomainObjectsOrdering
@@ -62,7 +63,8 @@ export const StixDomainObjectsExportCreationMutation = graphql`
     stixDomainObjectsExportAsk(
       format: $format
       exportType: $exportType
-      maxMarkingDefinition: $maxMarkingDefinition
+      contentMaxMarkings: $contentMaxMarkings
+      fileMarkings: $fileMarkings
       exportContext: $exportContext
       search: $search
       orderBy: $orderBy
@@ -78,6 +80,7 @@ export const StixDomainObjectsExportCreationMutation = graphql`
 
 const exportValidation = (t) => Yup.object().shape({
   format: Yup.string().required(t('This field is required')),
+  type: Yup.string().required(t('This field is required')),
 });
 
 export const scopesConn = (exportConnectors) => {
@@ -99,7 +102,11 @@ export const scopesConn = (exportConnectors) => {
 class StixDomainObjectsExportCreationComponent extends Component {
   constructor(props) {
     super(props);
-    this.state = { open: false };
+    this.state = { open: false, selectedContentMaxMarkingsIds: [] };
+  }
+
+  handleSelectedContentMaxMarkingsChange(values) {
+    this.setState({ selectedContentMaxMarkingsIds: values.map(({ value }) => value) });
   }
 
   handleOpen() {
@@ -112,15 +119,17 @@ class StixDomainObjectsExportCreationComponent extends Component {
 
   onSubmit(selectedIds, values, { setSubmitting, resetForm }) {
     const { paginationOptions, exportContext } = this.props;
-    const maxMarkingDefinition = values.maxMarkingDefinition === 'none'
-      ? null
-      : values.maxMarkingDefinition;
+
+    const contentMaxMarkings = values.contentMaxMarkings.map(({ value }) => value);
+    const fileMarkings = values.fileMarkings.map(({ value }) => value);
+
     commitMutation({
       mutation: StixDomainObjectsExportCreationMutation,
       variables: {
         format: values.format,
         exportType: values.type,
-        maxMarkingDefinition,
+        contentMaxMarkings,
+        fileMarkings,
         exportContext,
         ...paginationOptions,
         selectedIds,
@@ -144,6 +153,7 @@ class StixDomainObjectsExportCreationComponent extends Component {
     const exportConnsPerFormat = scopesConn(connectorsExport);
     const isExportActive = (format) => filter((x) => x.data.active, exportConnsPerFormat[format]).length > 0;
     const isExportPossible = filter((x) => isExportActive(x), exportScopes).length > 0;
+    const availableFormat = exportScopes;
     return (
       <ExportContext.Consumer>
         {({ selectedIds }) => {
@@ -163,6 +173,7 @@ class StixDomainObjectsExportCreationComponent extends Component {
                   aria-label="Add"
                   className={classes.createButton}
                   disabled={!isExportPossible}
+                  data-testid="StixDomainObjectsExportCreationAddButton"
                 >
                   <Add />
                 </Fab>
@@ -173,92 +184,81 @@ class StixDomainObjectsExportCreationComponent extends Component {
                   format: '',
                   type: 'simple',
                   maxMarkingDefinition: 'none',
+                  contentMaxMarkings: [],
+                  fileMarkings: [],
                 }}
                 validationSchema={exportValidation(t)}
                 onSubmit={this.onSubmit.bind(this, selectedIds)}
                 onReset={this.handleClose.bind(this)}
               >
-                {({ submitForm, handleReset, isSubmitting }) => (
+                {({ submitForm, handleReset, isSubmitting, resetForm, setFieldValue }) => (
                   <Form>
                     <Dialog
                       PaperProps={{ elevation: 1 }}
                       open={this.state.open}
-                      onClose={this.handleClose.bind(this)}
+                      onClose={resetForm}
                       fullWidth={true}
+                      data-testid="StixDomainObjectsExportCreationDialog"
                     >
-                      <DialogTitle>{t('Generate an export')}</DialogTitle>
-                      <QueryRenderer
-                        query={markingDefinitionsLinesSearchQuery}
-                        variables={{ first: 200 }}
-                        render={({ props }) => {
-                          if (props && props.markingDefinitions) {
-                            return (
-                              <DialogContent>
-                                <Field
-                                  component={SelectField}
-                                  variant="standard"
-                                  name="format"
-                                  label={t('Export format')}
-                                  fullWidth={true}
-                                  containerstyle={{ width: '100%' }}
-                                >
-                                  {exportScopes.map((value, i) => (
-                                    <MenuItem
-                                      key={i}
-                                      value={value}
-                                      disabled={!isExportActive(value)}
-                                    >
-                                      {value}
-                                    </MenuItem>
-                                  ))}
-                                </Field>
-                                <Field
-                                  component={SelectField}
-                                  variant="standard"
-                                  name="type"
-                                  label={t('Export type')}
-                                  fullWidth={true}
-                                  containerstyle={fieldSpacingContainerStyle}
-                                >
-                                  <MenuItem value="simple">
-                                    {t('Simple export (just the entity)')}
-                                  </MenuItem>
-                                  <MenuItem value="full">
-                                    {t(
-                                      'Full export (entity and first neighbours)',
-                                    )}
-                                  </MenuItem>
-                                </Field>
-                                <Field
-                                  component={SelectField}
-                                  variant="standard"
-                                  name="maxMarkingDefinition"
-                                  label={t('Max marking definition level')}
-                                  fullWidth={true}
-                                  containerstyle={{
-                                    marginTop: 20,
-                                    width: '100%',
-                                  }}
-                                >
-                                  <MenuItem value="none">{t('None')}</MenuItem>
-                                  {map(
-                                    (markingDefinition) => (
-                                      <MenuItem
-                                        key={markingDefinition.node.id}
-                                        value={markingDefinition.node.id}
-                                      >
-                                        {markingDefinition.node.definition}
-                                      </MenuItem>
-                                    ),
-                                    props.markingDefinitions.edges,
-                                  )}
-                                </Field>
-                              </DialogContent>
-                            );
-                          }
-                          return <Loader variant="inElement" />;
-                        }}
-                      />
+                      <DialogTitle>
+                        {t('Generate an export')}
+                        <Tooltip title={t('Your max shareable markings will be applied to the content max markings')}>
+                          <InfoOutlined sx={{ paddingLeft: 1 }} fontSize="small" />
+                        </Tooltip>
+                      </DialogTitle>
+                      <DialogContent>
+                        <Field
+                          component={SelectField}
+                          variant="standard"
+                          name="format"
+                          label={t('Export format')}
+                          fullWidth={true}
+                          containerstyle={{ width: '100%' }}
+                        >
+                          {availableFormat.map((value, i) => (
+                            <MenuItem
+                              key={i}
+                              value={value}
+                              disabled={!isExportActive(value)}
+                            >
+                              {value}
+                            </MenuItem>
+                          ))}
+                        </Field>
+                        <Field
+                          component={SelectField}
+                          variant="standard"
+                          name="type"
+                          label={t('Export type')}
+                          fullWidth={true}
+                          containerstyle={fieldSpacingContainerStyle}
+                        >
+                          <MenuItem value="simple">
+                            {t('Simple export (just the entity)')}
+                          </MenuItem>
+                          <MenuItem value="full">
+                            {t(
+                              'Full export (entity and first neighbours)',
+                            )}
+                          </MenuItem>
+                        </Field>
+                        <ObjectMarkingField
+                          name="contentMaxMarkings"
+                          label={t(CONTENT_MAX_MARKINGS_TITLE)}
+                          onChange={(_, values) => this.handleSelectedContentMaxMarkingsChange(values)}
+                          style={fieldSpacingContainerStyle}
+                          setFieldValue={setFieldValue}
+                          limitToMaxSharing
+                          helpertext={t(CONTENT_MAX_MARKINGS_HELPERTEXT)}
+                        />
+                        <ObjectMarkingField
+                          name="fileMarkings"
+                          label={t('File marking definition levels')}
+                          filterTargetIds={this.state.selectedContentMaxMarkingsIds}
+                          style={fieldSpacingContainerStyle}
+                          setFieldValue={setFieldValue}
+                        />
+                      </DialogContent>
                       <DialogActions>
                         <Button onClick={handleReset} disabled={isSubmitting}>
                           {t('Cancel')}

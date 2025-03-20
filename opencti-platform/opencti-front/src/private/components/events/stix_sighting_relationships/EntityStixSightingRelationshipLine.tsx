@@ -24,6 +24,8 @@ import { resolveLink } from '../../../../utils/Entity';
 import { DataColumns } from '../../../../components/list_lines';
 import type { Theme } from '../../../../components/Theme';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -255,8 +257,7 @@ export const EntityStixSightingRelationshipLine: FunctionComponent<EntityStixSig
   );
   const entity = isTo ? data.from : data.to;
   const restricted = entity === null;
-  const entityLink = (entity?.entity_type) ? `${resolveLink(entity.entity_type)}/${entity.id}` : undefined;
-  const link = `${entityLink}/knowledge/sightings/${data.id}`;
+  const link = `${resolveLink(data.entity_type)}/${data.id}`;
   return (
     <ListItem
       classes={{ root: classes.item }}

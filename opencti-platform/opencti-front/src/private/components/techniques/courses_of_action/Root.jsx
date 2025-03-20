@@ -1,11 +1,13 @@
 import React, { Component } from 'react';
 import * as PropTypes from 'prop-types';
-import { Link, Route, Switch, withRouter } from 'react-router-dom';
+import { Link, Route, Routes } from 'react-router-dom';
 import { graphql } from 'react-relay';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import * as R from 'ramda';
+import StixCoreObjectContentRoot from '../../common/stix_core_objects/StixCoreObjectContentRoot';
+import withRouter from '../../../../utils/compat_router/withRouter';
 import { QueryRenderer, requestSubscription } from '../../../../relay/environment';
 import CourseOfAction from './CourseOfAction';
 import StixDomainObjectHeader from '../../common/stix_domain_objects/StixDomainObjectHeader';
@@ -17,6 +19,10 @@ import ErrorNotFound from '../../../../components/ErrorNotFound';
 import CourseOfActionKnowledge from './CourseOfActionKnowledge';
 import inject18n from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import { getCurrentTab, getPaddingRight } from '../../../../utils/utils';
+import Security from '../../../../utils/Security';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import CourseOfActionEdition from './CourseOfActionEdition';
 
 const subscription = graphql`
   subscription RootCoursesOfActionSubscription($id: ID!) {
@@ -37,6 +43,10 @@ const courseOfActionQuery = graphql`
   query RootCourseOfActionQuery($id: String!) {
     courseOfAction(id: $id) {
       id
+      draftVersion {
+        draft_id
+        draft_operation
+      }
       standard_id
       entity_type
       name
@@ -46,6 +56,7 @@ const courseOfActionQuery = graphql`
       ...FileExportViewer_entity
       ...FileExternalReferencesViewer_entity
       ...WorkbenchFileViewer_entity
+      ...StixCoreObjectContent_stixCoreObject
     }
     connectorsForImport {
       ...FileManager_connectorsImport
@@ -60,9 +71,7 @@ class RootCourseOfAction extends Component {
   constructor(props) {
     super(props);
     const {
-      match: {
-        params: { courseOfActionId },
-      },
+      params: { courseOfActionId },
     } = props;
     this.sub = requestSubscription({
       subscription,
@@ -78,10 +87,9 @@ class RootCourseOfAction extends Component {
     const {
       t,
       location,
-      match: {
-        params: { courseOfActionId },
-      },
+      params: { courseOfActionId },
     } = this.props;
+
     return (
       <div>
         <QueryRenderer
@@ -91,17 +99,10 @@ class RootCourseOfAction extends Component {
             if (props) {
               if (props.courseOfAction) {
                 const { courseOfAction } = props;
+                const paddingRight = getPaddingRight(location.pathname, courseOfAction.id, '/dashboard/techniques/courses_of_action', false);
                 return (
-                  <div
-                    style={{
-                      paddingRight: location.pathname.includes(
-                        `/dashboard/techniques/courses_of_action/${courseOfAction.id}/knowledge`,
-                      )
-                        ? 200
-                        : 0,
-                    }}
-                  >
-                    <Breadcrumbs variant="object" elements={[
+                  <div style={{ paddingRight }}>
+                    <Breadcrumbs elements={[
                       { label: t('Techniques') },
                       { label: t('Courses of action'), link: '/dashboard/techniques/courses_of_action' },
                       { label: courseOfAction.name, current: true },
@@ -109,32 +110,36 @@ class RootCourseOfAction extends Component {
                     />
                     <StixDomainObjectHeader
                       entityType="Course-Of-Action"
-                      disableSharing={true}
-                      stixDomainObject={props.courseOfAction}
-                      PopoverComponent={<CourseOfActionPopover />}
+                      stixDomainObject={courseOfAction}
+                      PopoverComponent={<CourseOfActionPopover/>}
+                      EditComponent={(
+                        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                          <CourseOfActionEdition courseOfActionId={courseOfAction.id} />
+                        </Security>
+                      )}
                       isOpenctiAlias={true}
                     />
                     <Box
                       sx={{
                         borderBottom: 1,
                         borderColor: 'divider',
-                        marginBottom: 4,
+                        marginBottom: 3,
                       }}
                     >
                       <Tabs
-                        value={
-                          location.pathname.includes(
-                            `/dashboard/techniques/courses_of_action/${courseOfAction.id}/knowledge`,
-                          )
-                            ? `/dashboard/techniques/courses_of_action/${courseOfAction.id}/knowledge`
-                            : location.pathname
-                        }
+                        value={getCurrentTab(location.pathname, courseOfAction.id, '/dashboard/techniques/courses_of_action')}
                       >
                         <Tab
                           component={Link}
                           to={`/dashboard/techniques/courses_of_action/${courseOfAction.id}`}
                           value={`/dashboard/techniques/courses_of_action/${courseOfAction.id}`}
                           label={t('Overview')}
+                        />
+                        <Tab
+                          component={Link}
+                          to={`/dashboard/techniques/courses_of_action/${courseOfAction.id}/content`}
+                          value={`/dashboard/techniques/courses_of_action/${courseOfAction.id}/content`}
+                          label={t('Content')}
                         />
                         <Tab
                           component={Link}
@@ -150,50 +155,45 @@ class RootCourseOfAction extends Component {
                         />
                       </Tabs>
                     </Box>
-                    <Switch>
+                    <Routes>
                       <Route
-                        exact
-                        path="/dashboard/techniques/courses_of_action/:courseOfActionId"
-                        render={(routeProps) => (
-                          <CourseOfAction
-                            {...routeProps}
-                            courseOfAction={props.courseOfAction}
-                          />
-                        )}
+                        path="/"
+                        element={
+                          <CourseOfAction courseOfActionData={props.courseOfAction}/>
+                        }
                       />
                       <Route
-                        path="/dashboard/techniques/courses_of_action/:courseOfActionId/knowledge"
-                        render={(routeProps) => (
-                          <CourseOfActionKnowledge
-                            {...routeProps}
-                            courseOfAction={props.courseOfAction}
-                          />
-                        )}
+                        path="/knowledge/*"
+                        element={
+                          <CourseOfActionKnowledge courseOfAction={props.courseOfAction}/>
+                        }
                       />
                       <Route
-                        exact
-                        path="/dashboard/techniques/courses_of_action/:courseOfActionId/files"
-                        render={(routeProps) => (
+                        path="/content/*"
+                        element={
+                          <StixCoreObjectContentRoot
+                            stixCoreObject={courseOfAction}
+                          />
+                        }
+                      />
+                      <Route
+                        path="/files"
+                        element={
                           <FileManager
-                            {...routeProps}
                             id={courseOfActionId}
                             connectorsImport={props.connectorsForImport}
                             connectorsExport={props.connectorsForExport}
                             entity={props.courseOfAction}
                           />
-                        )}
+                        }
                       />
                       <Route
-                        exact
-                        path="/dashboard/techniques/courses_of_action/:courseOfActionId/history"
-                        render={(routeProps) => (
-                          <StixCoreObjectHistory
-                            {...routeProps}
-                            stixCoreObjectId={courseOfActionId}
-                          />
-                        )}
+                        path="/history"
+                        element={
+                          <StixCoreObjectHistory stixCoreObjectId={courseOfActionId}/>
+                        }
                       />
-                    </Switch>
+                    </Routes>
                   </div>
                 );
               }

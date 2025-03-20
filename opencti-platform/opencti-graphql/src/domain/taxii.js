@@ -2,18 +2,20 @@
 import * as R from 'ramda';
 import { Promise } from 'bluebird';
 import { elIndex, elPaginate } from '../database/engine';
-import { INDEX_INTERNAL_OBJECTS, READ_INDEX_INTERNAL_OBJECTS, READ_STIX_INDICES } from '../database/utils';
+import { INDEX_INTERNAL_OBJECTS, isNotEmptyField, READ_STIX_DATA_WITH_INFERRED, READ_STIX_INDICES } from '../database/utils';
 import { generateInternalId, generateStandardId } from '../schema/identifier';
 import { ENTITY_TYPE_TAXII_COLLECTION } from '../schema/internalObject';
 import { deleteElementById, stixLoadByIds, updateAttribute } from '../database/middleware';
-import { listEntities, storeLoadById } from '../database/middleware-loader';
-import { ForbiddenAccess, FunctionalError } from '../config/errors';
+import { listAllEntities, listEntities, storeLoadById } from '../database/middleware-loader';
+import { FunctionalError } from '../config/errors';
 import { delEditContext, notify, setEditContext } from '../database/redis';
 import conf, { BUS_TOPICS } from '../config/conf';
 import { addFilter } from '../utils/filtering/filtering-utils';
 import { convertFiltersToQueryOptions } from '../utils/filtering/filtering-resolution';
 import { publishUserAction } from '../listener/UserActionListener';
 import { MEMBER_ACCESS_RIGHT_VIEW, SYSTEM_USER, TAXIIAPI_SETCOLLECTIONS } from '../utils/access';
+import { STIX_EXT_OCTI } from '../types/stix-extensions';
+import { ENTITY_TYPE_INGESTION_TAXII_COLLECTION } from '../modules/ingestion/ingestion-types';
 
 const MAX_TAXII_PAGINATION = conf.get('app:data_sharing:taxii:max_pagination_result') || 500;
 const STIX_MEDIA_TYPE = 'application/stix+json;version=2.1';
@@ -41,7 +43,7 @@ export const createTaxiiCollection = async (context, user, input) => {
   return data;
 };
 export const findById = async (context, user, collectionId) => {
-  return storeLoadById(context, user, collectionId, ENTITY_TYPE_TAXII_COLLECTION);
+  return storeLoadById(context, user, collectionId, [ENTITY_TYPE_TAXII_COLLECTION, ENTITY_TYPE_INGESTION_TAXII_COLLECTION]);
 };
 export const findAll = (context, user, args) => {
   if (user) {
@@ -118,8 +120,9 @@ export const collectionQuery = async (context, user, collection, args) => {
     throw FunctionalError('Invalid version provided, only \'last\' supported', { version });
   }
   const filters = collection.filters ? JSON.parse(collection.filters) : undefined;
-  const options = await convertFiltersToQueryOptions(filters, { after: added_after });
+  const options = await convertFiltersToQueryOptions(filters, { after: added_after, after_exclude: true });
   options.after = next;
+  options.bypassSizeLimit = true;
   let maxSize = MAX_TAXII_PAGINATION;
   if (limit) {
     const paramLimit = parseInt(limit, 10);
@@ -128,12 +131,24 @@ export const collectionQuery = async (context, user, collection, args) => {
   options.first = maxSize;
   if (type) options.types = type.split(',');
   if (id) options.ids = id.split(',');
-  return elPaginate(context, user, READ_STIX_INDICES, options);
+  const currentIndex = collection.include_inferences ? READ_STIX_DATA_WITH_INFERRED : READ_STIX_INDICES;
+  return elPaginate(context, user, currentIndex, options);
 };
 export const restCollectionStix = async (context, user, collection, args) => {
   const { edges, pageInfo } = await collectionQuery(context, user, collection, args);
   const edgeIds = edges.map((e) => e.node.internal_id);
-  const instances = await stixLoadByIds(context, user, edgeIds);
+  let instances = await stixLoadByIds(context, user, edgeIds);
+  if (collection.score_to_confidence === true) {
+    instances = instances.map((i) => {
+      if (i.type === 'indicator') {
+        const score = i.x_opencti_score ?? i.extensions[STIX_EXT_OCTI]?.score;
+        if (isNotEmptyField(score)) {
+          return { ...i, confidence: score };
+        }
+      }
+      return i;
+    });
+  }
   return {
     more: pageInfo.hasNextPage,
     next: R.last(edges)?.cursor || '',
@@ -154,22 +169,15 @@ export const restBuildCollection = (collection) => {
     id: collection.id,
     title: collection.name,
     description: collection.description,
-    can_read: true,
-    can_write: false,
+    can_read: collection.entity_type === ENTITY_TYPE_TAXII_COLLECTION,
+    can_write: collection.entity_type === ENTITY_TYPE_INGESTION_TAXII_COLLECTION,
     media_types: [STIX_MEDIA_TYPE],
   };
 };
-export const getCollectionById = async (context, user, collectionId) => {
-  const collection = await storeLoadById(context, user, collectionId, ENTITY_TYPE_TAXII_COLLECTION);
-  if (!collection) {
-    throw ForbiddenAccess();
-  }
-  return collection;
-};
 export const restAllCollections = async (context, user) => {
-  const collections = await elPaginate(context, user, READ_INDEX_INTERNAL_OBJECTS, {
-    types: [ENTITY_TYPE_TAXII_COLLECTION],
-    connectionFormat: false,
-  });
-  return collections.map((c) => restBuildCollection(c));
+  const opts = { connectionFormat: false };
+  const collections = await listAllEntities(context, user, [ENTITY_TYPE_TAXII_COLLECTION, ENTITY_TYPE_INGESTION_TAXII_COLLECTION], opts);
+  return collections
+    .filter((c) => !(c.entity_type === ENTITY_TYPE_INGESTION_TAXII_COLLECTION && c.ingestion_running === false))
+    .map((c) => restBuildCollection(c));
 };

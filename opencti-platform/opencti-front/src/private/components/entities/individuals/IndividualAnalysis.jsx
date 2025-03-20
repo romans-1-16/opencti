@@ -1,6 +1,5 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import { withRouter } from 'react-router-dom';
 import { graphql, createFragmentContainer } from 'react-relay';
 import StixCoreObjectOrStixCoreRelationshipContainers from '../../common/containers/StixCoreObjectOrStixCoreRelationshipContainers';
 
@@ -16,6 +15,7 @@ class IndividualAnalysisComponent extends Component {
           />
         ) : (
           <StixCoreObjectOrStixCoreRelationshipContainers
+            stixDomainObjectOrStixCoreRelationship={individual}
             authorId={individual.id}
             viewAs={viewAs}
           />
@@ -44,4 +44,4 @@ const IndividualAnalysis = createFragmentContainer(
   },
 );
 
-export default withRouter(IndividualAnalysis);
+export default IndividualAnalysis;

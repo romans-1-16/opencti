@@ -12,7 +12,7 @@ import ListItemText from '@mui/material/ListItemText';
 import makeStyles from '@mui/styles/makeStyles';
 import IconButton from '@mui/material/IconButton';
 import ItemIcon from '../../../../components/ItemIcon';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import { useFormatter } from '../../../../components/i18n';
 import AutocompleteField from '../../../../components/AutocompleteField';
 import { fetchQuery } from '../../../../relay/environment';
@@ -191,6 +191,8 @@ export const stixCoreObjectsFieldSearchQuery = graphql`
   }
 `;
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   icon: {
     paddingTop: 4,
@@ -207,7 +209,7 @@ const useStyles = makeStyles(() => ({
 }));
 
 const StixCoreObjectsField = (props) => {
-  const { name, style, helpertext } = props;
+  const { name, style, helpertext, required = false } = props;
   const classes = useStyles();
   const { t_i18n } = useFormatter();
   const { stixCoreObjectTypes: entityTypes } = useAttributes();
@@ -234,7 +236,7 @@ const StixCoreObjectsField = (props) => {
         const finalStixCoreObjects = R.pipe(
           R.pathOr([], ['stixCoreObjects', 'edges']),
           R.map((n) => ({
-            label: defaultValue(n.node),
+            label: getMainRepresentative(n.node),
             value: n.node.id,
             type: n.node.entity_type,
           })),
@@ -260,6 +262,7 @@ const StixCoreObjectsField = (props) => {
         component={AutocompleteField}
         style={style}
         name={name}
+        required={required}
         multiple={true}
         textfieldprops={{
           variant: 'standard',

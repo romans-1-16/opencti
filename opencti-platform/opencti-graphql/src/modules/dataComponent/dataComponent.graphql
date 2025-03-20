@@ -11,6 +11,7 @@ type DataComponent implements BasicObject & StixObject & StixCoreObject & StixDo
     spec_version: String!
     created_at: DateTime!
     updated_at: DateTime!
+    draftVersion: DraftVersion
     # inferences
     x_opencti_inferences: [Inference]
     # StixCoreObject
@@ -85,6 +86,7 @@ type DataComponent implements BasicObject & StixObject & StixCoreObject & StixDo
         search: String
         filters: FilterGroup
     ): [Distribution] @auth(for: [KNOWLEDGE, EXPLORE])
+    opinions_metrics: OpinionsMetrics
     # Stix Domain Object
     revoked: Boolean!
     confidence: Int
@@ -93,12 +95,28 @@ type DataComponent implements BasicObject & StixObject & StixCoreObject & StixDo
     modified: DateTime
     x_opencti_graph_data: String
     objectAssignee: [Assignee!]
+    objectParticipant: [Participant!]
     avatar: OpenCtiFile
     # Technical
     creators: [Creator!]
     toStix: String
-    importFiles(first: Int, prefixMimeType: String): FileConnection
-    pendingFiles(first: Int): FileConnection
+    importFiles(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+    pendingFiles(
+    first: Int
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
     exportFiles(first: Int): FileConnection
     editContext: [EditUserContext!]
     connectors(onlyAlive: Boolean): [Connector]
@@ -122,6 +140,7 @@ enum DataComponentsOrdering {
     updated_at
     x_opencti_workflow_id
     confidence
+    _score
 }
 
 # Relay connections
@@ -164,11 +183,12 @@ input DataComponentAddInput {
     modified: DateTime
     clientMutationId: String
     update: Boolean
-    name: String! @constraint(minLength: 2)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     aliases: [String]
     dataSource: String
     file: Upload
+    x_opencti_workflow_id: String
 }
 
 type Mutation {

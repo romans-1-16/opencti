@@ -3,11 +3,12 @@ import * as R from 'ramda';
 import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
+import { useTheme } from '@mui/styles';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
@@ -19,6 +20,8 @@ import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySet
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import ThreatActorGroupDeletion from './ThreatActorGroupDeletion';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const ThreatActorGroupMutationFieldPatch = graphql`
   mutation ThreatActorGroupEditionOverviewFieldPatchMutation(
@@ -85,8 +88,12 @@ export const ThreatActorGroupMutationRelationDelete = graphql`
 const ThreatActorGroupEditionOverviewComponent = (props) => {
   const { threatActorGroup, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const theme = useTheme();
+
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     threat_actor_types: Yup.array().nullable(),
     confidence: Yup.number().nullable(),
     description: Yup.string().nullable(),
@@ -193,7 +200,7 @@ const ThreatActorGroupEditionOverviewComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form style={{ marginTop: theme.spacing(2) }}>
           <AlertConfidenceForEntity entity={threatActorGroup} />
           <Field
             component={TextField}
@@ -276,16 +283,24 @@ const ThreatActorGroupEditionOverviewComponent = (props) => {
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={threatActorGroup.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <ThreatActorGroupDeletion
+                  id={threatActorGroup.id}
+                />
+              : <div />
+            }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={threatActorGroup.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -301,6 +316,7 @@ export default createFragmentContainer(
         name
         threat_actor_types
         confidence
+        entity_type
         description
         createdBy {
           ... on Identity {

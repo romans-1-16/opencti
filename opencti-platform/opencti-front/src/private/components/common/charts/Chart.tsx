@@ -1,97 +1,9 @@
-import React, { RefObject, useRef, useState } from 'react';
-import ApexChart, { Props } from 'react-apexcharts';
-import type ReactApexChart from 'react-apexcharts';
-import ApexCharts, { ApexOptions } from 'apexcharts';
-import makeStyles from '@mui/styles/makeStyles';
-import IconButton from '@mui/material/IconButton';
-import { FileDownloadOutlined } from '@mui/icons-material';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import { useFormatter } from '../../../../components/i18n';
-import type { Theme } from '../../../../components/Theme';
+import React, { useMemo, useState } from 'react';
+import ApexChart, { Props as ApexProps } from 'react-apexcharts';
+import ApexCharts from 'apexcharts';
+import ChartExportPopover from './ChartExportPopover';
 
-const useStyles = makeStyles<Theme>(() => ({
-  container: {
-    margin: 0,
-    top: 0,
-    right: 32,
-    position: 'absolute',
-  },
-  containerReadOnly: {
-    margin: 0,
-    top: 0,
-    right: 0,
-    position: 'absolute',
-  },
-}));
-
-interface ChartType extends ReactApexChart {
-  chart: { ctx: ApexCharts };
-}
-
-interface ExportPopoverProps {
-  chartRef: RefObject<ChartType>;
-  series?: ApexOptions['series'];
-  isReadOnly?: boolean;
-}
-
-const ExportPopover = ({
-  isReadOnly,
-  chartRef,
-  series,
-}: ExportPopoverProps) => {
-  const classes = useStyles();
-  const { t_i18n } = useFormatter();
-  const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
-  const handleExportToSVG = () => {
-    setAnchorEl(null);
-    if (chartRef.current) {
-      chartRef.current.chart.ctx.exports.exportToSVG();
-    }
-  };
-  const handleExportToPng = () => {
-    setAnchorEl(null);
-    if (chartRef.current) {
-      chartRef.current.chart.ctx.exports.exportToPng();
-    }
-  };
-  const handleExportToCSV = () => {
-    setAnchorEl(null);
-    if (chartRef.current) {
-      chartRef.current.chart.ctx.exports.exportToCSV({ series });
-    }
-  };
-  return (
-    <div className={isReadOnly ? classes.containerReadOnly : classes.container}>
-      <IconButton
-        onClick={(event) => {
-          event.stopPropagation();
-          event.preventDefault();
-          setAnchorEl(event.currentTarget);
-        }}
-        aria-haspopup="true"
-        size="small"
-        className="noDrag"
-        color="primary"
-      >
-        <FileDownloadOutlined fontSize="small" />
-      </IconButton>
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        keepMounted={true}
-        onClose={() => setAnchorEl(null)}
-        className="noDrag"
-      >
-        <MenuItem onClick={handleExportToPng}>{t_i18n('Download as PNG')}</MenuItem>
-        <MenuItem onClick={handleExportToSVG}>{t_i18n('Download as SVG')}</MenuItem>
-        <MenuItem onClick={handleExportToCSV}>{t_i18n('Download as CSV')}</MenuItem>
-      </Menu>
-    </div>
-  );
-};
-
-interface OpenCTIChartProps extends Props {
+interface OpenCTIChartProps extends ApexProps {
   withExportPopover?: boolean;
   isReadOnly?: boolean;
 }
@@ -105,20 +17,35 @@ const Chart = ({
   withExportPopover,
   isReadOnly,
 }: OpenCTIChartProps) => {
-  const chartRef = useRef<ChartType>(null);
+  const [chart, setChart] = useState<ApexCharts>();
+
+  // Add in config a callback on 'mounted event' to retrieve chart context.
+  // This context is used to export in different format.
+  const apexOptions: ApexProps['options'] = useMemo(() => ({
+    ...options,
+    chart: {
+      ...options?.chart,
+      events: {
+        ...options?.chart?.events,
+        mounted(c) {
+          setChart(c);
+        },
+      },
+    },
+  }), [options]);
+
   return (
     <>
       <ApexChart
-        ref={chartRef}
-        options={options}
+        options={apexOptions}
         series={series}
         type={type}
         width={width}
         height={height}
       />
       {withExportPopover === true && (
-        <ExportPopover
-          chartRef={chartRef}
+        <ChartExportPopover
+          chart={chart}
           series={series}
           isReadOnly={isReadOnly}
         />

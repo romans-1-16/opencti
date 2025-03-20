@@ -1,5 +1,5 @@
 import React from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
 import { TextField } from 'formik-mui';
@@ -15,7 +15,10 @@ import { MESSAGING$ } from '../../../../relay/environment';
 import AutocompleteFreeSoloField from '../../../../components/AutocompleteFreeSoloField';
 import { Option } from '../../common/form/ReferenceField';
 import { RelayError } from '../../../../relay/relayTypes';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -57,7 +60,7 @@ const VocabularyEdition = ({
   const { t_i18n } = useFormatter();
   const classes = useStyles();
 
-  const [commitUpdateMutation] = useMutation(vocabularyMutationUpdate);
+  const [commitUpdateMutation] = useApiMutation(vocabularyMutationUpdate);
 
   const onSubmit: FormikConfig<VocabularyEditionFormikValues>['onSubmit'] = (
     values,
@@ -78,8 +81,7 @@ const VocabularyEdition = ({
       commitUpdateMutation({
         variables: { id: vocab.id, input },
         onError: (error) => {
-          const { errors } = (error as unknown as RelayError).res;
-          MESSAGING$.notifyError(errors.at(0)?.data.reason);
+          MESSAGING$.notifyRelayError(error as unknown as RelayError);
           setSubmitting(false);
         },
         onCompleted: () => {
@@ -110,7 +112,7 @@ const VocabularyEdition = ({
       onSubmit={onSubmit}
     >
       {({ submitForm, isSubmitting, isValid }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"

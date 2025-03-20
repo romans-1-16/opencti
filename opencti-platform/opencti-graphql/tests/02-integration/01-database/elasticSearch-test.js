@@ -13,33 +13,33 @@ import {
   elIndex,
   elIndexElements,
   elIndexExists,
+  elIndexGetAlias,
   elLoadById,
   elPaginate,
   elRebuildRelation,
+  elReindexElements,
+  ES_INDEX_PATTERN_SUFFIX,
   ES_MAX_PAGINATION,
   searchEngineInit
 } from '../../../src/database/engine';
 import {
+  DEPRECATED_INDICES,
   ES_INDEX_PREFIX,
+  INDEX_INTERNAL_OBJECTS,
   READ_DATA_INDICES,
   READ_ENTITIES_INDICES,
   READ_INDEX_INTERNAL_OBJECTS,
-  READ_INDEX_INTERNAL_RELATIONSHIPS,
-  READ_INDEX_STIX_CORE_RELATIONSHIPS,
-  READ_INDEX_STIX_CYBER_OBSERVABLE_RELATIONSHIPS,
-  READ_INDEX_STIX_CYBER_OBSERVABLES,
   READ_INDEX_STIX_DOMAIN_OBJECTS,
-  READ_INDEX_STIX_META_OBJECTS,
-  READ_INDEX_STIX_META_RELATIONSHIPS,
-  READ_INDEX_STIX_SIGHTING_RELATIONSHIPS,
-  READ_RELATIONSHIPS_INDICES
+  READ_RELATIONSHIPS_INDICES,
+  WRITE_PLATFORM_INDICES
 } from '../../../src/database/utils';
 import { utcDate } from '../../../src/utils/format';
-import { ADMIN_USER, buildStandardUser, testContext } from '../../utils/testQuery';
+import { ADMIN_USER, buildStandardUser, testContext, TESTING_GROUPS, TESTING_ORGS, TESTING_ROLES, TESTING_USERS } from '../../utils/testQuery';
 import { BASE_TYPE_RELATION, buildRefRelationKey, ENTITY_TYPE_IDENTITY } from '../../../src/schema/general';
 import { RELATION_OBJECT_LABEL, RELATION_OBJECT_MARKING } from '../../../src/schema/stixRefRelationship';
 import { RELATION_USES } from '../../../src/schema/stixCoreRelationship';
 import { buildAggregationRelationFilter } from '../../../src/database/middleware-loader';
+import { mapCountPerEntityType, mapEdgesCountPerEntityType } from '../../utils/domainQueryHelper';
 
 const elWhiteUser = async () => {
   const opts = { types: ['Marking-Definition'], connectionFormat: false };
@@ -49,18 +49,30 @@ const elWhiteUser = async () => {
   return buildStandardUser([{ internal_id: TLP_WHITE.internal_id, standard_id: TLP_WHITE.standard_id }], ALL_TLP);
 };
 
+const VOCABULARY_COUNT = 340;
+
 describe('Elasticsearch configuration test', () => {
-  it('should configuration correct', () => {
+  it('should configuration correct', async () => {
     expect(searchEngineInit()).resolves.toBeTruthy();
-    expect(elIndexExists(READ_INDEX_INTERNAL_OBJECTS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_SIGHTING_RELATIONSHIPS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_CORE_RELATIONSHIPS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_DOMAIN_OBJECTS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_META_OBJECTS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_META_RELATIONSHIPS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_CYBER_OBSERVABLE_RELATIONSHIPS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_INTERNAL_RELATIONSHIPS)).toBeTruthy();
-    expect(elIndexExists(READ_INDEX_STIX_CYBER_OBSERVABLES)).toBeTruthy();
+    // check all WRITE_PLATFORM_INDICES creation
+    for (let i = 0; i < WRITE_PLATFORM_INDICES.length; i += 1) {
+      const indexName = WRITE_PLATFORM_INDICES[i];
+      const indexExists = await elIndexExists(indexName);
+      expect(indexExists).toBeTruthy();
+    }
+    for (let i = 0; i < DEPRECATED_INDICES.length; i += 1) {
+      const indexName = DEPRECATED_INDICES[i];
+      expect(await elIndexExists(indexName)).toBeFalsy();
+    }
+  });
+  it('should get internal object index with alias', async () => {
+    const internalObjectsIndexAlias = await elIndexGetAlias(READ_INDEX_INTERNAL_OBJECTS);
+    // internalObjectsIndexAlias = {"test_internal_objects-000001":{"aliases":{"test_internal_objects":{}}}}
+    const numberOfIndices = Object.keys(internalObjectsIndexAlias).length;
+    expect(internalObjectsIndexAlias).toBeDefined();
+    expect(numberOfIndices).toEqual(1);
+    expect(Object.entries(internalObjectsIndexAlias)[0][0]).toEqual(`${INDEX_INTERNAL_OBJECTS}${ES_INDEX_PATTERN_SUFFIX}`);
+    expect(Object.entries(internalObjectsIndexAlias)[0][1].aliases).toEqual({ [INDEX_INTERNAL_OBJECTS]: {} });
   });
 });
 
@@ -95,7 +107,7 @@ describe('Elasticsearch document loader', () => {
     const dataThroughStix = await elLoadById(testContext, ADMIN_USER, standardId, opts);
     expect(dataThroughStix.standard_id).toEqual(documentWithIndex.standard_id);
     // Try to delete
-    await elDeleteElements(testContext, ADMIN_USER, [dataThroughStix]);
+    await elDeleteElements(testContext, ADMIN_USER, [dataThroughStix], { forceDelete: true });
     const removedInternal = await elLoadById(testContext, ADMIN_USER, internalId, opts);
     expect(removedInternal).toBeUndefined();
   });
@@ -224,7 +236,7 @@ describe('Elasticsearch computation', () => {
     // noinspection JSUnresolvedVariable
     const storedFormat = moment(R.head(data).date)._f;
     expect(storedFormat).toEqual('YYYY-MM-DD');
-    expect(R.head(data).value).toEqual(35);
+    expect(R.head(data).value).toEqual(34 + TESTING_ORGS.length);
   });
   it('should month histogram accurate', async () => {
     const data = await elHistogramCount(
@@ -396,7 +408,50 @@ describe('Elasticsearch pagination', () => {
   it('should entity paginate everything', async () => {
     const data = await elPaginate(testContext, ADMIN_USER, READ_ENTITIES_INDICES, { first: ES_MAX_PAGINATION });
     expect(data).not.toBeNull();
-    expect(data.edges.length).toEqual(506);
+    const entityTypeMap = mapEdgesCountPerEntityType(data);
+    expect(entityTypeMap.get('Attack-Pattern')).toBe(2);
+    expect(entityTypeMap.get('Campaign')).toBe(1);
+    expect(entityTypeMap.get('Capability')).toBe(41);
+    expect(entityTypeMap.get('Course-Of-Action')).toBe(1);
+    expect(entityTypeMap.get('Credential')).toBe(1);
+    expect(entityTypeMap.get('DecayRule')).toBe(4);
+    expect(entityTypeMap.get('EntitySetting')).toBe(43);
+    expect(entityTypeMap.get('External-Reference')).toBe(7);
+    expect(entityTypeMap.get('StixFile')).toBe(1);
+    expect(entityTypeMap.get('Group')).toBe(TESTING_GROUPS.length + 3);
+    expect(entityTypeMap.get('Individual')).toBe(1);
+    expect(entityTypeMap.get('Sector')).toBe(3);
+    expect(entityTypeMap.get('Organization')).toBe(6 + TESTING_ORGS.length);
+    expect(entityTypeMap.get('Incident')).toBe(1);
+    expect(entityTypeMap.get('Indicator')).toBe(3);
+    expect(entityTypeMap.get('Intrusion-Set')).toBe(1);
+    expect(entityTypeMap.get('Kill-Chain-Phase')).toBe(2);
+    expect(entityTypeMap.get('Label')).toBe(13);
+    expect(entityTypeMap.get('Region')).toBe(2);
+    expect(entityTypeMap.get('Country')).toBe(1);
+    expect(entityTypeMap.get('City')).toBe(1);
+    expect(entityTypeMap.get('Administrative-Area')).toBe(1);
+    expect(entityTypeMap.get('Malware')).toBe(2);
+    expect(entityTypeMap.get('Malware-Analysis')).toBe(1);
+    expect(entityTypeMap.get('ManagerConfiguration')).toBe(1);
+    expect(entityTypeMap.get('Marking-Definition')).toBe(11);
+    expect(entityTypeMap.get('Note')).toBe(1);
+    expect(entityTypeMap.get('Notifier')).toBe(2);
+    expect(entityTypeMap.get('Observed-Data')).toBe(1);
+    expect(entityTypeMap.get('Opinion')).toBe(1);
+    expect(entityTypeMap.get('Report')).toBe(1);
+    expect(entityTypeMap.get('Role')).toBe(TESTING_ROLES.length + 3);
+    expect(entityTypeMap.get('RuleManager')).toBe(1);
+    expect(entityTypeMap.get('Settings')).toBe(1);
+    expect(entityTypeMap.get('Software')).toBe(1);
+    expect(entityTypeMap.get('Status')).toBe(4);
+    expect(entityTypeMap.get('StatusTemplate')).toBe(6);
+    expect(entityTypeMap.get('Threat-Actor-Individual')).toBe(2);
+    expect(entityTypeMap.get('Threat-Actor-Group')).toBe(1);
+    expect(entityTypeMap.get('Tracking-Number')).toBe(1);
+    expect(entityTypeMap.get('User')).toBe(TESTING_USERS.length + 1);
+    expect(entityTypeMap.get('Vocabulary')).toBe(VOCABULARY_COUNT);
+    expect(data.edges.length).toEqual(521 + TESTING_ORGS.length + TESTING_USERS.length + TESTING_ROLES.length + TESTING_GROUPS.length);
     const filterBaseTypes = R.uniq(R.map((e) => e.node.base_type, data.edges));
     expect(filterBaseTypes.length).toEqual(1);
     expect(R.head(filterBaseTypes)).toEqual('ENTITY');
@@ -414,7 +469,7 @@ describe('Elasticsearch pagination', () => {
       first: ES_MAX_PAGINATION,
     });
     expect(data).not.toBeNull();
-    expect(data.edges.length).toEqual(1);
+    expect(data.edges.length).toEqual(2);
   });
   it('should entity paginate domain objects sort by published', async () => {
     const data = await elPaginate(testContext, ADMIN_USER, READ_INDEX_STIX_DOMAIN_OBJECTS, {
@@ -423,6 +478,16 @@ describe('Elasticsearch pagination', () => {
       orderMode: 'desc',
     });
     expect(data).not.toBeNull();
+    const entityTypeMap = mapEdgesCountPerEntityType(data);
+    expect(entityTypeMap.get('Report')).toBe(1);
+    expect(entityTypeMap.get('Attack-Pattern')).toBe(2);
+    expect(entityTypeMap.get('Campaign')).toBe(1);
+    expect(entityTypeMap.get('Course-Of-Action')).toBe(1);
+    expect(entityTypeMap.get('Individual')).toBe(1);
+    expect(entityTypeMap.get('Sector')).toBe(3);
+    expect(entityTypeMap.get('Organization')).toBe(TESTING_ORGS.length + 6);
+    expect(entityTypeMap.get('Incident')).toBe(1);
+    expect(entityTypeMap.get('Indicator')).toBe(2);
     expect(data.edges.length).toEqual(20);
     expect(data.pageInfo.endCursor).toBeDefined();
 
@@ -492,7 +557,49 @@ describe('Elasticsearch pagination', () => {
       filterGroups: [],
     };
     const data = await elPaginate(testContext, ADMIN_USER, READ_ENTITIES_INDICES, { filters, first: ES_MAX_PAGINATION });
-    expect(data.edges.length).toEqual(495);
+    const entityTypeMap = mapEdgesCountPerEntityType(data);
+    expect(entityTypeMap.get('Attack-Pattern')).toBe(2);
+    expect(entityTypeMap.get('Campaign')).toBe(1);
+    expect(entityTypeMap.get('Capability')).toBe(41);
+    expect(entityTypeMap.get('Course-Of-Action')).toBe(1);
+    expect(entityTypeMap.get('Credential')).toBe(1);
+    expect(entityTypeMap.get('DecayRule')).toBe(4);
+    expect(entityTypeMap.get('EntitySetting')).toBe(43);
+    expect(entityTypeMap.get('External-Reference')).toBe(7);
+    expect(entityTypeMap.get('StixFile')).toBe(1);
+    expect(entityTypeMap.get('Group')).toBe(TESTING_GROUPS.length + 3);
+    expect(entityTypeMap.get('Individual')).toBe(1);
+    expect(entityTypeMap.get('Sector')).toBe(3);
+    expect(entityTypeMap.get('Organization')).toBe(TESTING_ORGS.length + 6);
+    expect(entityTypeMap.get('Incident')).toBe(1);
+    expect(entityTypeMap.get('Indicator')).toBe(3);
+    expect(entityTypeMap.get('Intrusion-Set')).toBe(1);
+    expect(entityTypeMap.get('Kill-Chain-Phase')).toBe(2);
+    expect(entityTypeMap.get('Label')).toBe(13);
+    expect(entityTypeMap.get('Region')).toBe(2);
+    expect(entityTypeMap.get('Country')).toBe(1);
+    expect(entityTypeMap.get('City')).toBe(1);
+    expect(entityTypeMap.get('Administrative-Area')).toBe(1);
+    expect(entityTypeMap.get('Malware')).toBe(2);
+    expect(entityTypeMap.get('Malware-Analysis')).toBe(1);
+    expect(entityTypeMap.get('ManagerConfiguration')).toBe(1);
+    expect(entityTypeMap.get('Note')).toBe(1);
+    expect(entityTypeMap.get('Notifier')).toBe(2);
+    expect(entityTypeMap.get('Observed-Data')).toBe(1);
+    expect(entityTypeMap.get('Opinion')).toBe(1);
+    expect(entityTypeMap.get('Report')).toBe(1);
+    expect(entityTypeMap.get('Role')).toBe(9);
+    expect(entityTypeMap.get('RuleManager')).toBe(1);
+    expect(entityTypeMap.get('Settings')).toBe(1);
+    expect(entityTypeMap.get('Software')).toBe(1);
+    expect(entityTypeMap.get('Status')).toBe(4);
+    expect(entityTypeMap.get('StatusTemplate')).toBe(6);
+    expect(entityTypeMap.get('Threat-Actor-Individual')).toBe(2);
+    expect(entityTypeMap.get('Threat-Actor-Group')).toBe(1);
+    expect(entityTypeMap.get('Tracking-Number')).toBe(1);
+    expect(entityTypeMap.get('User')).toBe(TESTING_USERS.length + 1);
+    expect(entityTypeMap.get('Vocabulary')).toBe(VOCABULARY_COUNT);
+    expect(data.edges.length).toEqual(530);
   });
   it('should entity paginate with field exist filter', async () => {
     const filters = {
@@ -555,7 +662,20 @@ describe('Elasticsearch pagination', () => {
       filterGroups: [],
     };
     data = await elPaginate(testContext, ADMIN_USER, READ_ENTITIES_INDICES, { filters, first: ES_MAX_PAGINATION });
-    expect(data.edges.length).toEqual(360);
+    const entityTypeMap = mapEdgesCountPerEntityType(data);
+    expect(entityTypeMap.get('External-Reference')).toBe(7);
+    expect(entityTypeMap.get('Individual')).toBe(1);
+    expect(entityTypeMap.get('Organization')).toBe(TESTING_ORGS.length);
+    expect(entityTypeMap.get('Incident')).toBe(1);
+    expect(entityTypeMap.get('Kill-Chain-Phase')).toBe(2);
+    expect(entityTypeMap.get('Malware-Analysis')).toBe(1);
+    expect(entityTypeMap.get('Marking-Definition')).toBe(9);
+    expect(entityTypeMap.get('Note')).toBe(1);
+    expect(entityTypeMap.get('Notifier')).toBe(2);
+    expect(entityTypeMap.get('Opinion')).toBe(1);
+    expect(entityTypeMap.get('Threat-Actor-Individual')).toBe(1);
+    expect(entityTypeMap.get('Vocabulary')).toBe(VOCABULARY_COUNT);
+    expect(data.edges.length).toEqual(VOCABULARY_COUNT + TESTING_ORGS.length + 26);
     filters = {
       mode: 'and',
       filters: [
@@ -573,7 +693,50 @@ describe('Elasticsearch pagination', () => {
       orderMode: 'asc',
       first: ES_MAX_PAGINATION
     });
-    expect(data.edges.length).toEqual(506);
+    const entityTypeMap = mapEdgesCountPerEntityType(data);
+    expect(entityTypeMap.get('Capability')).toBe(41);
+    expect(entityTypeMap.get('Credential')).toBe(1);
+    expect(entityTypeMap.get('DecayRule')).toBe(4);
+    expect(entityTypeMap.get('EntitySetting')).toBe(43);
+    expect(entityTypeMap.get('StixFile')).toBe(1);
+    expect(entityTypeMap.get('Group')).toBe(TESTING_GROUPS.length + 3);
+    expect(entityTypeMap.get('ManagerConfiguration')).toBe(1);
+    expect(entityTypeMap.get('Role')).toBe(TESTING_ROLES.length + 3);
+    expect(entityTypeMap.get('RuleManager')).toBe(1);
+    expect(entityTypeMap.get('Settings')).toBe(1);
+    expect(entityTypeMap.get('Software')).toBe(1);
+    expect(entityTypeMap.get('Status')).toBe(4);
+    expect(entityTypeMap.get('StatusTemplate')).toBe(6);
+    expect(entityTypeMap.get('Tracking-Number')).toBe(1);
+    expect(entityTypeMap.get('User')).toBe(TESTING_USERS.length + 1);
+    expect(entityTypeMap.get('Organization')).toBe(TESTING_ORGS.length + 6);
+    expect(entityTypeMap.get('Marking-Definition')).toBe(11);
+    expect(entityTypeMap.get('Attack-Pattern')).toBe(2);
+    expect(entityTypeMap.get('Threat-Actor-Individual')).toBe(2);
+    expect(entityTypeMap.get('Threat-Actor-Group')).toBe(1);
+    expect(entityTypeMap.get('Course-Of-Action')).toBe(1);
+    expect(entityTypeMap.get('Intrusion-Set')).toBe(1);
+    expect(entityTypeMap.get('Malware')).toBe(2);
+    expect(entityTypeMap.get('Region')).toBe(2);
+    expect(entityTypeMap.get('Country')).toBe(1);
+    expect(entityTypeMap.get('Administrative-Area')).toBe(1);
+    expect(entityTypeMap.get('Sector')).toBe(3);
+    expect(entityTypeMap.get('Observed-Data')).toBe(1);
+    expect(entityTypeMap.get('Indicator')).toBe(3);
+    expect(entityTypeMap.get('Campaign')).toBe(1);
+    expect(entityTypeMap.get('City')).toBe(1);
+    expect(entityTypeMap.get('Report')).toBe(1);
+    expect(entityTypeMap.get('Note')).toBe(1);
+    expect(entityTypeMap.get('Opinion')).toBe(1);
+    expect(entityTypeMap.get('Incident')).toBe(1);
+    expect(entityTypeMap.get('Individual')).toBe(1);
+    expect(entityTypeMap.get('Malware-Analysis')).toBe(1);
+    expect(entityTypeMap.get('Vocabulary')).toBe(VOCABULARY_COUNT);
+    expect(entityTypeMap.get('Notifier')).toBe(2);
+    expect(entityTypeMap.get('Label')).toBe(13);
+    expect(entityTypeMap.get('Kill-Chain-Phase')).toBe(2);
+    expect(entityTypeMap.get('External-Reference')).toBe(7);
+    expect(data.edges.length).toEqual(541);
     const createdDates = R.map((e) => e.node.created, data.edges);
     let previousCreatedDate = null;
     for (let index = 0; index < createdDates.length; index += 1) {
@@ -613,30 +776,136 @@ describe('Elasticsearch pagination', () => {
     expect(markings[8]).toEqual('PAP:CLEAR');
     expect(markings[9]).toEqual('PAP:AMBER');
   });
+  it('should entity paginate with object ordering (desc)', async () => {
+    const filters = {
+      mode: 'and',
+      filters: [{ key: 'entity_type', operator: 'eq', values: ['Group'] }],
+      filterGroups: [],
+    };
+    const data = await elPaginate(testContext, ADMIN_USER, READ_ENTITIES_INDICES, {
+      filters,
+      orderBy: 'group_confidence_level',
+      orderMode: 'desc',
+    });
+    expect(data.edges.length).toEqual(TESTING_GROUPS.length + 3); // there are 3 built-in groups in initialization
+
+    let previousConfidenceLevel = 100;
+    for (let i = 0; i < data.edges.length; i += 1) {
+      const groupData = data.edges[i].node;
+      const currentGroupInTestGroups = TESTING_GROUPS.find((testGroup) => testGroup.name === groupData.name);
+      if (currentGroupInTestGroups) {
+        expect(groupData.group_confidence_level.max_confidence).toBe(currentGroupInTestGroups.group_confidence_level.max_confidence);
+      } else {
+        // Built groups in have 100
+        expect(groupData.group_confidence_level.max_confidence).toBe(100);
+      }
+      expect(groupData.group_confidence_level.max_confidence).lessThanOrEqual(previousConfidenceLevel);
+      previousConfidenceLevel = groupData.group_confidence_level.max_confidence;
+    }
+  });
+  it('should entity paginate with object ordering (asc)', async () => {
+    const filters = {
+      mode: 'and',
+      filters: [{ key: 'entity_type', operator: 'eq', values: ['Group'] }],
+      filterGroups: [],
+    };
+    const data = await elPaginate(testContext, ADMIN_USER, READ_ENTITIES_INDICES, {
+      filters,
+      orderBy: 'group_confidence_level',
+      orderMode: 'asc',
+    });
+    expect(data.edges.length).toEqual(TESTING_GROUPS.length + 3); // there are 3 built-in groups in initialization
+
+    let previousConfidenceLevel = 0;
+    for (let i = 0; i < data.edges.length; i += 1) {
+      const groupData = data.edges[i].node;
+      const currentGroupInTestGroups = TESTING_GROUPS.find((testGroup) => testGroup.name === groupData.name);
+      if (currentGroupInTestGroups) {
+        expect(groupData.group_confidence_level.max_confidence).toBe(currentGroupInTestGroups.group_confidence_level.max_confidence);
+      } else {
+        // Built groups in have 100
+        expect(groupData.group_confidence_level.max_confidence).toBe(100);
+      }
+      expect(groupData.group_confidence_level.max_confidence).greaterThanOrEqual(previousConfidenceLevel);
+      previousConfidenceLevel = groupData.group_confidence_level.max_confidence;
+    }
+  });
   it('should relation paginate everything', async () => {
     let data = await elPaginate(testContext, ADMIN_USER, READ_RELATIONSHIPS_INDICES, { includeAuthorities: true });
     expect(data).not.toBeNull();
     const groupByIndices = R.groupBy((e) => e.node._index, data.edges);
-    expect(groupByIndices[`${ES_INDEX_PREFIX}_internal_relationships-000001`].length).toEqual(47);
+    const internalRelationships = groupByIndices[`${ES_INDEX_PREFIX}_internal_relationships-000001`].map((m) => m.node);
+    const internalRelationshipsByType = R.groupBy((m) => m.entity_type, internalRelationships);
+    expect(internalRelationshipsByType['accesses-to'].length).toEqual(28);
+    expect(internalRelationshipsByType['has-capability'].length).toEqual(56);
+    expect(internalRelationshipsByType['has-role'].length).toEqual(9);
+    expect(internalRelationshipsByType['member-of'].length).toEqual(13);
+    expect(internalRelationshipsByType['participate-to'].length).toEqual(2);
+
+    const stixCoreRelationships = groupByIndices[`${ES_INDEX_PREFIX}_stix_core_relationships-000001`].map((m) => m.node);
+    const stixCoreRelationshipsByType = R.groupBy((m) => m.entity_type, stixCoreRelationships);
+    expect(stixCoreRelationshipsByType['attributed-to'].length).toEqual(2);
+    expect(stixCoreRelationshipsByType.indicates.length).toEqual(4);
+    expect(stixCoreRelationshipsByType['located-at'].length).toEqual(4);
+    expect(stixCoreRelationshipsByType.mitigates.length).toEqual(1);
+    expect(stixCoreRelationshipsByType['part-of'].length).toEqual(6);
+    expect(stixCoreRelationshipsByType['related-to'].length).toEqual(2);
+    expect(stixCoreRelationshipsByType.targets.length).toEqual(2);
+    expect(stixCoreRelationshipsByType.uses.length).toEqual(3);
     expect(groupByIndices[`${ES_INDEX_PREFIX}_stix_core_relationships-000001`].length).toEqual(24);
-    expect(groupByIndices[`${ES_INDEX_PREFIX}_stix_meta_relationships-000001`].length).toEqual(124);
+
+    const stixMetaRelationships = groupByIndices[`${ES_INDEX_PREFIX}_stix_meta_relationships-000001`].map((m) => m.node);
+    const stixMetaRelationshipsByType = R.groupBy((m) => m.entity_type, stixMetaRelationships);
+    expect(stixMetaRelationshipsByType['created-by'].length).toEqual(22);
+    expect(stixMetaRelationshipsByType['external-reference'].length).toEqual(7);
+    expect(stixMetaRelationshipsByType['kill-chain-phase'].length).toEqual(3);
+    expect(stixMetaRelationshipsByType['object-label'].length).toEqual(30);
+    expect(stixMetaRelationshipsByType['object-marking'].length).toEqual(28);
+    expect(stixMetaRelationshipsByType['operating-system'].length).toEqual(1);
+    expect(stixMetaRelationshipsByType.object.length).toEqual(38);
+    expect(groupByIndices[`${ES_INDEX_PREFIX}_stix_meta_relationships-000001`].length).toEqual(129);
+
     expect(groupByIndices[`${ES_INDEX_PREFIX}_stix_sighting_relationships-000001`].length).toEqual(2);
+
     const metas = groupByIndices[`${ES_INDEX_PREFIX}_stix_meta_relationships-000001`].map((m) => m.node);
     const metaByEntityType = R.groupBy((m) => m.entity_type, metas);
     expect(metaByEntityType.object.length).toEqual(38);
-    expect(metaByEntityType['object-label'].length).toEqual(29);
-    expect(metaByEntityType['created-by'].length).toEqual(20);
+    expect(metaByEntityType['object-label'].length).toEqual(30);
+    expect(metaByEntityType['created-by'].length).toEqual(22);
     expect(metaByEntityType['external-reference'].length).toEqual(7);
-    expect(metaByEntityType['object-marking'].length).toEqual(26);
+    expect(metaByEntityType['object-marking'].length).toEqual(28);
     expect(metaByEntityType['kill-chain-phase'].length).toEqual(3);
-    expect(data.edges.length).toEqual(197);
+    expect(metaByEntityType['operating-system'].length).toEqual(1);
+    expect(data.edges.length).toEqual(263);
     let filterBaseTypes = R.uniq(R.map((e) => e.node.base_type, data.edges));
     expect(filterBaseTypes.length).toEqual(1);
     expect(R.head(filterBaseTypes)).toEqual('RELATION');
     // Same query with no pagination
     data = await elPaginate(testContext, ADMIN_USER, READ_RELATIONSHIPS_INDICES, { connectionFormat: false });
     expect(data).not.toBeNull();
-    expect(data.length).toEqual(197);
+    const entityTypeMap = mapCountPerEntityType(data);
+    expect(entityTypeMap.get('has-capability')).toBe(56);
+    expect(entityTypeMap.get('accesses-to')).toBe(28);
+    expect(entityTypeMap.get('member-of')).toBe(13);
+    expect(entityTypeMap.get('has-role')).toBe(9);
+    expect(entityTypeMap.get('participate-to')).toBe(2);
+    expect(entityTypeMap.get('uses')).toBe(3);
+    expect(entityTypeMap.get('part-of')).toBe(6);
+    expect(entityTypeMap.get('indicates')).toBe(4);
+    expect(entityTypeMap.get('located-at')).toBe(4);
+    expect(entityTypeMap.get('targets')).toBe(2);
+    expect(entityTypeMap.get('mitigates')).toBe(1);
+    expect(entityTypeMap.get('related-to')).toBe(2);
+    expect(entityTypeMap.get('attributed-to')).toBe(2);
+    expect(entityTypeMap.get('created-by')).toBe(22);
+    expect(entityTypeMap.get('object')).toBe(38);
+    expect(entityTypeMap.get('object-marking')).toBe(28);
+    expect(entityTypeMap.get('object-label')).toBe(30);
+    expect(entityTypeMap.get('kill-chain-phase')).toBe(3);
+    expect(entityTypeMap.get('external-reference')).toBe(7);
+    expect(entityTypeMap.get('operating-system')).toBe(1);
+    expect(entityTypeMap.get('stix-sighting-relationship')).toBe(2);
+    expect(data.length).toEqual(263);
     filterBaseTypes = R.uniq(R.map((e) => e.base_type, data));
     expect(filterBaseTypes.length).toEqual(1);
     expect(R.head(filterBaseTypes)).toEqual('RELATION');
@@ -715,8 +984,115 @@ describe('Elasticsearch reindex', () => {
     expect(data.toId === attackPatternId).toBeTruthy(); // attack-pattern--2fc04aa5-48c1-49ec-919a-b88241ef1d17
   });
   it('should relation reindex check consistency', async () => {
-    const indexPromise = elIndexElements(testContext, ADMIN_USER, 'test', [{ relationship_type: 'uses' }]);
+    const indexPromise = elIndexElements(testContext, ADMIN_USER, 'uses', [{ relationship_type: 'uses' }]);
     // noinspection ES6MissingAwait
     expect(indexPromise).rejects.toThrow();
+  });
+  it('should reindex sighting with unmapped fields', async () => {
+    // dummy object with old fields that are not part of the strict mapping
+    const jsonObject = `{
+      "standard_id": "sighting--9f9dd79c-bdff-4c0f-be14-ff11d773d445",
+      "rel_has-reference.internal_id": [
+        "5524eb65-1a55-43b2-ac22-81efe3faf21a"
+      ],
+      "attribute_count": 1,
+      "first_seen": "2023-08-20T22:00:00.000Z",
+      "last_seen": "2023-08-20T22:00:00.000Z",
+      "parent_types": [
+        "basic-relationship",
+        "stix-relationship"
+      ],
+      "created_at": "2023-08-21T09:04:31.986Z",
+      "description": "",
+      "revoked": false,
+      "base_type": "RELATION",
+      "relationship_type": "stix-sighting-relationship",
+      "updated_at": "2023-08-21T09:04:31.986Z",
+      "fromType": "Indicator",
+      "x_opencti_negative": false,
+      "modified": "2023-08-21T09:04:31.986Z",
+      "id": "de618300-4673-4719-9b53-bdf29ad1b440",
+      "lang": "en",
+      "toType": "Sector",
+      "internal_id": "de618300-4673-4719-9b53-bdf29ad1b440",
+      "created": "2023-08-21T09:04:31.986Z",
+      "confidence": 75,
+      "entity_type": "stix-sighting-relationship",
+      "creator_id": [
+        "57881196-4a57-4e61-b373-a971f2f3ce1f"
+      ],
+      "i_stop_time_year": "2023",
+      "i_created_at_day": "2023-05-04",
+      "i_start_time_year": "2023",
+      "i_start_time_month": "2023-05",
+      "i_created_at_month": "2023-05",
+      "i_created_at_year": "2023",
+      "i_stop_time_month": "2023-05",
+      "i_start_time_day": "2023-05-04",
+      "i_stop_time_day": "2023-05-04",
+      "x_opencti_stix_ids": []
+    }`;
+    const documentBody = JSON.parse(jsonObject);
+    await elIndex('test_reindex', documentBody);
+    await elReindexElements(testContext, ADMIN_USER, ['de618300-4673-4719-9b53-bdf29ad1b440'], 'test_reindex', 'test_deleted_objects');
+  });
+  it('should reindex indicator with unmapped fields', async () => {
+    // object with old fields from issue/9270
+    const jsonObject = `{
+      "pattern_type": "stix",
+      "pattern": "[file:name = 'redacted']",
+      "x_opencti_main_observable_type": "StixFile",
+      "name": "redacted",
+      "description": "Simple indicator of observable {redacted}",
+      "x_opencti_score": 80,
+      "x_opencti_detection": false,
+      "valid_from": "2023-02-28T02:21:45.436Z",
+      "valid_until": "2024-02-28T02:21:45.436Z",
+      "entity_type": "Indicator",
+      "internal_id": "785e743c-b978-416a-aaba-2193f199604f",
+      "standard_id": "indicator--d6a11acd-bd10-50fa-afda-0ea341e5b92f",
+      "creator_id": "7f817b19-2bc8-482f-8662-c0db011accea",
+      "x_opencti_stix_ids": [],
+      "spec_version": "2.1",
+      "created_at": "2023-02-27T20:02:13.552Z",
+      "updated_at": "2024-02-28T02:23:46.892Z",
+      "revoked": true,
+      "confidence": 15,
+      "lang": "en",
+      "created": "2023-02-27T20:02:13.552Z",
+      "modified": "2024-02-28T02:23:46.892Z",
+      "i_valid_from_day": "2023-02-28",
+      "i_valid_from_month": "2023-02",
+      "i_valid_from_year": "2023",
+      "i_valid_until_day": "2024-02-28",
+      "i_valid_until_month": "2024-02",
+      "i_valid_until_year": "2024",
+      "i_created_at_day": "2023-02-27",
+      "i_created_at_month": "2023-02",
+      "i_created_at_year": "2023",
+      "id": "785e743c-b978-416a-aaba-2193f199604f",
+      "base_type": "ENTITY",
+      "parent_types": [
+        "Basic-Object",
+        "Stix-Object",
+        "Stix-Core-Object",
+        "Stix-Domain-Object"
+      ],
+      "rel_created-by.internal_id": [
+        "1e43f46b-449e-4d08-83e8-02bec6d5a1dc"
+      ],
+      "rel_object-marking.internal_id": [
+        "6df6a7e1-5b05-46e7-a912-38ac685d3a24"
+      ],
+      "rel_object-label.internal_id": [
+        "c6054a03-e9cc-45a6-91b8-31b9652e20a2"
+      ],
+      "rel_based-on.internal_id": [
+        "bb90da0d-ecfa-4f49-a9e9-90266d30629d"
+      ]
+    }`;
+    const documentBody = JSON.parse(jsonObject);
+    await elIndex('test_reindex', documentBody);
+    await elReindexElements(testContext, ADMIN_USER, ['785e743c-b978-416a-aaba-2193f199604f'], 'test_reindex', 'test_deleted_objects');
   });
 });

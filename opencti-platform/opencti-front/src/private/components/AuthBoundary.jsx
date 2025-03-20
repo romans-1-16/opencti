@@ -1,8 +1,9 @@
 import React from 'react';
 import { compose, includes, map } from 'ramda';
 import * as PropTypes from 'prop-types';
-import { withRouter } from 'react-router-dom';
+import { HighLevelError } from './Error';
 import LoginRoot from '../../public/LoginRoot';
+import withRouter from '../../utils/compat_router/withRouter';
 
 class AuthBoundaryComponent extends React.Component {
   constructor(props) {
@@ -18,11 +19,7 @@ class AuthBoundaryComponent extends React.Component {
     if (this.state.error) {
       const baseErrors = this.state.error.res?.errors ?? [];
       const retroErrors = this.state.error.data?.res?.errors ?? [];
-      const types = map((e) => e.name, [...baseErrors, ...retroErrors]);
-      // If access is forbidden, just redirect to home page
-      if (includes('FORBIDDEN_ACCESS', types)) {
-        return <LoginRoot type="LOGIN" />;
-      }
+      const types = map((e) => e.extensions.code, [...baseErrors, ...retroErrors]);
       // If user not authenticated, redirect to login with encoded path
       if (includes('AUTH_REQUIRED', types)) {
         return <LoginRoot type="LOGIN" />;
@@ -33,6 +30,7 @@ class AuthBoundaryComponent extends React.Component {
       if (includes('OTP_REQUIRED', types)) {
         return <LoginRoot type="2FA_VALIDATION" />;
       }
+      return <HighLevelError />;
     }
     return this.props.children;
   }

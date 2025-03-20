@@ -6,9 +6,12 @@ import Badge from '@mui/material/Badge';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
 import makeStyles from '@mui/styles/makeStyles';
+import Tooltip from '@mui/material/Tooltip';
 import EnrichedTooltip from './EnrichedTooltip';
 import { useFormatter } from './i18n';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   chip: {
     fontSize: 12,
@@ -90,124 +93,178 @@ const inlineStylesLight = {
 
 const StyledBadge = styled(Badge)(() => ({
   '& .MuiBadge-badge': {
-    right: 9,
+    right: 8,
     top: 4,
   },
 }));
 
-const ItemMarkings = ({ variant, markingDefinitions, limit }) => {
+const ItemMarkings = ({ variant, markingDefinitions, limit, onClick }) => {
   const markings = markingDefinitions ?? [];
   const classes = useStyles();
   const theme = useTheme();
   const { t_i18n } = useFormatter();
-  const renderChip = (markingDefinition, isTooltip = false) => {
+
+  const monochromeStyle = (color) => ({
+    backgroundColor: `${color}33`, // 20% opacity
+    color: theme.palette.text.primary,
+    border: `2px solid ${color}`,
+  });
+
+  const renderChip = (markingDefinition, opts = {}) => {
+    const { isInTooltip = false, withTooltip = false } = opts;
     let className = classes.chip;
-    if (isTooltip) {
+    if (isInTooltip) {
       className = classes.chipInToolTip;
     } else if (variant === 'inList') {
       className = classes.chipInList;
     }
     if (markingDefinition.x_opencti_color) {
-      let backgroundColor = markingDefinition.x_opencti_color;
-      let textColor = theme.palette.text.primary;
-      let border = '0';
+      const monochromeStyles = monochromeStyle(markingDefinition.x_opencti_color);
+      let { backgroundColor } = monochromeStyles;
+      let textColor = monochromeStyles.color;
+      let { border } = monochromeStyles;
       if (theme.palette.mode === 'light') {
-        if (backgroundColor === '#ffffff') {
+        if (backgroundColor.startsWith('#ffffff')) {
           backgroundColor = '#ffffff';
           textColor = '#2b2b2b';
-          border = '1px solid #2b2b2b';
-        } else {
-          textColor = '#ffffff';
+          border = '2px solid #2b2b2b';
         }
-      } else if (backgroundColor === '#ffffff') {
-        textColor = '#2b2b2b';
       }
       return (
-        <Chip
-          key={markingDefinition.definition}
-          className={className}
-          style={{
-            backgroundColor,
-            color: textColor,
-            border,
-          }}
-          label={markingDefinition.definition}
-        />
+        <Tooltip title={withTooltip ? markingDefinition.definition : undefined} key={markingDefinition.definition}>
+          <Chip
+            className={className}
+            style={{
+              backgroundColor,
+              color: textColor,
+              border,
+              cursor: onClick ? 'pointer' : 'default',
+            }}
+            label={markingDefinition.definition}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
+          />
+        </Tooltip>
       );
     }
     let inlineStyles = inlineStylesDark;
     if (theme.palette.mode === 'light') {
       inlineStyles = inlineStylesLight;
     }
+
+    let chip;
     switch (markingDefinition.definition) {
       case 'CD':
       case 'CD-SF':
       case 'DR':
       case 'DR-SF':
       case 'TLP:RED':
-        return (
+        chip = (
           <Chip
             key={markingDefinition.definition}
             className={className}
-            style={inlineStyles.red}
+            style={monochromeStyle(inlineStyles.red.backgroundColor)}
             label={markingDefinition.definition}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
           />
         );
+        break;
       case 'TLP:AMBER':
-        return (
+        chip = (
           <Chip
             key={markingDefinition.definition}
             className={className}
-            style={inlineStyles.orange}
+            style={monochromeStyle(inlineStyles.orange.backgroundColor)}
             label={markingDefinition.definition}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
           />
         );
+        break;
       case 'NP':
       case 'TLP:GREEN':
-        return (
+        chip = (
           <Chip
             key={markingDefinition.definition}
             className={className}
-            style={inlineStyles.green}
+            style={monochromeStyle(inlineStyles.green.backgroundColor)}
             label={markingDefinition.definition}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
           />
         );
+        break;
       case 'SF':
-        return (
+        chip = (
           <Chip
             key={markingDefinition.definition}
             className={className}
-            style={inlineStyles.blue}
+            style={monochromeStyle(inlineStyles.blue.backgroundColor)}
             label={markingDefinition.definition}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
           />
         );
+        break;
       case 'NONE':
-        return (
+        chip = (
           <Chip
             key={markingDefinition.definition}
             className={className}
-            style={inlineStyles.transparent}
+            style={{ ...inlineStyles.transparent, cursor: onClick ? 'pointer' : 'default' }}
             label={t_i18n(markingDefinition.definition)}
             variant="outlined"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
           />
         );
+        break;
       default:
-        return (
+        chip = (
           <Chip
             key={markingDefinition.definition}
             className={className}
             style={inlineStyles.white}
             label={markingDefinition.definition}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClick?.('objectMarking', markingDefinition.id ?? null, 'eq');
+            }}
           />
         );
     }
+    return (
+      <Tooltip title={withTooltip ? markingDefinition.definition : undefined} key={markingDefinition.definition}>
+        {chip}
+      </Tooltip>
+    );
   };
   if (!limit || markings.length <= 1) {
     return (
       <span>
         {markings.length === 0
-          ? renderChip({ definition: 'NONE' }, false)
-          : markings.map((markingDefinition) => renderChip(markingDefinition, false))}
+          ? renderChip({ definition: 'NONE' }, { withTooltip: true })
+          : markings.map((markingDefinition) => renderChip(markingDefinition, { withTooltip: true }))}
       </span>
     );
   }
@@ -216,19 +273,19 @@ const ItemMarkings = ({ variant, markingDefinitions, limit }) => {
       title={
         <Grid container={true} spacing={3}>
           {markings.map((markingDefinition) => (
-            <Grid key={markingDefinition.id} item={true} xs={6}>
-              {renderChip(markingDefinition, true)}
+            <Grid key={markingDefinition.id} item xs={6}>
+              {renderChip(markingDefinition, { isInTooltip: true, withTooltip: true })}
             </Grid>
           ))}
         </Grid>
       }
       placement="bottom"
     >
-      <span>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
         <StyledBadge variant="dot" color="primary">
-          {R.take(limit, markings).map((markingDefinition) => renderChip(markingDefinition, false))}
+          {R.take(limit, markings).map((markingDefinition) => renderChip(markingDefinition))}
         </StyledBadge>
-      </span>
+      </div>
     </EnrichedTooltip>
   );
 };
@@ -236,6 +293,7 @@ const ItemMarkings = ({ variant, markingDefinitions, limit }) => {
 ItemMarkings.propTypes = {
   variant: PropTypes.string,
   limit: PropTypes.number,
+  onClick: PropTypes.func,
 };
 
 export default ItemMarkings;

@@ -1,9 +1,9 @@
 import * as R from 'ramda';
 import Ajv from 'ajv';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { SEMATTRS_DB_NAME, SEMATTRS_DB_OPERATION } from '@opentelemetry/semantic-conventions';
 import { schemaAttributesDefinition } from './schema-attributes';
 import { UnsupportedError, ValidationError } from '../config/errors';
-import type { BasicStoreEntityEntitySetting } from '../modules/entitySetting/entitySetting-types';
+import type { AttributeConfiguration, BasicStoreEntityEntitySetting } from '../modules/entitySetting/entitySetting-types';
 import { isEmptyField, isNotEmptyField } from '../database/utils';
 import { getEntityValidatorCreation, getEntityValidatorUpdate } from './validator-register';
 import type { AuthContext, AuthUser } from '../types/user';
@@ -15,6 +15,8 @@ import type { EditInput } from '../generated/graphql';
 import { EditOperation } from '../generated/graphql';
 import { utcDate } from '../utils/format';
 import { schemaRelationsRefDefinition } from './schema-relationsRef';
+import { extendedErrors } from '../config/conf';
+import { isUserHasCapability, KNOWLEDGE_KNUPDATE_KNBYPASSFIELDS, KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE } from '../utils/access';
 
 const ajv = new Ajv();
 
@@ -33,7 +35,7 @@ export const validateAndFormatSchemaAttribute = (
     // with a patch object, the value matches something inside the object and not the object itself
     // so we cannot check directly the multiplicity as it concerns an internal mapping
     // let's assume it's OK, and validateDataBeforeIndexing would check it.
-    throw ValidationError(attributeName, { message: `Attribute ${attributeName} cannot be multiple`, data: editInput });
+    throw ValidationError('Attribute cannot be multiple', attributeName, extendedErrors({ input: editInput }));
   }
   // Data validation
   if (attributeDefinition.type === 'string') {
@@ -41,7 +43,7 @@ export const validateAndFormatSchemaAttribute = (
     for (let index = 0; index < editInput.value.length; index += 1) {
       const value = editInput.value[index];
       if (value && !R.is(String, value)) {
-        throw ValidationError(attributeName, { message: `Attribute ${attributeName} must be a string`, data: editInput });
+        throw ValidationError('Attribute must be a string', attributeName, extendedErrors({ input: editInput }));
       } else {
         values.push(value ? value.trim() : value);
       }
@@ -56,14 +58,14 @@ export const validateAndFormatSchemaAttribute = (
       const jsonValue = R.head(editInput.value); // json cannot be multiple
       const valid = validate(JSON.parse(jsonValue as string));
       if (!valid) {
-        throw ValidationError(attributeName, { message: 'The JSON schema is not valid', data: validate.errors });
+        throw ValidationError('The JSON schema is not valid', attributeName, { errors: validate.errors });
       }
     }
   }
   if (attributeDefinition.type === 'boolean') {
     editInput.value.forEach((value) => {
       if (value && !R.is(Boolean, value) && !R.is(String, value)) {
-        throw ValidationError(attributeName, { message: `Attribute ${attributeName} must be a boolean/string`, data: editInput });
+        throw ValidationError('Attribute must be a boolean/string', attributeName, extendedErrors({ input: editInput }));
       }
     });
   }
@@ -71,7 +73,7 @@ export const validateAndFormatSchemaAttribute = (
     // Test date value (Accept only ISO date string)
     editInput.value.forEach((value) => {
       if (value && !R.is(String, value) && !utcDate(value).isValid()) {
-        throw ValidationError(attributeName, { message: `Attribute ${attributeName} must be a boolean/string`, data: editInput });
+        throw ValidationError('Attribute must be a boolean/string', attributeName, extendedErrors({ input: editInput }));
       }
     });
   }
@@ -79,7 +81,7 @@ export const validateAndFormatSchemaAttribute = (
     // Test numeric value (Accept string)
     editInput.value.forEach((value) => {
       if (value && Number.isNaN(Number(value))) {
-        throw ValidationError(attributeName, { message: `Attribute ${attributeName} must be a numeric/string`, data: editInput });
+        throw ValidationError('Attribute must be a numeric/string', attributeName, extendedErrors({ input: editInput }));
       }
     });
   }
@@ -89,7 +91,7 @@ const validateFormatSchemaAttributes = async (context: AuthContext, user: AuthUs
   const validateFormatSchemaAttributesFn = async () => {
     const availableAttributes = schemaAttributesDefinition.getAttributes(instanceType);
     if (R.isEmpty(editInputs) || !Array.isArray(editInputs)) {
-      throw UnsupportedError('Cannot validate an empty or invalid input', { input: editInputs });
+      throw UnsupportedError('Cannot validate an empty or invalid input', { ...extendedErrors({ input: editInputs }) });
     }
     editInputs.forEach((editInput) => {
       const attributeDefinition = availableAttributes.get(editInput.key);
@@ -97,14 +99,15 @@ const validateFormatSchemaAttributes = async (context: AuthContext, user: AuthUs
     });
   };
   return telemetry(context, user, 'SCHEMA ATTRIBUTES VALIDATION', {
-    [SemanticAttributes.DB_NAME]: 'validation',
-    [SemanticAttributes.DB_OPERATION]: 'schema_attributes',
+    [SEMATTRS_DB_NAME]: 'validation',
+    [SEMATTRS_DB_OPERATION]: 'schema_attributes',
   }, validateFormatSchemaAttributesFn);
 };
 
 // -- VALIDATE ATTRIBUTE MANDATORY --
 
 const validateMandatoryAttributes = (
+  user: AuthUser,
   input: Record<string, unknown>,
   entitySetting: BasicStoreEntityEntitySetting,
   isCreation: boolean,
@@ -114,15 +117,18 @@ const validateMandatoryAttributes = (
   if (!attributesConfiguration) {
     return;
   }
-  const mandatoryAttributes = attributesConfiguration.filter((attr) => attr.mandatory);
+  let mandatoryAttributes: AttributeConfiguration[] = [];
+  if (!isUserHasCapability(user, KNOWLEDGE_KNUPDATE_KNBYPASSFIELDS)) {
+    mandatoryAttributes = attributesConfiguration.filter((attr) => attr.mandatory);
+  }
   // In creation if enforce reference is activated, user must provide a least 1 external references
-  if (isCreation && entitySetting.enforce_reference) {
+  if (!isUserHasCapability(user, KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE) && isCreation && entitySetting.enforce_reference) {
     mandatoryAttributes.push({ name: externalReferences.name, mandatory: true });
   }
   const inputKeys = Object.keys(input);
   mandatoryAttributes.forEach((attr) => {
     if (!(validation(inputKeys, attr.name))) {
-      throw ValidationError(attr.name, { message: 'This attribute is mandatory', attribute: attr.name });
+      throw ValidationError('This attribute is mandatory', attr.name);
     }
   });
 };
@@ -138,11 +144,11 @@ const validateMandatoryAttributesOnCreation = async (
     const inputValidValue = (inputKeys: string[], mandatoryKey: string) => (inputKeys.includes(mandatoryKey)
       && (Array.isArray(input[mandatoryKey]) ? (input[mandatoryKey] as []).some((i: string) => isNotEmptyField(i)) : isNotEmptyField(input[mandatoryKey])));
 
-    validateMandatoryAttributes(input, entitySetting, true, inputValidValue);
+    validateMandatoryAttributes(user, input, entitySetting, true, inputValidValue);
   };
   return telemetry(context, user, 'MANDATORY CREATION VALIDATION', {
-    [SemanticAttributes.DB_NAME]: 'validation',
-    [SemanticAttributes.DB_OPERATION]: 'mandatory',
+    [SEMATTRS_DB_NAME]: 'validation',
+    [SEMATTRS_DB_OPERATION]: 'mandatory',
   }, validateMandatoryAttributesOnCreationFn);
 };
 const validateMandatoryAttributesOnUpdate = async (
@@ -156,11 +162,11 @@ const validateMandatoryAttributesOnUpdate = async (
     const inputValidValue = (inputKeys: string[], mandatoryKey: string) => (!inputKeys.includes(mandatoryKey)
       || (Array.isArray(input[mandatoryKey]) ? (input[mandatoryKey] as []).some((i: string) => isNotEmptyField(i)) : isNotEmptyField(input[mandatoryKey])));
 
-    validateMandatoryAttributes(input, entitySetting, false, inputValidValue);
+    validateMandatoryAttributes(user, input, entitySetting, false, inputValidValue);
   };
   return telemetry(context, user, 'MANDATORY UPDATE VALIDATION', {
-    [SemanticAttributes.DB_NAME]: 'validation',
-    [SemanticAttributes.DB_OPERATION]: 'mandatory',
+    [SEMATTRS_DB_NAME]: 'validation',
+    [SEMATTRS_DB_OPERATION]: 'mandatory',
   }, validateMandatoryAttributesOnUpdateFn);
 };
 
@@ -187,8 +193,8 @@ export const validateInputCreation = async (
     }
   };
   return telemetry(context, user, 'CREATION VALIDATION', {
-    [SemanticAttributes.DB_NAME]: 'validation',
-    [SemanticAttributes.DB_OPERATION]: 'creation',
+    [SEMATTRS_DB_NAME]: 'validation',
+    [SEMATTRS_DB_OPERATION]: 'creation',
   }, validateInputCreationFn);
 };
 
@@ -225,7 +231,7 @@ export const validateInputUpdate = async (
     await validateMandatoryAttributesOnUpdate(context, user, instanceFromInputs, entitySetting);
     const errors = validateUpdatableAttribute(instanceType, instanceFromInputs);
     if (errors.length > 0) {
-      throw ValidationError(errors.at(0), { message: 'You cannot update incompatible attribute' });
+      throw ValidationError('You cannot update incompatible attribute', errors.at(0));
     }
     // Functional validator
     const validator = getEntityValidatorUpdate(instanceType);
@@ -237,7 +243,7 @@ export const validateInputUpdate = async (
     }
   };
   return telemetry(context, user, 'UPDATE VALIDATION', {
-    [SemanticAttributes.DB_NAME]: 'validation',
-    [SemanticAttributes.DB_OPERATION]: 'update',
+    [SEMATTRS_DB_NAME]: 'validation',
+    [SEMATTRS_DB_OPERATION]: 'update',
   }, validateInputUpdateFn);
 };

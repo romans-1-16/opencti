@@ -1,4 +1,3 @@
-import { withFilter } from 'graphql-subscriptions';
 import { BUS_TOPICS, getBaseUrl } from '../config/conf';
 import {
   addExternalReference,
@@ -8,15 +7,16 @@ import {
   externalReferenceDeleteRelation,
   externalReferenceEditContext,
   externalReferenceEditField,
+  externalReferenceImportPush,
   findAll,
   findById,
   references,
 } from '../domain/externalReference';
-import { fetchEditContext, pubSubAsyncIterator } from '../database/redis';
-import withCancel from '../graphql/subscriptionWrapper';
+import { fetchEditContext } from '../database/redis';
+import { subscribeToInstanceEvents } from '../graphql/subscriptionWrapper';
 import { worksForSource } from '../domain/work';
 import { loadFile } from '../database/file-storage';
-import { askElementEnrichmentForConnector, stixCoreObjectImportPush } from '../domain/stixCoreObject';
+import { askElementEnrichmentForConnector } from '../domain/stixCoreObject';
 import { connectorsForEnrichment } from '../database/repository';
 import { ENTITY_TYPE_EXTERNAL_REFERENCE } from '../schema/stixMetaObject';
 import { paginatedForPathWithEnrichment } from '../modules/internal/document/document-domain';
@@ -42,7 +42,7 @@ const externalReferenceResolvers = {
       const listing = await paginatedForPathWithEnrichment(context, context.user, `import/${externalReference.entity_type}/${externalReference.id}`, externalReference.id, opts);
       if (externalReference.fileId) {
         try {
-          const refFile = await loadFile(context.user, externalReference.fileId);
+          const refFile = await loadFile(context, context.user, externalReference.fileId);
           listing.edges.unshift({ node: refFile, cursor: '' });
         } catch {
           // FileId is no longer available
@@ -66,7 +66,7 @@ const externalReferenceResolvers = {
         return externalReferenceDeleteRelation(context, context.user, id, fromId, relationshipType);
       },
       askEnrichment: ({ connectorId }) => askElementEnrichmentForConnector(context, context.user, id, connectorId),
-      importPush: (args) => stixCoreObjectImportPush(context, context.user, id, args.file, args),
+      importPush: (args) => externalReferenceImportPush(context, context.user, id, args.file, args),
     }),
     externalReferenceAdd: (_, { input }, context) => addExternalReference(context, context.user, input),
   },
@@ -74,17 +74,10 @@ const externalReferenceResolvers = {
     externalReference: {
       resolve: /* v8 ignore next */ (payload) => payload.instance,
       subscribe: /* v8 ignore next */ (_, { id }, context) => {
-        externalReferenceEditContext(context, context.user, id);
-        const filtering = withFilter(
-          () => pubSubAsyncIterator(BUS_TOPICS[ENTITY_TYPE_EXTERNAL_REFERENCE].EDIT_TOPIC),
-          (payload) => {
-            if (!payload) return false; // When disconnect, an empty payload is dispatched.
-            return payload.user.id !== context.user.id && payload.instance.id === id;
-          }
-        )(_, { id }, context);
-        return withCancel(filtering, () => {
-          externalReferenceCleanContext(context, context.user, id);
-        });
+        const preFn = () => externalReferenceEditContext(context, context.user, id);
+        const cleanFn = () => externalReferenceCleanContext(context, context.user, id);
+        const bus = BUS_TOPICS[ENTITY_TYPE_EXTERNAL_REFERENCE];
+        return subscribeToInstanceEvents(_, context, id, [bus.EDIT_TOPIC], { type: ENTITY_TYPE_EXTERNAL_REFERENCE, preFn, cleanFn });
       },
     },
   },

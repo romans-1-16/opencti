@@ -17,6 +17,8 @@ import { stixCyberObservablesLinesSubTypesQuery } from './StixCyberObservablesLi
 import useAuth from '../../../../utils/hooks/useAuth';
 import { useSettingsMessagesBannerHeight } from '../../settings/settings_messages/SettingsMessagesBanner';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   drawerPaper: {
     minHeight: '100vh',
@@ -32,7 +34,7 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 const StixCyberObservablesRightBar = ({
-  types = [],
+  types,
   handleToggle,
   handleClear,
 }) => {
@@ -111,7 +113,7 @@ const StixCyberObservablesRightBar = ({
 };
 
 StixCyberObservablesRightBar.propTypes = {
-  types: PropTypes.array,
+  types: PropTypes.arrayOf(PropTypes.string),
   handleToggle: PropTypes.func,
   handleClear: PropTypes.func,
   openExports: PropTypes.bool,

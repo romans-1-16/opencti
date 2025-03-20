@@ -3,18 +3,19 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import React, { useMemo } from 'react';
-import { Link, Route, Switch, useParams } from 'react-router-dom';
+import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { graphql, usePreloadedQuery, useSubscription } from 'react-relay';
 import { GraphQLSubscriptionConfig } from 'relay-runtime';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { useLocation } from 'react-router-dom-v5-compat';
+import StixCoreObjectContentRoot from '@components/common/stix_core_objects/StixCoreObjectContentRoot';
+import Security from 'src/utils/Security';
+import { KNOWLEDGE_KNUPDATE } from 'src/utils/hooks/useGranted';
 import ErrorNotFound from '../../../../components/ErrorNotFound';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import ContainerHeader from '../../common/containers/ContainerHeader';
-import StixDomainObjectContent from '../../common/stix_domain_objects/StixDomainObjectContent';
 import StixCoreObjectFilesAndHistory from '../../common/stix_core_objects/StixCoreObjectFilesAndHistory';
 import StixCoreObjectHistory from '../../common/stix_core_objects/StixCoreObjectHistory';
 import CaseTask from './Task';
@@ -23,6 +24,11 @@ import { RootTaskQuery } from './__generated__/RootTaskQuery.graphql';
 import { RootTaskSubscription } from './__generated__/RootTaskSubscription.graphql';
 import { useFormatter } from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import { useIsEnforceReference } from '../../../../utils/hooks/useEntitySettings';
+import useGranted, { KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE } from '../../../../utils/hooks/useGranted';
+import { getCurrentTab, getPaddingRight } from '../../../../utils/utils';
+import TaskEdition from './TaskEdition';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const subscription = graphql`
   subscription RootTaskSubscription($id: ID!) {
@@ -50,7 +56,7 @@ const TaskQuery = graphql`
       ...FileExportViewer_entity
       ...FileExternalReferencesViewer_entity
       ...WorkbenchFileViewer_entity
-      ...StixDomainObjectContent_stixDomainObject
+      ...StixCoreObjectContent_stixCoreObject
     }
     connectorsForExport {
       ...StixCoreObjectFilesAndHistory_connectorsExport
@@ -70,6 +76,9 @@ const RootTaskComponent = ({ queryRef, taskId }) => {
     [taskId],
   );
   const location = useLocation();
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const enableReferences = useIsEnforceReference('Task') && !useGranted([KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE]);
   const { t_i18n } = useFormatter();
   useSubscription(subConfig);
   const {
@@ -77,19 +86,12 @@ const RootTaskComponent = ({ queryRef, taskId }) => {
     connectorsForExport,
     connectorsForImport,
   } = usePreloadedQuery<RootTaskQuery>(TaskQuery, queryRef);
-  let paddingRight = 0;
-  if (data) {
-    if (
-      location.pathname.includes(`/dashboard/cases/tasks/${data.id}/content`)
-    ) {
-      paddingRight = 350;
-    }
-  }
+  const paddingRight = getPaddingRight(location.pathname, data?.id, '/dashboard/cases/tasks');
   return (
     <>
       {data ? (
         <div style={{ paddingRight }}>
-          <Breadcrumbs variant="object" elements={[
+          <Breadcrumbs elements={[
             { label: t_i18n('Cases') },
             { label: t_i18n('Tasks'), link: '/dashboard/cases/tasks' },
             { label: data.name, current: true },
@@ -98,23 +100,25 @@ const RootTaskComponent = ({ queryRef, taskId }) => {
           <ContainerHeader
             container={data}
             PopoverComponent={<TasksPopover id={data.id} />}
+            EditComponent={isFABReplaced && (
+              <Security needs={[KNOWLEDGE_KNUPDATE]}>
+                <TaskEdition caseId={data.id} />
+              </Security>
+            )}
             enableSuggestions={false}
+            redirectToContent={true}
+            disableAuthorizedMembers={true}
+            enableEnricher={true}
           />
           <Box
             sx={{
               borderBottom: 1,
               borderColor: 'divider',
-              marginBottom: 4,
+              marginBottom: 3,
             }}
           >
             <Tabs
-              value={
-                location.pathname.includes(
-                  `/dashboard/cases/tasks/${data.id}/knowledge`,
-                )
-                  ? `/dashboard/cases/tasks/${data.id}/knowledge`
-                  : location.pathname
-              }
+              value={getCurrentTab(location.pathname, data.id, '/dashboard/cases/tasks')}
             >
               <Tab
                 component={Link}
@@ -142,28 +146,23 @@ const RootTaskComponent = ({ queryRef, taskId }) => {
               />
             </Tabs>
           </Box>
-          <Switch>
+          <Routes>
             <Route
-              exact
-              path="/dashboard/cases/tasks/:taskId"
-              render={() => <CaseTask data={data} />}
+              path="/"
+              element={<CaseTask taskData={data} enableReferences={enableReferences} />}
             />
             <Route
-              exact
-              path="/dashboard/cases/tasks/:taskId/content"
-              render={(routeProps) => (
-                <StixDomainObjectContent
-                  {...routeProps}
-                  stixDomainObject={data}
+              path="/content/*"
+              element={
+                <StixCoreObjectContentRoot
+                  stixCoreObject={data}
                 />
-              )}
+              }
             />
             <Route
-              exact
-              path="/dashboard/cases/tasks/:taskId/files"
-              render={(routeProps) => (
+              path="/files"
+              element={
                 <StixCoreObjectFilesAndHistory
-                  {...routeProps}
                   id={taskId}
                   connectorsExport={connectorsForExport}
                   connectorsImport={connectorsForImport}
@@ -171,19 +170,15 @@ const RootTaskComponent = ({ queryRef, taskId }) => {
                   withoutRelations={true}
                   bypassEntityId={true}
                 />
-              )}
+              }
             />
             <Route
-              exact
-              path="/dashboard/cases/tasks/:taskId/history"
-              render={(routeProps: any) => (
-                <StixCoreObjectHistory
-                  {...routeProps}
-                  stixCoreObjectId={taskId}
-                />
-              )}
+              path="/history"
+              element={
+                <StixCoreObjectHistory stixCoreObjectId={taskId} />
+              }
             />
-          </Switch>
+          </Routes>
         </div>
       ) : (
         <ErrorNotFound />

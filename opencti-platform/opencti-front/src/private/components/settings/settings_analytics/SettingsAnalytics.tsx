@@ -14,10 +14,10 @@ import { useFormatter } from '../../../../components/i18n';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import TextField from '../../../../components/TextField';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
     margin: '5px 0 0 0',
     padding: 20,
     borderRadius: 4,
@@ -71,7 +71,7 @@ const SettingsAnalytics: FunctionComponent<SettingsAnalyticsProps> = ({
         </Tooltip>
       </div>
       <div className="clearfix" />
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Formik
           onSubmit={() => {}}
           enableReinitialize={true}

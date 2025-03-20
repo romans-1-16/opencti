@@ -8,8 +8,8 @@ import { ENTITY_TYPE_EXTERNAL_REFERENCE } from '../schema/stixMetaObject';
 import { ABSTRACT_STIX_REF_RELATIONSHIP, buildRefRelationKey } from '../schema/general';
 import { isStixRefRelationship, RELATION_EXTERNAL_REFERENCE } from '../schema/stixRefRelationship';
 import { isEmptyField } from '../database/utils';
-import { BYPASS, BYPASS_REFERENCE } from '../utils/access';
-import { stixCoreObjectImportDelete } from './stixCoreObject';
+import { BYPASS, KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE } from '../utils/access';
+import { stixCoreObjectImportDelete, stixCoreObjectImportPush } from './stixCoreObject';
 import { addFilter } from '../utils/filtering/filtering-utils';
 
 export const findById = (context, user, externalReferenceId) => {
@@ -33,14 +33,18 @@ export const references = async (context, user, externalReferenceId, args) => {
   return listThings(context, user, types, R.assoc('filters', filters, args));
 };
 
+export const externalReferenceImportPush = async (context, user, externalReferenceId, file, args = {}) => {
+  const entitiesReferences = await references(context, user, externalReferenceId, { types: ['Stix-Domain-Object'], connectionFormat: false, first: 50 });
+  const finalArgs = { ...args, importContextEntities: entitiesReferences };
+  return stixCoreObjectImportPush(context, user, externalReferenceId, file, finalArgs);
+};
+
 export const addExternalReference = async (context, user, externalReference) => {
   const referenceAttachment = conf.get('app:reference_attachment');
   const userCapabilities = R.flatten(user.capabilities.map((c) => c.name.split('_')));
-  const isAllowedToByPass = userCapabilities.includes(BYPASS) || userCapabilities.includes(BYPASS_REFERENCE);
+  const isAllowedToByPass = userCapabilities.includes(BYPASS) || userCapabilities.includes(KNOWLEDGE_KNUPDATE_KNBYPASSREFERENCE);
   if (!isAllowedToByPass && referenceAttachment && isEmptyField(externalReference.file)) {
-    throw ValidationError('file', {
-      message: 'You must provide an attachment to create a new external reference',
-    });
+    throw ValidationError('You must provide an attachment to create a new external reference', 'file');
   }
   const created = await createEntity(context, user, externalReference, ENTITY_TYPE_EXTERNAL_REFERENCE);
   return notify(BUS_TOPICS[ENTITY_TYPE_EXTERNAL_REFERENCE].ADDED_TOPIC, created, user);

@@ -10,6 +10,7 @@ type Narrative implements BasicObject & StixCoreObject & StixDomainObject & Stix
     spec_version: String!
     created_at: DateTime!
     updated_at: DateTime!
+    draftVersion: DraftVersion
     # inferences
     x_opencti_inferences: [Inference]
     # StixCoreObject
@@ -84,6 +85,7 @@ type Narrative implements BasicObject & StixCoreObject & StixDomainObject & Stix
         search: String
         filters: FilterGroup
     ): [Distribution] @auth(for: [KNOWLEDGE, EXPLORE])
+    opinions_metrics: OpinionsMetrics
     # StixDomainObject
     revoked: Boolean!
     confidence: Int
@@ -92,6 +94,7 @@ type Narrative implements BasicObject & StixCoreObject & StixDomainObject & Stix
     modified: DateTime
     x_opencti_graph_data: String
     objectAssignee: [Assignee!]
+    objectParticipant: [Participant!]
     avatar: OpenCtiFile
     # Narrative
     name: String!
@@ -104,8 +107,23 @@ type Narrative implements BasicObject & StixCoreObject & StixDomainObject & Stix
     # Technical
     creators: [Creator!]
     toStix: String
-    importFiles(first: Int, prefixMimeType: String): FileConnection
-    pendingFiles(first: Int): FileConnection
+    importFiles(
+    first: Int
+    prefixMimeType: String
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
+    pendingFiles(
+    first: Int
+    after: ID
+    orderBy: FileOrdering
+    orderMode: OrderingMode
+    search: String
+    filters: FilterGroup
+  ): FileConnection
     exportFiles(first: Int): FileConnection
     editContext: [EditUserContext!]
     connectors(onlyAlive: Boolean): [Connector]
@@ -125,12 +143,13 @@ enum NarrativesOrdering {
     objectMarking
     objectLabel
     x_opencti_workflow_id
+    _score
 }
 
 # Relay connections
 type NarrativeConnection {
     pageInfo: PageInfo!
-    edges: [NarrativeEdge]
+    edges: [NarrativeEdge!]!
 }
 type NarrativeEdge {
     cursor: String!
@@ -154,7 +173,7 @@ type Query {
 input NarrativeAddInput {
     stix_id: StixId
     x_opencti_stix_ids: [StixId]
-    name: String! @constraint(minLength: 2)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
     narrative_types: [String!]
     aliases: [String]
@@ -171,6 +190,7 @@ input NarrativeAddInput {
     clientMutationId: String
     update: Boolean
     file: Upload
+    x_opencti_workflow_id: String
 }
 
 type Mutation {

@@ -3,7 +3,6 @@ import makeStyles from '@mui/styles/makeStyles';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Checkbox from '@mui/material/Checkbox';
 import ListItemText from '@mui/material/ListItemText';
-import Chip from '@mui/material/Chip';
 import ListItem from '@mui/material/ListItem';
 import React, { FunctionComponent } from 'react';
 import { CircleOutlined } from '@mui/icons-material';
@@ -12,17 +11,19 @@ import {
   StixNestedRefRelationshipCreationFromEntityLine_node$data,
   StixNestedRefRelationshipCreationFromEntityLine_node$key,
 } from '@components/common/stix_nested_ref_relationships/__generated__/StixNestedRefRelationshipCreationFromEntityLine_node.graphql';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import StixCoreObjectLabels from '../stix_core_objects/StixCoreObjectLabels';
 import { APP_BASE_PATH } from '../../../../relay/environment';
 import ItemIcon from '../../../../components/ItemIcon';
-import { hexToRGB, itemColor } from '../../../../utils/Colors';
-import { defaultValue } from '../../../../utils/Graph';
+import { getMainRepresentative } from '../../../../utils/defaultRepresentatives';
 import ItemMarkings from '../../../../components/ItemMarkings';
-import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
 import { DataColumns } from '../../../../components/list_lines';
 import { HandleAddFilter } from '../../../../utils/hooks/useLocalStorage';
+import ItemEntityType from '../../../../components/ItemEntityType';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -40,26 +41,15 @@ const useStyles = makeStyles<Theme>((theme) => ({
     textOverflow: 'ellipsis',
     paddingRight: 10,
   },
-  chip: {
-    fontSize: 13,
-    lineHeight: '12px',
-    height: 20,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
 }));
 
 const stixNestedRefRelationshipCreationFromEntityLineFragment = graphql`
   fragment StixNestedRefRelationshipCreationFromEntityLine_node on StixCoreObject {
     id
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     standard_id
     parent_types
     entity_type
@@ -261,7 +251,6 @@ export const StixNestedRefRelationshipCreationFromEntityLine: FunctionComponent<
   index,
 }) => {
   const classes = useStyles();
-  const { t_i18n } = useFormatter();
   const data = useFragment(stixNestedRefRelationshipCreationFromEntityLineFragment, node);
   const flag = data.entity_type === 'Country'
     && (data.x_opencti_aliases ?? []).filter((n) => n?.length === 2)[0];
@@ -309,21 +298,14 @@ export const StixNestedRefRelationshipCreationFromEntityLine: FunctionComponent<
               className={classes.bodyItem}
               style={{ width: dataColumns.entity_type.width }}
             >
-              <Chip
-                classes={{ root: classes.chipInList }}
-                style={{
-                  backgroundColor: hexToRGB(itemColor(data.entity_type), 0.08),
-                  color: itemColor(data.entity_type),
-                  border: `1px solid ${itemColor(data.entity_type)}`,
-                }}
-                label={t_i18n(`entity_${data.entity_type}`)}
-              />
+              <ItemEntityType entityType={data.entity_type} />
             </div>
             <div
               className={classes.bodyItem}
               style={{ width: dataColumns.value.width }}
             >
-              {defaultValue(data)}
+              {getMainRepresentative(data)}
+              {data.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}

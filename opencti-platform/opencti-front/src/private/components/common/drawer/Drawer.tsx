@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect, useState } from 'react';
+import React, { CSSProperties, useEffect, useState, forwardRef } from 'react';
 import DrawerMUI from '@mui/material/Drawer';
 import makeStyles from '@mui/styles/makeStyles';
 import IconButton from '@mui/material/IconButton';
@@ -20,10 +20,17 @@ export enum DrawerVariant {
   updateWithPanel = 'updateWithPanel',
 }
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme, { bannerHeightNumber: number }>((theme) => createStyles({
   drawerPaper: {
     minHeight: '100vh',
-    width: '50%',
+    [theme.breakpoints.up('xl')]: {
+      width: '50%',
+    },
+    [theme.breakpoints.down('xl')]: {
+      width: '75%',
+    },
     position: 'fixed',
     overflow: 'auto',
     transition: theme.transitions.create('width', {
@@ -40,7 +47,9 @@ const useStyles = makeStyles<Theme, { bannerHeightNumber: number }>((theme) => c
     alignItems: 'center',
   },
   container: {
-    padding: '10px 20px 20px 20px',
+    padding: theme.spacing(2),
+    height: '100%',
+    overflowY: 'auto',
   },
   mainButton: ({ bannerHeightNumber }) => ({
     position: 'fixed',
@@ -57,6 +66,12 @@ const useStyles = makeStyles<Theme, { bannerHeightNumber: number }>((theme) => c
   },
 }));
 
+export interface DrawerControlledDialProps {
+  onOpen: () => void;
+  onClose: () => void;
+}
+export type DrawerControlledDialType = ({ onOpen, onClose }: DrawerControlledDialProps) => React.ReactElement;
+
 interface DrawerProps {
   title: string;
   children?:
@@ -68,12 +83,13 @@ interface DrawerProps {
   variant?: DrawerVariant;
   context?: readonly (GenericContext | null)[] | null;
   header?: React.ReactElement;
-  controlledDial?: ({ onOpen, onClose }:{ onOpen: () => void, onClose: () => void }) => React.ReactElement;
-  containerRef?: HTMLInputElement;
+  controlledDial?: DrawerControlledDialType;
   containerStyle?: CSSProperties
+  disabled?: boolean
 }
 
-const Drawer = ({
+// eslint-disable-next-line react/display-name
+const Drawer = forwardRef(({
   title,
   children,
   open: defaultOpen = false,
@@ -82,9 +98,9 @@ const Drawer = ({
   context,
   header,
   controlledDial,
-  containerRef,
   containerStyle,
-}: DrawerProps) => {
+  disabled = false,
+}: DrawerProps, ref) => {
   const {
     bannerSettings: { bannerHeightNumber },
   } = useAuth();
@@ -120,8 +136,9 @@ const Drawer = ({
       {variant && (
         <Fab
           onClick={() => setOpen(true)}
-          color="primary"
+          color={'primary'}
           aria-label={update ? 'Edit' : 'Add'}
+          disabled={disabled}
           className={classNames({
             [classes.mainButton]: true,
             [classes.withPanel]: [
@@ -147,9 +164,8 @@ const Drawer = ({
         sx={{ zIndex: 1202 }}
         classes={{ paper: classes.drawerPaper }}
         onClose={handleClose}
-        PaperProps={{
-          ref: containerRef,
-        }}
+        onClick={(e) => e.stopPropagation()}
+        PaperProps={{ ref }}
       >
         <div className={classes.header}>
           <IconButton
@@ -160,7 +176,7 @@ const Drawer = ({
           >
             <Close fontSize="small" color="primary" />
           </IconButton>
-          <Typography variant="subtitle2">{title}</Typography>
+          <Typography variant="subtitle2" style={{ textWrap: 'nowrap' }}>{title}</Typography>
           {context && <SubscriptionAvatars context={context} />}
           {header}
         </div>
@@ -168,6 +184,6 @@ const Drawer = ({
       </DrawerMUI>
     </>
   );
-};
+});
 
 export default Drawer;

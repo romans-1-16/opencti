@@ -1,22 +1,23 @@
 import { Field, Form, Formik } from 'formik';
 import React, { FunctionComponent } from 'react';
-import { createFragmentContainer, graphql, useMutation } from 'react-relay';
+import { createFragmentContainer, graphql } from 'react-relay';
 import * as Yup from 'yup';
 import { ObjectShape } from 'yup';
 import { GenericContext } from '@components/common/model/GenericContextModel';
-import ConfidenceField from '@components/common/form/ConfidenceField';
 import FormHelperText from '@mui/material/FormHelperText';
+import { useTheme } from '@mui/styles';
+import { InformationOutline } from 'mdi-material-ui';
+import Tooltip from '@mui/material/Tooltip';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import TextField from '../../../../components/TextField';
 import DashboardField from '../../common/form/DashboardField';
 import { GroupEditionOverview_group$data } from './__generated__/GroupEditionOverview_group.graphql';
 import GroupHiddenTypesField from './GroupHiddenTypesField';
 import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEditor';
-import useGranted, { SETTINGS_SETACCESSES } from '../../../../utils/hooks/useGranted';
-import { fieldSpacingContainerStyle } from '../../../../utils/field';
+import type { Theme } from '../../../../components/Theme';
 
 export const groupMutationFieldPatch = graphql`
   mutation GroupEditionOverviewFieldPatchMutation(
@@ -81,8 +82,7 @@ interface GroupEditionOverviewComponentProps {
 }
 const GroupEditionOverviewComponent: FunctionComponent<GroupEditionOverviewComponentProps> = ({ group, context }) => {
   const { t_i18n } = useFormatter();
-  const hasSetAccess = useGranted([SETTINGS_SETACCESSES]);
-  const [commitFieldPatch] = useMutation(groupMutationFieldPatch);
+  const theme = useTheme<Theme>();
 
   const basicShape: ObjectShape = {
     name: Yup.string().required(t_i18n('This field is required')),
@@ -105,50 +105,17 @@ const GroupEditionOverviewComponent: FunctionComponent<GroupEditionOverviewCompo
 
   const editor = useFormEditor(group as unknown as GenericData, false, queries, groupValidator);
 
-  const handleSubmitField = (name: string, value: string) => {
-    groupValidator
-      .validateAt(name, { [name]: value })
-      .then(() => {
-        if (name === 'group_confidence_level') {
-          if (group.group_confidence_level) {
-            commitFieldPatch({
-              variables: {
-                id: group.id,
-                input: {
-                  key: 'group_confidence_level',
-                  object_path: '/group_confidence_level/max_confidence',
-                  value: parseInt(value, 10),
-                },
-              },
-            });
-          } else {
-            commitFieldPatch({
-              variables: {
-                id: group.id,
-                input: {
-                  key: 'group_confidence_level',
-                  value: {
-                    max_confidence: parseInt(value, 10),
-                    overrides: [],
-                  },
-                },
-              },
-            });
-          }
-        }
-      })
-      .catch(() => false);
-  };
   const initialValues = {
     name: group.name,
     description: group.description,
     default_assignation: group.default_assignation,
     auto_new_marking: group.auto_new_marking,
+    no_creators: group.no_creators,
+    restrict_delete: group.restrict_delete,
     default_dashboard: group.default_dashboard ? {
       value: group.default_dashboard.id,
       label: group.default_dashboard.name,
     } : null,
-    group_confidence_level: group.group_confidence_level?.max_confidence,
   };
 
   return (
@@ -161,7 +128,7 @@ const GroupEditionOverviewComponent: FunctionComponent<GroupEditionOverviewCompo
         }}
       >
         {() => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form style={{ marginTop: theme.spacing(2) }}>
             <Field
               component={TextField}
               name="name"
@@ -194,6 +161,7 @@ const GroupEditionOverviewComponent: FunctionComponent<GroupEditionOverviewCompo
               onChange={editor.changeField}
               context={context}
             />
+            <GroupHiddenTypesField groupData={group} />
             <Field
               component={SwitchField}
               type="checkbox"
@@ -213,9 +181,22 @@ const GroupEditionOverviewComponent: FunctionComponent<GroupEditionOverviewCompo
               component={SwitchField}
               type="checkbox"
               name="auto_new_marking"
-              label={t_i18n(
-                'Automatically authorize this group to new marking definition',
-              )}
+              label={<>
+                {t_i18n(
+                  'Automatically authorize this group to new marking definition',
+                )}
+                <Tooltip
+                  title={t_i18n(
+                    'The new marking definitions will also be shareable by this group.',
+                  )}
+                >
+                  <InformationOutline
+                    fontSize="small"
+                    color="primary"
+                    style={{ margin: '0 0 -5px 10px' }}
+                  />
+                </Tooltip>
+              </>}
               containerstyle={{ marginTop: 20 }}
               onChange={editor.changeField}
             />
@@ -225,21 +206,38 @@ const GroupEditionOverviewComponent: FunctionComponent<GroupEditionOverviewCompo
                 fieldName="auto_new_marking"
               />
             </FormHelperText>
-            <GroupHiddenTypesField groupData={group} />
-            {
-              hasSetAccess && (
-                <ConfidenceField
-                  name="group_confidence_level"
-                  label={t_i18n('Max Confidence Level')}
-                  onFocus={editor.changeFocus}
-                  onSubmit={handleSubmitField}
-                  entityType="Group"
-                  containerStyle={fieldSpacingContainerStyle}
-                  editContext={context}
-                  variant="edit"
-                />
-              )
-            }
+            <Field
+              component={SwitchField}
+              type="checkbox"
+              name="no_creators"
+              label={t_i18n(
+                'Do not accumulate creators for the users of this group',
+              )}
+              containerstyle={{ marginTop: 20 }}
+              onChange={editor.changeField}
+            />
+            <FormHelperText>
+              <SubscriptionFocus
+                context={context}
+                fieldName="no_creators"
+              />
+            </FormHelperText>
+            <Field
+              component={SwitchField}
+              type="checkbox"
+              name="restrict_delete"
+              label={t_i18n(
+                'Do not allow these users to delete content created by other users',
+              )}
+              containerstyle={{ marginTop: 20 }}
+              onChange={editor.changeField}
+            />
+            <FormHelperText>
+              <SubscriptionFocus
+                context={context}
+                fieldName="restrict_delete"
+              />
+            </FormHelperText>
           </Form>
         )}
       </Formik>
@@ -256,6 +254,8 @@ const GroupEditionOverview = createFragmentContainer(
         name
         description
         default_assignation
+        no_creators
+        restrict_delete
         auto_new_marking
         default_dashboard {
           id
@@ -263,9 +263,6 @@ const GroupEditionOverview = createFragmentContainer(
           authorizedMembers {
             id
           }
-        }
-        group_confidence_level {
-          max_confidence
         }
         ...GroupHiddenTypesField_group
       }

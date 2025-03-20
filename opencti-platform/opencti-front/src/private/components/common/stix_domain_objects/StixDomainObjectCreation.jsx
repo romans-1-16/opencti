@@ -10,13 +10,16 @@ import { Add } from '@mui/icons-material';
 import { Select } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
 import { ConnectionHandler } from 'relay-runtime';
+import Alert from '@mui/lab/Alert';
 import { useFormatter } from '../../../../components/i18n';
+import { MalwareAnalysisCreationForm } from '../../analyses/malware_analyses/MalwareAnalysisCreation';
 import { MalwareCreationForm } from '../../arsenal/malwares/MalwareCreation';
 import { AdministrativeAreaCreationForm } from '../../locations/administrative_areas/AdministrativeAreaCreation';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
 import { AttackPatternCreationForm } from '../../techniques/attack_patterns/AttackPatternCreation';
 import { CampaignCreationForm } from '../../threats/campaigns/CampaignCreation';
 import { ChannelCreationForm } from '../../arsenal/channels/ChannelCreation';
+import { TaskCreationForm } from '../../cases/tasks/TaskCreation';
 import { CityCreationForm } from '../../locations/cities/CityCreation';
 import { CountryCreationForm } from '../../locations/countries/CountryCreation';
 import { EventCreationForm } from '../../entities/events/EventCreation';
@@ -47,6 +50,8 @@ import useGranted, { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGrant
 import { CaseRfiCreationForm } from '../../cases/case_rfis/CaseRfiCreation';
 import { CaseRftCreationForm } from '../../cases/case_rfts/CaseRftCreation';
 import { ThreatActorIndividualCreationForm } from '../../threats/threat_actors_individual/ThreatActorIndividualCreation';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
+import BulkTextModalButton from '../../../../components/fields/BulkTextField/BulkTextModalButton';
 
 export const stixDomainObjectCreationAllTypesQuery = graphql`
   query StixDomainObjectCreationAllTypesQuery {
@@ -90,6 +95,33 @@ const THREAT_ACTOR_ENTITIES = [
   'Threat-Actor',
 ];
 
+const BULK_ENTITIES = [
+  'Administrative-Area',
+  'Campaign',
+  'Channel',
+  'City',
+  'Country',
+  'Data-Component',
+  'Data-Source',
+  'Event',
+  'Individual',
+  'Infrastructure',
+  'Intrusion-Set',
+  'Malware',
+  'Narrative',
+  'Organization',
+  'Position',
+  'Region',
+  'Sector',
+  'System',
+  'Threat-Actor-Group',
+  'Threat-Actor-Individual',
+  'Tool',
+  'Vulnerability',
+];
+
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles({
   createButton: {
     position: 'fixed',
@@ -107,10 +139,12 @@ const sharedUpdater = (
   newEdge,
 ) => {
   const userProxy = store.get(userId);
+  const params = { ...paginationOptions };
+  delete params.count;
   const conn = ConnectionHandler.getConnection(
     userProxy,
     paginationKey,
-    paginationOptions,
+    params,
   );
   ConnectionHandler.insertEdgeBefore(conn, newEdge);
 };
@@ -163,12 +197,15 @@ const StixDomainPanel = ({
   queryRef,
   stixDomainObjectTypes,
   onClose,
+  onCompleted,
   creationUpdater,
   confidence,
   inputValue,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  isFromBulkRelation,
 }) => {
+  const [bulkOpen, setBulkOpen] = useState(false);
   const { t_i18n } = useFormatter();
   const queryData = usePreloadedQuery(
     stixDomainObjectCreationAllTypesQuery,
@@ -179,7 +216,8 @@ const StixDomainPanel = ({
     queryData,
     stixDomainObjectTypes,
   );
-  const [type, setType] = useState(availableEntityTypes.at(0).value);
+  const selectedType = availableEntityTypes.find((item) => item.value === stixDomainObjectTypes) ?? availableEntityTypes.at(0);
+  const [type, setType] = useState(selectedType.value);
   const baseCreatedBy = defaultCreatedBy
     ? { value: defaultCreatedBy.id, label: defaultCreatedBy.name }
     : undefined;
@@ -199,6 +237,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -210,6 +251,7 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          onCompleted={onClose}
         />
       );
     }
@@ -222,6 +264,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -271,6 +316,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -282,6 +330,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -293,6 +344,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -305,6 +359,7 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          onCompleted={onClose}
         />
       );
     }
@@ -318,6 +373,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -331,6 +389,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -343,6 +404,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -369,6 +433,7 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          onCompleted={onClose}
         />
       );
     }
@@ -394,6 +459,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -407,6 +475,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -420,6 +491,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -433,6 +507,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -445,6 +522,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -506,6 +586,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -518,6 +601,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -530,6 +616,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -555,6 +644,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -567,6 +659,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -579,6 +674,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -591,6 +689,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -604,6 +705,9 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
@@ -617,10 +721,52 @@ const StixDomainPanel = ({
           defaultMarkingDefinitions={baseMarkingDefinitions}
           onReset={onClose}
           updater={creationUpdater}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
+          onCompleted={onCompleted ?? onClose}
         />
       );
     }
-    return <div>{t_i18n('Unsupported')}</div>;
+    if (type === 'Malware-Analysis') {
+      // Malware-Analysis
+      return (
+        <MalwareAnalysisCreationForm
+          inputValue={inputValue}
+          defaultConfidence={confidence}
+          defaultCreatedBy={baseCreatedBy}
+          defaultMarkingDefinitions={baseMarkingDefinitions}
+          onClose={onClose}
+          updater={creationUpdater}
+        />
+      );
+    }
+    if (type === 'Task') {
+      // Task
+      return (
+        <TaskCreationForm
+          inputValue={inputValue}
+          defaultMarkings={baseMarkingDefinitions}
+          onClose={onClose}
+          updater={creationUpdater}
+        />
+      );
+    }
+    return <div style={{ marginTop: 10 }}>{t_i18n('Unsupported')}</div>;
+  };
+
+  const renderUnavailableBulkMessage = () => {
+    if (isFromBulkRelation && !BULK_ENTITIES.includes(type)) {
+      return (
+        <Alert
+          severity="info"
+          variant="outlined"
+          style={{ marginBottom: 10 }}
+        >
+          {t_i18n('This entity has several key fields, which is incompatible with bulk creation')}
+        </Alert>
+      );
+    }
+    return null;
   };
 
   return (
@@ -630,8 +776,18 @@ const StixDomainPanel = ({
       onClose={onClose}
       fullWidth={true}
     >
-      <DialogTitle>{t_i18n('Create an entity')}</DialogTitle>
+      <DialogTitle style={{ display: 'flex' }}>
+        {t_i18n('Create an entity')}
+        {!isFromBulkRelation && (
+          <BulkTextModalButton
+            onClick={() => setBulkOpen(true)}
+            sx={{ marginRight: 0 }}
+            disabled={!BULK_ENTITIES.includes(type)}
+          />
+        )}
+      </DialogTitle>
       <DialogContent>
+        {renderUnavailableBulkMessage()}
         <Select
           value={type}
           onChange={(event) => setType(event.target.value)}
@@ -644,7 +800,9 @@ const StixDomainPanel = ({
             </MenuItem>
           ))}
         </Select>
-        {renderEntityCreationInterface()}
+        <div style={{ marginTop: '20px' }}>
+          {renderEntityCreationInterface()}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -660,9 +818,13 @@ const StixDomainObjectCreation = ({
   display,
   open,
   speeddial,
+  fabReplaced = false,
+  controlledDialStyles = {},
   handleClose,
   paginationKey,
   paginationOptions,
+  onCompleted,
+  isFromBulkRelation,
 }) => {
   const classes = useStyles();
   const [status, setStatus] = useState({ open: false, type: null });
@@ -680,6 +842,7 @@ const StixDomainObjectCreation = ({
     setStatus({ open: true, type: null });
   };
   const stateHandleClose = () => setStatus({ open: false, type: null });
+
   const creationUpdater = (store, rootField, element) => {
     const payload = store.getRootField(rootField);
     if (creationCallback) {
@@ -694,40 +857,49 @@ const StixDomainObjectCreation = ({
         paginationKey || 'Pagination_stixDomainObjects',
         newEdge,
       );
-    }
-    if (speeddial) {
-      handleClose();
-    } else {
-      stateHandleClose();
+      if (onCompleted) onCompleted();
     }
   };
+
   return (
-    <div style={{ display: display ? 'block' : 'none' }}>
-      {!speeddial && (
-        <Fab
-          onClick={stateHandleOpen}
-          color="secondary"
-          aria-label="Add"
-          className={classes.createButton}
-        >
-          <Add />
-        </Fab>
+    <>
+      {fabReplaced && !speeddial && (
+        <CreateEntityControlledDial
+          entityType={'Entities'}
+          onOpen={stateHandleOpen}
+          onClose={() => {}}
+          style={controlledDialStyles}
+        />
       )}
-      {isOpen && queryRef && (
-        <React.Suspense fallback={<Loader variant={LoaderVariant.inElement} />}>
-          <StixDomainPanel
-            queryRef={queryRef}
-            inputValue={inputValue}
-            confidence={confidence}
-            defaultCreatedBy={defaultCreatedBy}
-            defaultMarkingDefinitions={defaultMarkingDefinitions}
-            stixDomainObjectTypes={stixDomainObjectTypes}
-            creationUpdater={creationUpdater}
-            onClose={speeddial ? handleClose : stateHandleClose}
-          />
-        </React.Suspense>
-      )}
-    </div>
+      <div style={{ display: display ? 'block' : 'none' }}>
+        {!fabReplaced && !speeddial && (
+          <Fab
+            onClick={stateHandleOpen}
+            color="primary"
+            aria-label="Add"
+            className={classes.createButton}
+          >
+            <Add />
+          </Fab>
+        )}
+        {isOpen && queryRef && (
+          <React.Suspense fallback={<Loader variant={LoaderVariant.inElement} />}>
+            <StixDomainPanel
+              queryRef={queryRef}
+              inputValue={inputValue}
+              confidence={confidence}
+              defaultCreatedBy={defaultCreatedBy}
+              defaultMarkingDefinitions={defaultMarkingDefinitions}
+              stixDomainObjectTypes={stixDomainObjectTypes}
+              creationUpdater={creationUpdater}
+              onCompleted={onCompleted}
+              onClose={speeddial ? handleClose : stateHandleClose}
+              isFromBulkRelation={isFromBulkRelation}
+            />
+          </React.Suspense>
+        )}
+      </div>
+    </>
   );
 };
 

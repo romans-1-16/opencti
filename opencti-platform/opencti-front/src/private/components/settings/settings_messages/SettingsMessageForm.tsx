@@ -1,6 +1,6 @@
 import React from 'react';
 import { makeStyles } from '@mui/styles';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { FormikConfig } from 'formik/dist/types';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
@@ -12,10 +12,13 @@ import ColorPickerField from '../../../../components/ColorPickerField';
 import type { Theme } from '../../../../components/Theme';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import { SettingsMessagesLine_settingsMessage$data } from './__generated__/SettingsMessagesLine_settingsMessage.graphql';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: theme.spacing(2),
@@ -71,7 +74,7 @@ const SettingsMessageForm = ({
 }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
-  const [commit] = useMutation(settingsMessageEditionPatch);
+  const [commit] = useApiMutation(settingsMessageEditionPatch);
   const onSubmit: FormikConfig<SettingsMessageInput>['onSubmit'] = (
     values,
     { setSubmitting },
@@ -126,7 +129,7 @@ const SettingsMessageForm = ({
           onReset={onClose}
         >
           {({ submitForm, handleReset, isSubmitting, isValid }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               <Field
                 component={TextField}
                 variant="standard"

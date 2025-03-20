@@ -4,6 +4,7 @@ import { schemaAttributesDefinition } from '../../schema/schema-attributes';
 import {
   ENTITY_AUTONOMOUS_SYSTEM,
   ENTITY_BANK_ACCOUNT,
+  ENTITY_CREDENTIAL,
   ENTITY_CRYPTOGRAPHIC_KEY,
   ENTITY_CRYPTOGRAPHIC_WALLET,
   ENTITY_DIRECTORY,
@@ -22,10 +23,12 @@ import {
   ENTITY_MUTEX,
   ENTITY_NETWORK_TRAFFIC,
   ENTITY_PAYMENT_CARD,
+  ENTITY_PERSONA,
   ENTITY_PHONE_NUMBER,
   ENTITY_PROCESS,
   ENTITY_SOFTWARE,
   ENTITY_TEXT,
+  ENTITY_TRACKING_NUMBER,
   ENTITY_URL,
   ENTITY_USER_ACCOUNT,
   ENTITY_USER_AGENT,
@@ -87,7 +90,7 @@ const stixCyberObservablesAttributes: { [k: string]: Array<AttributeDefinition> 
   ],
   [ENTITY_EMAIL_MESSAGE]: [
     { name: 'is_multipart', label: 'Multipart', type: 'boolean', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
-    { name: 'attribute_date', label: 'Date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'attribute_date', label: 'Email date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'content_type', label: 'Content type', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'message_id', label: 'Message ID', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'subject', label: 'Subject', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
@@ -165,8 +168,8 @@ const stixCyberObservablesAttributes: { [k: string]: Array<AttributeDefinition> 
   ],
   [ENTITY_NETWORK_TRAFFIC]: [
     { name: 'extensions', label: 'Extensions', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
-    { name: 'start', label: 'Start date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
-    { name: 'end', label: 'End date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'start', label: 'Network traffic start date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'end', label: 'Network traffic end date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'is_active', label: 'Network traffic active', type: 'boolean', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'src_port', label: 'SRC port', type: 'numeric', precision: 'integer', editDefault: false, mandatoryType: 'no', multiple: false, upsert: true, isFilterable: true },
     { name: 'dst_port', label: 'DST port', type: 'numeric', precision: 'integer', editDefault: false, mandatoryType: 'no', multiple: false, upsert: true, isFilterable: true },
@@ -286,7 +289,17 @@ const stixCyberObservablesAttributes: { [k: string]: Array<AttributeDefinition> 
     { name: 'content', label: 'Content', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'media_category', label: 'Media category', type: 'string', format: 'short', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
     { name: 'url', label: 'URL', type: 'string', format: 'short', mandatoryType: 'external', editDefault: true, multiple: false, upsert: false, isFilterable: true },
-    { name: 'publication_date', label: 'Publication date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'publication_date', label: 'Media publication date', type: 'date', mandatoryType: 'no', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+  ],
+  [ENTITY_CREDENTIAL]: [
+    { name: 'value', label: 'Value', type: 'string', format: 'short', mandatoryType: 'external', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+  ],
+  [ENTITY_TRACKING_NUMBER]: [
+    { name: 'value', label: 'Value', type: 'string', format: 'short', mandatoryType: 'external', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+  ],
+  [ENTITY_PERSONA]: [
+    { name: 'persona_name', label: 'Persona name', type: 'string', format: 'short', mandatoryType: 'external', editDefault: false, multiple: false, upsert: true, isFilterable: true },
+    { name: 'persona_type', label: 'Persona type', type: 'string', format: 'short', mandatoryType: 'external', editDefault: false, multiple: false, upsert: true, isFilterable: true },
   ],
 };
 R.forEachObjIndexed((value, key) => schemaAttributesDefinition.registerAttributes(key as string, value), stixCyberObservablesAttributes);

@@ -9,7 +9,7 @@ import { KeyboardArrowRight } from '@mui/icons-material';
 import ListItem from '@mui/material/ListItem';
 import Skeleton from '@mui/material/Skeleton';
 import { graphql, useFragment } from 'react-relay';
-import Chip from '@mui/material/Chip';
+import { DraftChip } from '@components/common/draft/DraftChip';
 import ItemMarkings from '../../../../../components/ItemMarkings';
 import StixCoreObjectLabels from '../../stix_core_objects/StixCoreObjectLabels';
 import type { Theme } from '../../../../../components/Theme';
@@ -18,13 +18,15 @@ import { useFormatter } from '../../../../../components/i18n';
 import { DataColumns } from '../../../../../components/list_lines';
 import { UseEntityToggle } from '../../../../../utils/hooks/useEntityToggle';
 import ItemIcon from '../../../../../components/ItemIcon';
-import { defaultValue } from '../../../../../utils/Graph';
-import { hexToRGB, itemColor } from '../../../../../utils/Colors';
+import { getMainRepresentative } from '../../../../../utils/defaultRepresentatives';
 import {
   EntityStixCoreRelationshipsEntitiesViewLine_node$data,
   EntityStixCoreRelationshipsEntitiesViewLine_node$key,
 } from './__generated__/EntityStixCoreRelationshipsEntitiesViewLine_node.graphql';
+import ItemEntityType from '../../../../../components/ItemEntityType';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   item: {
     paddingLeft: 10,
@@ -49,19 +51,15 @@ const useStyles = makeStyles<Theme>((theme) => ({
   itemIconDisabled: {
     color: theme.palette.grey?.[700],
   },
-  chipInList: {
-    fontSize: 12,
-    height: 20,
-    float: 'left',
-    width: 120,
-    textTransform: 'uppercase',
-    borderRadius: 4,
-  },
 }));
 
 const entityStixCoreRelationshipsEntitiesFragment = graphql`
   fragment EntityStixCoreRelationshipsEntitiesViewLine_node on StixCoreObject {
     id
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     entity_type
     created_at
     ... on StixDomainObject {
@@ -232,7 +230,7 @@ EntityStixCoreRelationshipsEntitiesLineProps
   index,
 }) => {
   const classes = useStyles();
-  const { t_i18n, nsdt } = useFormatter();
+  const { nsdt } = useFormatter();
   const stixCoreObject = useFragment(
     entityStixCoreRelationshipsEntitiesFragment,
     node,
@@ -272,18 +270,7 @@ EntityStixCoreRelationshipsEntitiesLineProps
               className={classes.bodyItem}
               style={{ width: dataColumns.entity_type.width }}
             >
-              <Chip
-                classes={{ root: classes.chipInList }}
-                style={{
-                  backgroundColor: hexToRGB(
-                    itemColor(stixCoreObject.entity_type),
-                    0.08,
-                  ),
-                  color: itemColor(stixCoreObject.entity_type),
-                  border: `1px solid ${itemColor(stixCoreObject.entity_type)}`,
-                }}
-                label={t_i18n(`entity_${stixCoreObject.entity_type}`)}
-              />
+              <ItemEntityType entityType={stixCoreObject.entity_type} />
             </div>
             <div
               className={classes.bodyItem}
@@ -293,7 +280,8 @@ EntityStixCoreRelationshipsEntitiesLineProps
                   : dataColumns.observable_value.width,
               }}
             >
-              {defaultValue(stixCoreObject)}
+              {getMainRepresentative(stixCoreObject)}
+              {stixCoreObject.draftVersion && (<DraftChip/>)}
             </div>
             <div
               className={classes.bodyItem}

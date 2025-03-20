@@ -29,7 +29,7 @@ Transition.displayName = 'TransitionSlide';
 
 const styles = (theme) => ({
   bottomNav: {
-    zIndex: 1040,
+    zIndex: 1,
     display: 'flex',
     height: 50,
     overflow: 'hidden',
@@ -138,8 +138,8 @@ class WorkbenchFileToolbar extends Component {
     });
   }
 
-  onSubmitApplyMarking(values) {
-    this.props.submitApplyMarking(values);
+  onSubmitApplyMarking(values, { resetForm }) {
+    this.props.submitApplyMarking(values, { resetForm });
     this.handleCloseApplyMarking();
   }
 
@@ -238,9 +238,9 @@ class WorkbenchFileToolbar extends Component {
                   onSubmit={this.onSubmitApplyMarking.bind(this)}
                   onReset={this.onResetApplyMarking.bind(this)}
                 >
-                  {({ submitForm, handleReset, isSubmitting }) => (
+                  {({ submitForm, handleReset, isSubmitting, setFieldValue }) => (
                     <Form>
-                      <ObjectMarkingField name="objectMarking" />
+                      <ObjectMarkingField name="objectMarking" setFieldValue={setFieldValue}/>
                       <div className={classes.buttons}>
                         <Button
                           onClick={handleReset}

@@ -10,7 +10,10 @@ import { StatusTemplatesLinesPaginationQuery, StatusTemplatesLinesPaginationQuer
 import LabelsVocabulariesMenu from '../LabelsVocabulariesMenu';
 import { useFormatter } from '../../../../components/i18n';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
+import useConnectedDocumentModifier from '../../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -22,6 +25,8 @@ const LOCAL_STORAGE_KEY = 'status-templates';
 
 const StatusTemplates = () => {
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Status Templates | Taxonomies | Settings'));
   const classes = useStyles();
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<StatusTemplatesLinesPaginationQuery$variables>(
     LOCAL_STORAGE_KEY,
@@ -46,7 +51,7 @@ const StatusTemplates = () => {
       },
       usages: {
         label: 'Usages',
-        width: '5%',
+        width: '20%',
         isSortable: false,
       },
     };
@@ -95,7 +100,7 @@ const StatusTemplates = () => {
   return (
     <div className={classes.container}>
       <LabelsVocabulariesMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Taxonomies') }, { label: t_i18n('Status templates'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Taxonomies') }, { label: t_i18n('Status templates'), current: true }]} />
       {renderLines()}
       <StatusTemplateCreation
         paginationOptions={paginationOptions}

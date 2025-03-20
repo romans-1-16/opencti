@@ -5,6 +5,7 @@ import { commitMutation, QueryRenderer } from '../../../../relay/environment';
 import AttackPatternEditionContainer from './AttackPatternEditionContainer';
 import { attackPatternEditionOverviewFocus } from './AttackPatternEditionOverview';
 import Loader from '../../../../components/Loader';
+import EditEntityControlledDial from '../../../../components/EditEntityControlledDial';
 
 export const attackPatternEditionQuery = graphql`
   query AttackPatternEditionContainerQuery($id: String!) {
@@ -38,10 +39,11 @@ class AttackPatternEdition extends Component {
               <AttackPatternEditionContainer
                 attackPattern={props.attackPattern}
                 handleClose={this.handleClose.bind(this)}
+                controlledDial={EditEntityControlledDial}
               />
             );
           }
-          return <Loader variant="inElement" />;
+          return <Loader variant="inline" />;
         }}
       />
     );

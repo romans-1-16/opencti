@@ -5,11 +5,12 @@ import * as Yup from 'yup';
 import { FormikConfig } from 'formik/dist/types';
 import { GenericContext } from '@components/common/model/GenericContextModel';
 import ConfidenceField from '@components/common/form/ConfidenceField';
+import useHelper from 'src/utils/hooks/useHelper';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import CommitMessage from '../../common/form/CommitMessage';
 import { adaptFieldValue } from '../../../../utils/String';
 import StatusField from '../../common/form/StatusField';
@@ -21,6 +22,7 @@ import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySet
 import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEditor';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import CityDeletion from './CityDeletion';
 
 const cityMutationFieldPatch = graphql`
   mutation CityEditionOverviewFieldPatchMutation(
@@ -87,6 +89,7 @@ export const cityEditionOverviewFragment = graphql`
     name
     description
     confidence
+    entity_type
     latitude
     longitude
     createdBy {
@@ -139,7 +142,7 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
   const { t_i18n } = useFormatter();
   const city = useFragment(cityEditionOverviewFragment, cityRef);
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable().max(5000, t_i18n('The value is too long')),
     confidence: Yup.number().nullable(),
     latitude: Yup.number()
@@ -186,7 +189,7 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
       },
     });
   };
-  const handleSubmitField = (name: string, value: Option | string) => {
+  const handleSubmitField = (name: string, value: Option | string | null) => {
     if (!enableReferences) {
       let finalValue: string = value as string;
       if (name === 'x_opencti_workflow_id') {
@@ -198,7 +201,7 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
           editor.fieldPatch({
             variables: {
               id: city.id,
-              input: [{ key: name, value: [finalValue ?? ''] }],
+              input: [{ key: name, value: [finalValue ?? null] }],
             },
           });
         })
@@ -216,6 +219,8 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
     objectMarking: convertMarkings(city),
     x_opencti_workflow_id: convertStatus(t_i18n, city) as Option,
   };
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   return (
     <Formik
       enableReinitialize={true}
@@ -231,7 +236,7 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={city} />
           <Field
             component={TextField}
@@ -272,10 +277,11 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
             variant="standard"
             style={{ marginTop: 20 }}
             name="latitude"
+            type="number"
             label={t_i18n('Latitude')}
             fullWidth={true}
             onFocus={editor.changeFocus}
-            onSubmit={handleSubmitField}
+            onSubmit={(name: string, value: string) => handleSubmitField(name, (value === '' ? null : value))}
             helperText={
               <SubscriptionFocus context={context} fieldName="latitude" />
             }
@@ -285,10 +291,11 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
             variant="standard"
             style={{ marginTop: 20 }}
             name="longitude"
+            type="number"
             label={t_i18n('Longitude')}
             fullWidth={true}
             onFocus={editor.changeFocus}
-            onSubmit={handleSubmitField}
+            onSubmit={(name: string, value: string) => handleSubmitField(name, (value === '' ? null : value))}
             helperText={
               <SubscriptionFocus context={context} fieldName="longitude" />
             }
@@ -327,16 +334,24 @@ const CityEditionOverview: FunctionComponent<CityEditionOverviewProps> = ({
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={city.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <CityDeletion
+                  id={city.id}
+                />
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={city.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

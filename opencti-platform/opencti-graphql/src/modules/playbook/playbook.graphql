@@ -27,6 +27,7 @@ type Playbook implements InternalObject & BasicObject {
     playbook_running: Boolean
     playbook_definition: String
     last_executions: [PlayBookExecution!]
+    queue_messages: Int!
 }
 
 type PlaybookComponentPort {
@@ -52,6 +53,7 @@ type PlaybookInsertResult {
 enum PlaybooksOrdering {
     name
     playbook_running
+    _score
 }
 
 # Relay connections
@@ -76,20 +78,21 @@ type Query {
         search: String
     ): PlaybookConnection @auth(for: [SETTINGS_SETACCESSES])
     playbookComponents: [PlaybookComponent]! @auth(for: [SETTINGS_SETACCESSES])
+    playbooksForEntity(id: String!): [Playbook] @auth(for: [SETTINGS_SETACCESSES])
 }
 
 input PlaybookAddInput {
-    name: String! @constraint(minLength: 2)
+    name: String! @constraint(minLength: 2, format: "not-blank")
     description: String
 }
 
 input PositionInput {
-    x: Int!
-    y: Int!
+    x: Float!
+    y: Float!
 }
 
 input PlaybookAddNodeInput {
-    name: String!
+    name: String! @constraint(minLength: 2, format: "not-blank")
     component_id: String!
     position: PositionInput!
     configuration: String
@@ -113,5 +116,6 @@ type Mutation {
     playbookDeleteLink(id: ID!, linkId: ID!): Playbook @auth(for: [SETTINGS_SETACCESSES])
     playbookUpdatePositions(id: ID!, positions: String!): ID @auth(for: [SETTINGS_SETACCESSES])
     playbookFieldPatch(id: ID!, input: [EditInput!]!, commitMessage: String, references: [String]): Playbook @auth(for: [SETTINGS_SETACCESSES])
-    playbookStepExecution(execution_id: ID!, execution_start: DateTime!, data_instance_id: ID!, playbook_id: ID!, previous_step_id: ID!, step_id: ID!, previous_bundle: String!, bundle: String!): Boolean @auth(for: [CONNECTORAPI])
+    playbookStepExecution(execution_id: ID!, event_id: ID!, execution_start: DateTime!, data_instance_id: ID!, playbook_id: ID!, previous_step_id: ID!, step_id: ID!, previous_bundle: String!, bundle: String!): Boolean @auth(for: [CONNECTORAPI])
+    playbookExecute(id: ID!, entityId: String!): Boolean @auth(for: [KNOWLEDGE_KNENRICHMENT])
 }

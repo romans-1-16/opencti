@@ -4,9 +4,10 @@ import React, { FunctionComponent } from 'react';
 import { graphql, useFragment } from 'react-relay';
 import * as Yup from 'yup';
 import { GenericContext } from '@components/common/model/GenericContextModel';
+import useHelper from 'src/utils/hooks/useHelper';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import { useFormatter } from '../../../../components/i18n';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import TextField from '../../../../components/TextField';
 import { convertAssignees, convertCreatedBy, convertMarkings, convertParticipants, convertStatus } from '../../../../utils/edition';
@@ -26,6 +27,7 @@ import StatusField from '../../common/form/StatusField';
 import { CaseIncidentEditionOverview_case$key } from './__generated__/CaseIncidentEditionOverview_case.graphql';
 import ObjectParticipantField from '../../common/form/ObjectParticipantField';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import CaseIncidentDeletion from './CaseIncidentDeletion';
 
 export const caseIncidentMutationFieldPatch = graphql`
   mutation CaseIncidentEditionOverviewCaseFieldPatchMutation(
@@ -40,6 +42,7 @@ export const caseIncidentMutationFieldPatch = graphql`
         commitMessage: $commitMessage
         references: $references
       ) {
+        x_opencti_graph_data
         ...CaseIncidentEditionOverview_case
         ...CaseUtils_case
       }
@@ -70,6 +73,7 @@ const caseIncidentEditionOverviewFragment = graphql`
     description
     rating
     confidence
+    entity_type
     created
     response_types
     creators {
@@ -172,7 +176,7 @@ const CaseIncidentEditionOverview: FunctionComponent<CaseIncidentEditionOverview
   const caseData = useFragment(caseIncidentEditionOverviewFragment, caseRef);
 
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     severity: Yup.string().nullable(),
     priority: Yup.string().nullable(),
     response_types: Yup.array(),
@@ -251,6 +255,10 @@ const CaseIncidentEditionOverview: FunctionComponent<CaseIncidentEditionOverview
     x_opencti_workflow_id: convertStatus(t_i18n, caseData) as Option,
     references: [],
   };
+
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
   return (
     <Formik
       enableReinitialize={true}
@@ -266,7 +274,7 @@ const CaseIncidentEditionOverview: FunctionComponent<CaseIncidentEditionOverview
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={caseData} />
           <Field
             component={TextField}
@@ -291,7 +299,7 @@ const CaseIncidentEditionOverview: FunctionComponent<CaseIncidentEditionOverview
               variant: 'standard',
               fullWidth: true,
               helperText: (
-                <SubscriptionFocus context={context} fieldName="created"/>
+                <SubscriptionFocus context={context} fieldName="created" />
               ),
               style: { marginTop: 20 },
             }}
@@ -400,16 +408,22 @@ const CaseIncidentEditionOverview: FunctionComponent<CaseIncidentEditionOverview
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={caseData.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <CaseIncidentDeletion id={caseData.id}/>
+              : <div/>
+              }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={caseData.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>

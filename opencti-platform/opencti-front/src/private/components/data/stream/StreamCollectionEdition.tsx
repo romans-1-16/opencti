@@ -16,12 +16,14 @@ import { useFormatter } from '../../../../components/i18n';
 import { commitMutation } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
 import Filters from '../../common/lists/Filters';
-import { deserializeFilterGroupForFrontend, serializeFilterGroupForBackend } from '../../../../utils/filters/filtersUtils';
+import { deserializeFilterGroupForFrontend, serializeFilterGroupForBackend, stixFilters } from '../../../../utils/filters/filtersUtils';
 import FilterIconButton from '../../../../components/FilterIconButton';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { convertAuthorizedMembers } from '../../../../utils/edition';
 import useFiltersState from '../../../../utils/filters/useFiltersState';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   alert: {
     width: '100%',
@@ -126,14 +128,14 @@ const StreamCollectionEditionContainer: FunctionComponent<{ streamCollection: St
   const onSubmit: FormikConfig<StreamCollectionCreationForm>['onSubmit'] = () => {};
 
   return (
-    <Formik
+    <Formik<StreamCollectionCreationForm>
       onSubmit={onSubmit}
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={streamCollectionValidation(t_i18n('This field is required'))}
     >
       {() => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <Field
             component={TextField}
             variant="standard"
@@ -173,48 +175,30 @@ const StreamCollectionEditionContainer: FunctionComponent<{ streamCollection: St
                 style={fieldSpacingContainerStyle}
                 onChange={handleSubmitFieldOptions}
                 multiple={true}
-                helpertext={t_i18n('Let the field empty to grant all authenticated users')}
+                helpertext={t_i18n('Leave the field empty to grant all authenticated users')}
                 name="authorized_members"
               />
             )}
           </Alert>
-          <Box sx={{ paddingTop: 4,
+          <Box sx={{
+            paddingTop: 4,
             display: 'flex',
-            gap: 1 }}
+            gap: 1,
+          }}
           >
             <Filters
-              availableFilterKeys={[
-                'entity_type',
-                'workflow_id',
-                'objectAssignee',
-                'objects',
-                'objectMarking',
-                'objectLabel',
-                'creator_id',
-                'createdBy',
-                'priority',
-                'severity',
-                'x_opencti_score',
-                'x_opencti_detection',
-                'revoked',
-                'confidence',
-                'indicator_types',
-                'pattern_type',
-                'x_opencti_main_observable_type',
-                'fromId',
-                'toId',
-                'fromTypes',
-                'toTypes',
-              ]}
+              availableFilterKeys={stixFilters}
               helpers={helpers}
-              searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+              searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering'] }}
             />
           </Box>
           <FilterIconButton
             filters={filters}
             styleNumber={2}
             helpers={helpers}
-            redirection
+            redirection={true}
+            searchContext={{ entityTypes: ['Stix-Core-Object', 'stix-core-relationship'] }}
+            entityTypes={['Stix-Core-Object', 'stix-core-relationship', 'Stix-Filtering']}
           />
         </Form>
       )}

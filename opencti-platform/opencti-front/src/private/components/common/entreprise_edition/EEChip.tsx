@@ -1,17 +1,19 @@
 import makeStyles from '@mui/styles/makeStyles';
-import React, { useState } from 'react';
+import React, { MouseEvent, useState } from 'react';
 import FeedbackCreation from '@components/cases/feedbacks/FeedbackCreation';
 import EnterpriseEditionAgreement from '@components/common/entreprise_edition/EnterpriseEditionAgreement';
 import { useFormatter } from '../../../../components/i18n';
 import type { Theme } from '../../../../components/Theme';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
-import useGranted, { SETTINGS } from '../../../../utils/hooks/useGranted';
+import useGranted, { SETTINGS_SETPARAMETERS } from '../../../../utils/hooks/useGranted';
 import useAuth from '../../../../utils/hooks/useAuth';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   container: {
     fontSize: 'xx-small',
-    height: 14,
+    height: 18,
     display: 'inline-flex',
     justifyContent: 'center',
     alignItems: 'center',
@@ -27,7 +29,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
   containerFloating: {
     float: 'left',
     fontSize: 'xx-small',
-    height: 14,
+    height: 18,
     display: 'inline-flex',
     justifyContent: 'center',
     alignItems: 'center',
@@ -46,13 +48,19 @@ const EEChip = ({ feature, clickable = true, floating = false }: { feature?: str
   const isEnterpriseEdition = useEnterpriseEdition();
   const { t_i18n } = useFormatter();
   const [displayDialog, setDisplayDialog] = useState(false);
-  const isAdmin = useGranted([SETTINGS]);
+  const isAdmin = useGranted([SETTINGS_SETPARAMETERS]);
   const { settings: { id: settingsId } } = useAuth();
+
+  const onClick = (e: MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    return clickable && setDisplayDialog(true);
+  };
+
   return (!isEnterpriseEdition && (
     <>
       <div
         className={floating ? classes.containerFloating : classes.container}
-        onClick={() => clickable && setDisplayDialog(true)}
+        onClick={(e) => onClick(e)}
       >
         EE
       </div>

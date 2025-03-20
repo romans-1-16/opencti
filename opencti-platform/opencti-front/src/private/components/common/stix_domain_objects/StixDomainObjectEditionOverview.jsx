@@ -9,7 +9,7 @@ import * as Yup from 'yup';
 import makeStyles from '@mui/styles/makeStyles';
 import { commitMutation, requestSubscription } from '../../../../relay/environment';
 import TextField from '../../../../components/TextField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { useFormatter } from '../../../../components/i18n';
 import { SubscriptionAvatars, SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../form/CreatedByField';
@@ -22,6 +22,8 @@ import ConfidenceField from '../form/ConfidenceField';
 import { convertMarkings } from '../../../../utils/edition';
 import useAttributes from '../../../../utils/hooks/useAttributes';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   header: {
     backgroundColor: theme.palette.background.nav,
@@ -325,7 +327,7 @@ const StixDomainObjectEditionContainer = (props) => {
           onSubmit={onSubmit}
         >
           {({ submitForm, isSubmitting, setFieldValue, values }) => (
-            <Form style={{ margin: '20px 0 20px 0' }}>
+            <Form>
               {'result_name' in stixDomainObject ? (
                 <Field
                   component={TextField}

@@ -1,32 +1,31 @@
 import React, { FunctionComponent } from 'react';
 import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import Button from '@mui/material/Button';
 import makeStyles from '@mui/styles/makeStyles';
 import { FormikConfig, FormikHelpers } from 'formik/dist/types';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
 import { handleErrorInForm } from '../../../../relay/environment';
 import { useFormatter } from '../../../../components/i18n';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectLabelField from '../../common/form/ObjectLabelField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import OpenVocabField from '../../common/form/OpenVocabField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import ConfidenceField from '../../common/form/ConfidenceField';
-import { insertNode } from '../../../../utils/store';
 import { Option } from '../../common/form/ReferenceField';
-import { OpinionsLinesPaginationQuery$variables } from './__generated__/OpinionsLinesPaginationQuery.graphql';
 import type { Theme } from '../../../../components/Theme';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
-import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
-import useGranted, { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import { OpinionCreationMutation$variables } from './__generated__/OpinionCreationMutation.graphql';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import { yupShapeConditionalRequired, useDynamicSchemaCreationValidation, useIsMandatoryAttribute } from '../../../../utils/hooks/useEntitySettings';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -41,6 +40,9 @@ export const opinionCreationUserMutation = graphql`
   mutation OpinionCreationUserMutation($input: OpinionUserAddInput!) {
     userOpinionAdd(input: $input) {
       id
+      representative {
+        main
+      }
       standard_id
       entity_type
       parent_types
@@ -55,6 +57,9 @@ export const opinionCreationMutation = graphql`
   mutation OpinionCreationMutation($input: OpinionAddInput!) {
     opinionAdd(input: $input) {
       id
+      representative {
+        main
+      }
       standard_id
       entity_type
       parent_types
@@ -76,10 +81,6 @@ interface OpinionAddInput {
   file: File | undefined
 }
 
-interface OpinionCreationProps {
-  paginationOptions: OpinionsLinesPaginationQuery$variables;
-}
-
 interface OpinionFormProps {
   updater: (store: RecordSourceSelectorProxy, key: string) => void;
   onReset?: () => void;
@@ -87,6 +88,7 @@ interface OpinionFormProps {
   defaultCreatedBy?: Option;
   defaultMarkingDefinitions?: Option[];
   defaultConfidence?: number;
+  inputValue?: string;
 }
 
 const OPINION_TYPE = 'Opinion';
@@ -98,21 +100,23 @@ export const OpinionCreationFormKnowledgeEditor: FunctionComponent<OpinionFormPr
   defaultConfidence,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  inputValue,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const basicShape = {
-    opinion: Yup.string().required(t_i18n('This field is required')),
+  const { mandatoryAttributes } = useIsMandatoryAttribute(OPINION_TYPE);
+  const basicShape = yupShapeConditionalRequired({
+    opinion: Yup.string(),
     explanation: Yup.string().nullable(),
     confidence: Yup.number(),
-  };
-  const opinionValidator = useSchemaCreationValidation(
-    OPINION_TYPE,
+  }, mandatoryAttributes);
+  const opinionValidator = useDynamicSchemaCreationValidation(
+    mandatoryAttributes,
     basicShape,
     ['createdBy'],
   );
 
-  const [commit] = useMutation(opinionCreationMutation);
+  const [commit] = useApiMutation(opinionCreationMutation);
   const onSubmit: FormikConfig<OpinionAddInput>['onSubmit'] = (
     values: OpinionAddInput,
     { setSubmitting, setErrors, resetForm }: FormikHelpers<OpinionAddInput>,
@@ -153,7 +157,7 @@ export const OpinionCreationFormKnowledgeEditor: FunctionComponent<OpinionFormPr
   const initialValues = useDefaultValues<OpinionAddInput>(
     OPINION_TYPE,
     {
-      opinion: '',
+      opinion: inputValue ?? '',
       explanation: '',
       confidence: defaultConfidence,
       createdBy: defaultCreatedBy,
@@ -168,15 +172,18 @@ export const OpinionCreationFormKnowledgeEditor: FunctionComponent<OpinionFormPr
     <Formik<OpinionAddInput>
       initialValues={initialValues}
       validationSchema={opinionValidator}
+      validateOnChange={false} // Validation will occur on submission, required fields all have *'s
+      validateOnBlur={false} // Validation will occur on submission, required fields all have *'s
       onSubmit={onSubmit}
       onReset={onReset}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <OpenVocabField
             label={t_i18n('Opinion')}
             type="opinion_ov"
             name="opinion"
+            required={(mandatoryAttributes.includes('opinion'))}
             onChange={(name, value) => setFieldValue(name, value)}
             containerStyle={fieldSpacingContainerStyle}
             multiple={false}
@@ -185,6 +192,7 @@ export const OpinionCreationFormKnowledgeEditor: FunctionComponent<OpinionFormPr
             component={MarkdownField}
             name="explanation"
             label={t_i18n('Explanation')}
+            required={(mandatoryAttributes.includes('explanation'))}
             fullWidth={true}
             multiline={true}
             rows="4"
@@ -196,21 +204,26 @@ export const OpinionCreationFormKnowledgeEditor: FunctionComponent<OpinionFormPr
           />
           <CreatedByField
             name="createdBy"
+            required={(mandatoryAttributes.includes('createdBy'))}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
           />
           <ObjectLabelField
             name="objectLabel"
+            required={(mandatoryAttributes.includes('objectLabel'))}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
             values={values.objectLabel}
           />
           <ObjectMarkingField
             name="objectMarking"
+            required={(mandatoryAttributes.includes('objectMarking'))}
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
+            required={(mandatoryAttributes.includes('externalReferences'))}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
             values={values.externalReferences}
@@ -248,21 +261,23 @@ export const OpinionCreationFormKnowledgeParticipant: FunctionComponent<OpinionF
   defaultConfidence,
   defaultCreatedBy,
   defaultMarkingDefinitions,
+  inputValue,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
-  const basicShape = {
-    opinion: Yup.string().required(t_i18n('This field is required')),
+  const { mandatoryAttributes } = useIsMandatoryAttribute(OPINION_TYPE);
+  const basicShape = yupShapeConditionalRequired({
+    opinion: Yup.string(),
     explanation: Yup.string().nullable(),
     confidence: Yup.number(),
-  };
-  const opinionValidator = useSchemaCreationValidation(
-    OPINION_TYPE,
+  }, mandatoryAttributes);
+  const opinionValidator = useDynamicSchemaCreationValidation(
+    mandatoryAttributes,
     basicShape,
     ['createdBy'],
   );
 
-  const [commit] = useMutation(opinionCreationUserMutation);
+  const [commit] = useApiMutation(opinionCreationUserMutation);
   const onSubmit: FormikConfig<OpinionAddInput>['onSubmit'] = (
     values: OpinionAddInput,
     { setSubmitting, setErrors, resetForm }: FormikHelpers<OpinionAddInput>,
@@ -305,7 +320,7 @@ export const OpinionCreationFormKnowledgeParticipant: FunctionComponent<OpinionF
   const initialValues = useDefaultValues<OpinionAddInput>(
     OPINION_TYPE,
     {
-      opinion: '',
+      opinion: inputValue ?? '',
       explanation: '',
       confidence: defaultConfidence,
       createdBy: defaultCreatedBy,
@@ -320,15 +335,18 @@ export const OpinionCreationFormKnowledgeParticipant: FunctionComponent<OpinionF
     <Formik<OpinionAddInput>
       initialValues={initialValues}
       validationSchema={opinionValidator}
+      validateOnChange={false} // Validation will occur on submission, required fields all have *'s
+      validateOnBlur={false} // Validation will occur on submission, required fields all have *'s
       onSubmit={onSubmit}
       onReset={onReset}
     >
       {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <OpenVocabField
             label={t_i18n('Opinion')}
             type="opinion_ov"
             name="opinion"
+            required={(mandatoryAttributes.includes('opinion'))}
             onChange={(name, value) => setFieldValue(name, value)}
             containerStyle={fieldSpacingContainerStyle}
             multiple={false}
@@ -337,6 +355,7 @@ export const OpinionCreationFormKnowledgeParticipant: FunctionComponent<OpinionF
             component={MarkdownField}
             name="explanation"
             label={t_i18n('Explanation')}
+            required={(mandatoryAttributes.includes('explanation'))}
             fullWidth={true}
             multiline={true}
             rows="4"
@@ -348,16 +367,20 @@ export const OpinionCreationFormKnowledgeParticipant: FunctionComponent<OpinionF
           />
           <ObjectLabelField
             name="objectLabel"
+            required={(mandatoryAttributes.includes('objectLabel'))}
             style={{ marginTop: 10 }}
             setFieldValue={setFieldValue}
             values={values.objectLabel}
           />
           <ObjectMarkingField
             name="objectMarking"
+            required={(mandatoryAttributes.includes('objectMarking'))}
             style={fieldSpacingContainerStyle}
+            setFieldValue={setFieldValue}
           />
           <ExternalReferencesField
             name="externalReferences"
+            required={(mandatoryAttributes.includes('externalReferences'))}
             style={fieldSpacingContainerStyle}
             setFieldValue={setFieldValue}
             values={values.externalReferences}
@@ -387,37 +410,3 @@ export const OpinionCreationFormKnowledgeParticipant: FunctionComponent<OpinionF
     </Formik>
   );
 };
-
-const OpinionCreation: FunctionComponent<OpinionCreationProps> = ({
-  paginationOptions,
-}) => {
-  const { t_i18n } = useFormatter();
-  const userIsKnowledgeEditor = useGranted([KNOWLEDGE_KNUPDATE]);
-  const updater = (store: RecordSourceSelectorProxy, key: string) => insertNode(store, 'Pagination_opinions', paginationOptions, key);
-
-  return (
-    <Drawer
-      title={t_i18n('Create a opinions')}
-      variant={DrawerVariant.create}
-    >
-      {({ onClose }) => (
-        <>
-          {userIsKnowledgeEditor
-            ? <OpinionCreationFormKnowledgeEditor
-                updater={updater}
-                onCompleted={onClose}
-                onReset={onClose}
-              />
-            : <OpinionCreationFormKnowledgeParticipant
-                updater={updater}
-                onCompleted={onClose}
-                onReset={onClose}
-              />
-          }
-        </>
-      )}
-    </Drawer>
-  );
-};
-
-export default OpinionCreation;

@@ -9,12 +9,13 @@ import { useFormatter } from '../../../../components/i18n';
 import { DataComponentDetails_dataComponent$data, DataComponentDetails_dataComponent$key } from './__generated__/DataComponentDetails_dataComponent.graphql';
 import DataComponentDataSource from './DataComponentDataSource';
 import DataComponentAttackPatterns from './DataComponentAttackPatterns';
+import type { Theme } from '../../../../components/Theme';
 
-const useStyles = makeStyles(() => ({
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
+const useStyles = makeStyles<Theme>((theme) => ({
   paper: {
-    height: '100%',
-    minHeight: '100%',
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: '15px',
     borderRadius: 4,
   },
@@ -54,9 +55,9 @@ const DataComponentDetails: FunctionComponent<DataComponentDetailsProps> = ({
       <Typography variant="h4" gutterBottom={true}>
         {t_i18n('Details')}
       </Typography>
-      <Paper classes={{ root: classes.paper }} variant="outlined">
+      <Paper classes={{ root: classes.paper }} className={'paper-for-grid'} variant="outlined">
         <Grid container={true} spacing={3}>
-          <Grid item={true} xs={12}>
+          <Grid item xs={12}>
             <Typography variant="h3" gutterBottom={true}>
               {t_i18n('Description')}
             </Typography>
@@ -64,7 +65,7 @@ const DataComponentDetails: FunctionComponent<DataComponentDetailsProps> = ({
               <ExpandableMarkdown source={data.description} limit={300} />
             )}
           </Grid>
-          <Grid item={true} xs={12}>
+          <Grid item xs={12}>
             <DataComponentDataSource dataComponent={data} />
             <DataComponentAttackPatterns dataComponent={data} />
           </Grid>

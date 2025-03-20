@@ -7,8 +7,8 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { graphql } from 'react-relay';
+import { useNavigate } from 'react-router-dom';
 import { PopoverProps } from '@mui/material/Popover';
 import DialogContentText from '@mui/material/DialogContentText';
 import { useFormatter } from '../../../../components/i18n';
@@ -19,6 +19,8 @@ import { KNOWLEDGE_KNUPDATE_KNDELETE } from '../../../../utils/hooks/useGranted'
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import useDeletion from '../../../../utils/hooks/useDeletion';
 import { IncidentEditionContainerQuery } from './__generated__/IncidentEditionContainerQuery.graphql';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const IncidentPopoverDeletionMutation = graphql`
   mutation IncidentPopoverDeletionMutation($id: ID!) {
@@ -33,7 +35,7 @@ const IncidentPopover = ({ id }: { id: string }) => {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<PopoverProps['anchorEl']>();
   const [displayEdit, setDisplayEdit] = useState<boolean>(false);
-  const [commit] = useMutation(IncidentPopoverDeletionMutation);
+  const [commit] = useApiMutation(IncidentPopoverDeletionMutation);
   const queryRef = useQueryLoading<IncidentEditionContainerQuery>(
     IncidentEditionQuery,
     { id },
@@ -71,43 +73,48 @@ const IncidentPopover = ({ id }: { id: string }) => {
       },
     });
   };
-  return (
-    <>
-      <ToggleButton
-        value="popover"
-        size="small"
-        onClick={handleOpen}
-      >
-        <MoreVert fontSize="small" color="primary" />
-      </ToggleButton>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
-        <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
-          <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
-        </Security>
-      </Menu>
-      <Dialog
-        PaperProps={{ elevation: 1 }}
-        open={displayDelete}
-        keepMounted={true}
-        TransitionComponent={Transition}
-        onClose={handleCloseDelete}
-      >
-        <DialogContent>
-          <DialogContentText>
-            {t_i18n('Do you want to delete this incident?')}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDelete} disabled={deleting}>
-            {t_i18n('Cancel')}
-          </Button>
-          <Button color="secondary" onClick={submitDelete} disabled={deleting}>
-            {t_i18n('Delete')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      {queryRef && (
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+
+  return isFABReplaced
+    ? (<></>)
+    : (
+      <>
+        <ToggleButton
+          value="popover"
+          size="small"
+          onClick={handleOpen}
+        >
+          <MoreVert fontSize="small" color="primary" />
+        </ToggleButton>
+        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
+          <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
+          <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
+            <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+          </Security>
+        </Menu>
+        <Dialog
+          PaperProps={{ elevation: 1 }}
+          open={displayDelete}
+          keepMounted={true}
+          TransitionComponent={Transition}
+          onClose={handleCloseDelete}
+        >
+          <DialogContent>
+            <DialogContentText>
+              {t_i18n('Do you want to delete this incident?')}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDelete} disabled={deleting}>
+              {t_i18n('Cancel')}
+            </Button>
+            <Button color="secondary" onClick={submitDelete} disabled={deleting}>
+              {t_i18n('Delete')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        {queryRef && (
         <React.Suspense fallback={<div />}>
           <IncidentEditionContainer
             queryRef={queryRef}
@@ -115,9 +122,9 @@ const IncidentPopover = ({ id }: { id: string }) => {
             open={displayEdit}
           />
         </React.Suspense>
-      )}
-    </>
-  );
+        )}
+      </>
+    );
 };
 
 export default IncidentPopover;

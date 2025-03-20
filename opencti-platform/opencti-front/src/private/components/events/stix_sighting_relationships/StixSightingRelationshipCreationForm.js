@@ -12,14 +12,16 @@ import TextField from '../../../../components/TextField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles((theme) => ({
   containerRelation: {
     padding: '10px 20px 20px 20px',
@@ -202,7 +204,7 @@ const StixSightingRelationshipCreationForm = ({
                   <Button
                     variant="outlined"
                     onClick={handleReverseRelation}
-                    color="secondary"
+                    color="primary"
                     size="small"
                   >
                     {t_i18n('Reverse')}
@@ -296,6 +298,7 @@ const StixSightingRelationshipCreationForm = ({
             <ObjectMarkingField
               name="objectMarking"
               style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
             />
             <Field
               component={SwitchField}

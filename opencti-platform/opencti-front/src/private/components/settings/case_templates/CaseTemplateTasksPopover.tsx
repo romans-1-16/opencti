@@ -10,7 +10,7 @@ import MenuItem from '@mui/material/MenuItem';
 import { PopoverProps } from '@mui/material/Popover';
 import makeStyles from '@mui/styles/makeStyles';
 import React, { FunctionComponent, useState } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { useParams } from 'react-router-dom';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import Drawer from '@components/common/drawer/Drawer';
@@ -22,7 +22,10 @@ import { deleteNode } from '../../../../utils/store';
 import { CaseTemplateTasksLine_node$data } from './__generated__/CaseTemplateTasksLine_node.graphql';
 import { CaseTemplateTasksLinesPaginationQuery$data } from './__generated__/CaseTemplateTasksLinesPaginationQuery.graphql';
 import CaseTemplateTasksEdition from './CaseTemplateTasksEdition';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -63,7 +66,7 @@ const CaseTemplateTasksPopover: FunctionComponent<CaseTemplateTasksPopoverProps>
   const [displayUnlink, setDisplayUnlink] = useState<boolean>(false);
   const [unlinking, setUnlinking] = useState<boolean>(false);
 
-  const [commitUnlink] = useMutation(caseTemplateTasksPopoverUnlinkMutation);
+  const [commitUnlink] = useApiMutation(caseTemplateTasksPopoverUnlinkMutation);
 
   const handleOpen = (event: React.MouseEvent) => setAnchorEl(event.currentTarget);
 
@@ -119,8 +122,8 @@ const CaseTemplateTasksPopover: FunctionComponent<CaseTemplateTasksPopoverProps>
     setUnlinking(true);
     commitUnlink({
       variables: {
-        id: task.id,
-        toId: caseTemplateId,
+        id: caseTemplateId,
+        toId: task.id,
       },
       updater: (store: RecordSourceSelectorProxy) => deleteNode(
         store,

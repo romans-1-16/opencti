@@ -3,6 +3,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import IconButton from '@mui/material/IconButton';
 import { Add } from '@mui/icons-material';
 import Drawer from '@components/common/drawer/Drawer';
+import { DataSourcesLinesPaginationQuery$variables } from '@components/techniques/__generated__/DataSourcesLinesPaginationQuery.graphql';
 import { useFormatter } from '../../../../components/i18n';
 import DataSourceCreation from '../data_sources/DataSourceCreation';
 import SearchInput from '../../../../components/SearchInput';
@@ -10,16 +11,13 @@ import AddDataSourcesLines, { addDataSourcesLinesQuery } from './AddDataSourcesL
 import { AddDataSourcesLinesQuery } from './__generated__/AddDataSourcesLinesQuery.graphql';
 import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import Loader, { LoaderVariant } from '../../../../components/Loader';
-import { DataSourcesLinesPaginationQuery$variables } from '../data_sources/__generated__/DataSourcesLinesPaginationQuery.graphql';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   createButton: {
     float: 'left',
     marginTop: -15,
-  },
-  search: {
-    marginLeft: 'auto',
-    marginRight: ' 20px',
   },
 }));
 
@@ -51,7 +49,7 @@ const AddDataSources: FunctionComponent<{ dataComponentId: string }> = ({
   return (
     <div>
       <IconButton
-        color="secondary"
+        color="primary"
         aria-label="Add"
         onClick={handleOpen}
         classes={{ root: classes.createButton }}
@@ -64,10 +62,23 @@ const AddDataSources: FunctionComponent<{ dataComponentId: string }> = ({
         onClose={handleClose}
         title={t_i18n('Add data sources')}
         header={(
-          <div className={classes.search}>
+          <div style={{
+            marginLeft: 'auto',
+            marginRight: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+          }}
+          >
             <SearchInput
               variant="inDrawer"
               onSubmit={handleSearch}
+            />
+            <DataSourceCreation
+              contextual={true}
+              display={open}
+              inputValue={search}
+              paginationOptions={paginationOptions}
             />
           </div>
         )}
@@ -83,12 +94,6 @@ const AddDataSources: FunctionComponent<{ dataComponentId: string }> = ({
           </React.Suspense>
         )}
       </Drawer>
-      <DataSourceCreation
-        contextual={true}
-        display={open}
-        inputValue={search}
-        paginationOptions={paginationOptions}
-      />
     </div>
   );
 };

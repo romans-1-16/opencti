@@ -51,9 +51,9 @@ export const globalVictimologyMapStixCoreRelationshipsDistributionQuery = graphq
   }
 `;
 
-const styles = () => ({
+const styles = (theme) => ({
   paper: {
-    margin: '10px 0 0 0',
+    marginTop: theme.spacing(1),
     padding: 0,
     borderRadius: 4,
   },
@@ -96,14 +96,14 @@ class GlobalVictimologyMap extends Component {
                   x.entity,
                 ),
                 R.filter(
-                  (n) => n.entity.entity_type === 'Country',
+                  (n) => n.entity?.entity_type === 'Country',
                   props.stixCoreRelationshipsDistribution,
                 ),
               );
               const cities = R.map(
                 (x) => x.entity,
                 R.filter(
-                  (n) => n.entity.entity_type === 'City',
+                  (n) => n.entity?.entity_type === 'City',
                   props.stixCoreRelationshipsDistribution,
                 ),
               );

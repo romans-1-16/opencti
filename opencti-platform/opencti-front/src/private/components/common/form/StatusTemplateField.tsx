@@ -11,6 +11,8 @@ import { StatusTemplateFieldSearchQuery$data } from './__generated__/StatusTempl
 import { Option } from './ReferenceField';
 import { StatusTemplateCreationContextualMutation$data } from '../../settings/status_templates/__generated__/StatusTemplateCreationContextualMutation.graphql';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   icon: {
     paddingTop: 4,
@@ -30,6 +32,7 @@ interface StatusTemplateFieldProps {
   name: string;
   setFieldValue: (field: string, value: Option) => void;
   helpertext: string;
+  required?: boolean;
 }
 
 export const StatusTemplateFieldQuery = graphql`
@@ -50,6 +53,7 @@ const StatusTemplateField: FunctionComponent<StatusTemplateFieldProps> = ({
   name,
   setFieldValue,
   helpertext,
+  required = false,
 }) => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
@@ -109,6 +113,7 @@ const StatusTemplateField: FunctionComponent<StatusTemplateFieldProps> = ({
           helperText: helpertext,
           onFocus: searchStatusTemplates,
         }}
+        required={required}
         noOptionsText={t_i18n('No available options')}
         options={statusTemplates}
         onInputChange={searchStatusTemplates}

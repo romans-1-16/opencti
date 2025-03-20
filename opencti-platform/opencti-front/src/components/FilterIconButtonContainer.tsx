@@ -1,6 +1,6 @@
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
-import React, { Fragment, FunctionComponent, useEffect, useRef } from 'react';
+import React, { Fragment, FunctionComponent, useContext, useEffect, useRef, useState } from 'react';
 import makeStyles from '@mui/styles/makeStyles';
 import { PreloadedQuery, usePreloadedQuery } from 'react-relay';
 import { ChipOwnProps } from '@mui/material/Chip/Chip';
@@ -9,21 +9,24 @@ import { truncate } from '../utils/String';
 import { DataColumns } from './list_lines';
 import { useFormatter } from './i18n';
 import type { Theme } from './Theme';
-import { Filter, FilterGroup, RestrictedFiltersConfig, useFilterDefinition } from '../utils/filters/filtersUtils';
+import { convertOperatorToIcon, filterOperatorsWithIcon, FilterSearchContext, FiltersRestrictions, isFilterEditable, useFilterDefinition } from '../utils/filters/filtersUtils';
 import { FilterValuesContentQuery } from './__generated__/FilterValuesContentQuery.graphql';
 import FilterValues from './filters/FilterValues';
 import { FilterChipPopover, FilterChipsParameter } from './filters/FilterChipPopover';
 import DisplayFilterGroup from './filters/DisplayFilterGroup';
-import { handleFilterHelpers } from '../utils/hooks/useLocalStorage';
 import FilterIconButtonGlobalMode from './FilterIconButtonGlobalMode';
 import { filterValuesContentQuery } from './FilterValuesContent';
 import { FilterRepresentative } from './filters/FiltersModel';
+import { Filter, FilterGroup, handleFilterHelpers } from '../utils/filters/filtersHelpers-types';
+import { PageContainerContext } from './PageContainer';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   filter3: {
     fontSize: 12,
     height: 20,
-    borderRadius: 10,
+    borderRadius: 4,
     lineHeight: '32px',
   },
   operator1: {
@@ -119,7 +122,11 @@ interface FilterIconButtonContainerProps {
   setHasRenderedRef: () => void;
   availableRelationFilterTypes?: Record<string, string[]>;
   entityTypes?: string[];
-  restrictedFiltersConfig?: RestrictedFiltersConfig;
+  filtersRestrictions?: FiltersRestrictions;
+  searchContext?: FilterSearchContext;
+  availableEntityTypes?: string[];
+  availableRelationshipTypes?: string[];
+  fintelTemplatesContext?: boolean;
 }
 
 const FilterIconButtonContainer: FunctionComponent<
@@ -139,10 +146,17 @@ FilterIconButtonContainerProps
   setHasRenderedRef,
   availableRelationFilterTypes,
   entityTypes,
-  restrictedFiltersConfig,
+  filtersRestrictions,
+  searchContext,
+  availableEntityTypes,
+  availableRelationshipTypes,
+  fintelTemplatesContext,
 }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
+
+  const { inPageContainer } = useContext(PageContainerContext);
+
   const { filtersRepresentatives } = usePreloadedQuery<FilterValuesContentQuery>(
     filterValuesContentQuery,
     filtersRepresentativesQueryRef,
@@ -155,7 +169,7 @@ FilterIconButtonContainerProps
   const filtersRepresentativesMap = new Map<string, FilterRepresentative>(
     filtersRepresentatives.map((n: FilterRepresentative) => [n.id, n]),
   );
-  const [filterChipsParams, setFilterChipsParams] = React.useState<FilterChipsParameter>({
+  const [filterChipsParams, setFilterChipsParams] = useState<FilterChipsParameter>({
     filter: undefined,
     anchorEl: undefined,
   } as FilterChipsParameter);
@@ -203,37 +217,9 @@ FilterIconButtonContainerProps
       handleRemoveFilter(filterKey, filterOperator ?? undefined);
     }
   };
-  const operatorIcon = [
-    'lt',
-    'lte',
-    'gt',
-    'gte',
-    'nil',
-    'not_nil',
-    'eq',
-    'not_eq',
-  ];
-  const convertOperatorToIcon = (operator: string) => {
-    switch (operator) {
-      case 'lt':
-        return <>&nbsp;&#60;</>;
-      case 'lte':
-        return <>&nbsp;&#8804;</>;
-      case 'gt':
-        return <>&nbsp;&#62;</>;
-      case 'gte':
-        return <>&nbsp;&#8805;</>;
-      case 'eq':
-        return <>&nbsp;=</>;
-      case 'not_eq':
-        return <>&nbsp;&#8800;</>;
-      default:
-        return null;
-    }
-  };
   const isReadWriteFilter = !!(helpers || handleRemoveFilter);
   let classOperator = classes.operator1;
-  let margin = '8px';
+  let margin = inPageContainer ? '0px' : '8px';
   if (!isReadWriteFilter) {
     classOperator = classes.operator1ReadOnly;
     if (styleNumber === 2) {
@@ -252,27 +238,32 @@ FilterIconButtonContainerProps
     classOperator = classes.operator3;
     margin = '0px';
   }
+  let boxStyle = {
+    margin: `${margin} 0`,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 1,
+    overflow: 'auto',
+  };
+  if (!isReadWriteFilter) {
+    if (styleNumber !== 2) {
+      boxStyle = {
+        margin: '0 0',
+        display: 'flex',
+        flexWrap: 'no-wrap',
+        gap: 0,
+        overflow: 'hidden',
+      };
+    }
+  }
   return (
-    <Box
-      sx={
-        !isReadWriteFilter
-          ? {
-            display: 'flex',
-            overflow: 'hidden',
-          }
-          : {
-            margin: `${margin} 0`,
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 1,
-          }
-      }
-    >
+    <Box sx={boxStyle}>
       {displayedFilters.map((currentFilter, index) => {
         const filterKey = currentFilter.key;
         const filterLabel = t_i18n(useFilterDefinition(filterKey, entityTypes)?.label ?? filterKey);
         const filterOperator = currentFilter.operator ?? 'eq';
-        const isOperatorDisplayed = operatorIcon.includes(filterOperator ?? 'eq');
+        const filterValues = currentFilter.values;
+        const isOperatorDisplayed = filterOperatorsWithIcon.includes(filterOperator ?? 'eq');
         const keyLabel = (
           <>
             {truncate(filterLabel, 20)}
@@ -298,22 +289,24 @@ FilterIconButtonContainerProps
         const chipSx = (chipColor === 'warning' || chipColor === 'success') && chipVariant === 'filled'
           ? { bgcolor: `${chipColor}.dark` }
           : undefined;
-
+        const authorizeFilterRemoving = !(filtersRestrictions?.preventRemoveFor?.includes(filterKey))
+          && isFilterEditable(filtersRestrictions, filterKey, filterValues);
         return (
           <Fragment key={currentFilter.id ?? `filter-${index}`}>
             <Tooltip
               title={
-                <FilterValues
-                  label={keyLabel}
-                  tooltip={true}
-                  currentFilter={currentFilter}
-                  handleSwitchLocalMode={handleSwitchLocalMode}
-                  filtersRepresentativesMap={filtersRepresentativesMap}
-                  helpers={helpers}
-                  redirection={redirection}
-                  entityTypes={entityTypes}
-                  restrictedFiltersConfig={restrictedFiltersConfig}
-                />
+                filterKey === 'regardingOf'
+                  ? undefined
+                  : <FilterValues
+                      label={keyLabel}
+                      tooltip={true}
+                      currentFilter={currentFilter}
+                      handleSwitchLocalMode={handleSwitchLocalMode}
+                      filtersRepresentativesMap={filtersRepresentativesMap}
+                      redirection={redirection}
+                      entityTypes={entityTypes}
+                      filtersRestrictions={filtersRestrictions}
+                    />
               }
             >
               <Box
@@ -331,7 +324,7 @@ FilterIconButtonContainerProps
                   }
                   classes={{ root: classFilter, label: classes.chipLabel }}
                   variant={chipVariant}
-                  sx={chipSx}
+                  sx={{ ...chipSx, borderRadius: 1 }}
                   label={
                     <FilterValues
                       label={keyLabel}
@@ -340,19 +333,18 @@ FilterIconButtonContainerProps
                       handleSwitchLocalMode={helpers?.handleSwitchLocalMode ?? handleSwitchLocalMode}
                       filtersRepresentativesMap={filtersRepresentativesMap}
                       redirection={redirection}
-                      helpers={helpers}
                       onClickLabel={(event) => handleChipClick(event, currentFilter?.id)}
                       isReadWriteFilter={isReadWriteFilter}
                       chipColor={chipColor}
                       entityTypes={entityTypes}
-                      restrictedFiltersConfig={restrictedFiltersConfig}
+                      filtersRestrictions={filtersRestrictions}
                     />
                   }
                   disabled={
                     disabledPossible ? displayedFilters.length === 1 : undefined
                   }
                   onDelete={
-                    (isReadWriteFilter && !(restrictedFiltersConfig?.filterRemoving?.includes(filterKey)))
+                    (isReadWriteFilter && authorizeFilterRemoving)
                       ? () => manageRemoveFilter(
                         currentFilter.id,
                         filterKey,
@@ -397,6 +389,10 @@ FilterIconButtonContainerProps
             filtersRepresentativesMap={filtersRepresentativesMap}
             availableRelationFilterTypes={availableRelationFilterTypes}
             entityTypes={entityTypes}
+            searchContext={searchContext}
+            availableEntityTypes={availableEntityTypes}
+            availableRelationshipTypes={availableRelationshipTypes}
+            fintelTemplatesContext={fintelTemplatesContext}
           />
         </Box>
       )}

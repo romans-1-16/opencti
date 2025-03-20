@@ -8,8 +8,8 @@ import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import SwitchField from '../../../../components/SwitchField';
-import MarkdownField from '../../../../components/MarkdownField';
+import SwitchField from '../../../../components/fields/SwitchField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import KillChainPhasesField from '../../common/form/KillChainPhasesField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import OpenVocabField from '../../common/form/OpenVocabField';
@@ -24,6 +24,8 @@ import { useFormatter } from '../../../../components/i18n';
 import { useSchemaEditionValidation } from '../../../../utils/hooks/useEntitySettings';
 import useFormEditor from '../../../../utils/hooks/useFormEditor';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
+import IndicatorDeletion from './IndicatorDeletion';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const indicatorMutationFieldPatch = graphql`
   mutation IndicatorEditionOverviewFieldPatchMutation(
@@ -82,22 +84,23 @@ const IndicatorEditionOverviewComponent = ({
   enableReferences,
 }) => {
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     indicator_types: Yup.array(),
     confidence: Yup.number(),
-    pattern: Yup.string().required(t_i18n('This field is required')),
+    pattern: Yup.string().trim().required(t_i18n('This field is required')),
     valid_from: Yup.date()
       .nullable()
       .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
     valid_until: Yup.date()
       .nullable()
-      .min(
-        Yup.ref('valid_from'),
-        "The valid until date can't be before valid from date",
-      )
-      .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)')),
+      .typeError(t_i18n('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)'))
+      .test('is-greater', t_i18n('The valid until date must be greater than the valid from date'), function isGreater(value) {
+        const { valid_from } = this.parent;
+        return !valid_from || !value || value > valid_from;
+      }),
     x_mitre_platforms: Yup.array().nullable(),
     x_opencti_score: Yup.number().nullable(),
     description: Yup.string().nullable(),
@@ -141,7 +144,7 @@ const IndicatorEditionOverviewComponent = ({
       ),
       R.assoc(
         'valid_until',
-        values.valid_from ? parse(values.valid_until).format() : null,
+        values.valid_until ? parse(values.valid_until).format() : null,
       ),
       R.toPairs,
       R.map((n) => ({ key: n[0], value: adaptFieldValue(n[1]) })),
@@ -224,7 +227,7 @@ const IndicatorEditionOverviewComponent = ({
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form>
           <AlertConfidenceForEntity entity={indicator} />
           <Field
             component={TextField}
@@ -284,7 +287,7 @@ const IndicatorEditionOverviewComponent = ({
               fullWidth: true,
               style: { marginTop: 20 },
               helperText: (
-                <SubscriptionFocus context={context} fieldName="valid_from"/>
+                <SubscriptionFocus context={context} fieldName="valid_from" />
               ),
             }}
           />
@@ -299,7 +302,7 @@ const IndicatorEditionOverviewComponent = ({
               fullWidth: true,
               style: { marginTop: 20 },
               helperText: (
-                <SubscriptionFocus context={context} fieldName="valid_until"/>
+                <SubscriptionFocus context={context} fieldName="valid_until" />
               ),
             }}
           />
@@ -405,16 +408,22 @@ const IndicatorEditionOverviewComponent = ({
               />
             }
           />
-          {enableReferences && (
-            <CommitMessage
-              submitForm={submitForm}
-              disabled={isSubmitting || !isValid || !dirty}
-              setFieldValue={setFieldValue}
-              open={false}
-              values={values.references}
-              id={indicator.id}
-            />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <IndicatorDeletion id={indicator.id} />
+              : <div />
+            }
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={indicator.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -437,6 +446,7 @@ const IndicatorEditionOverview = createFragmentContainer(
         id
         name
         confidence
+        entity_type
         description
         pattern
         valid_from

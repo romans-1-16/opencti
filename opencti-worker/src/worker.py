@@ -12,11 +12,13 @@ import sys
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from threading import Thread
 from typing import Any, Dict, List, Optional, Union
 
 import pika
+import requests
 import yaml
 from opentelemetry import metrics
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
@@ -24,15 +26,16 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from pika.adapters.blocking_connection import BlockingChannel
 from prometheus_client import start_http_server
-from pycti import OpenCTIApiClient
+from pycti import OpenCTIApiClient, OpenCTIStix2Splitter, __version__
 from pycti.connector.opencti_connector_helper import (
     create_mq_ssl_context,
     get_config_variable,
 )
-from requests.exceptions import RequestException, Timeout
+from pycti.utils.opencti_logger import logger
+from requests import RequestException, Timeout
 
-PROCESSING_COUNT: int = 4
-MAX_PROCESSING_COUNT: int = 60
+ERROR_TYPE_BAD_GATEWAY = "Bad Gateway"
+ERROR_TYPE_TIMEOUT = "Request timed out"
 
 # Telemetry variables definition
 meter = metrics.get_meter(__name__)
@@ -40,34 +43,6 @@ resource = Resource(attributes={SERVICE_NAME: "opencti-worker"})
 bundles_global_counter = meter.create_counter(
     name="opencti_bundles_global_counter",
     description="number of bundles processed",
-)
-bundles_success_counter = meter.create_counter(
-    name="opencti_bundles_success_counter",
-    description="number of bundles successfully processed",
-)
-bundles_timeout_error_counter = meter.create_counter(
-    name="opencti_bundles_timeout_error_counter",
-    description="number of bundles in timeout error",
-)
-bundles_request_error_counter = meter.create_counter(
-    name="opencti_bundles_request_error_counter",
-    description="number of bundles in request error",
-)
-bundles_technical_error_counter = meter.create_counter(
-    name="opencti_bundles_technical_error_counter",
-    description="number of bundles in technical error",
-)
-bundles_lock_error_counter = meter.create_counter(
-    name="opencti_bundles_lock_error_counter",
-    description="number of bundles in lock error",
-)
-bundles_missing_reference_error_counter = meter.create_counter(
-    name="opencti_bundles_missing_reference_error_counter",
-    description="number of bundles in missing reference error",
-)
-bundles_bad_gateway_error_counter = meter.create_counter(
-    name="opencti_bundles_bad_gateway_error_counter",
-    description="number of bundles in bad gateway error",
 )
 bundles_processing_time_gauge = meter.create_histogram(
     name="opencti_bundles_processing_time_gauge",
@@ -88,7 +63,7 @@ class PingAlive(threading.Thread):
                 self.worker_logger.debug("PingAlive running.")
                 self.api.query(
                     """
-                    query {
+                    query workerPing {
                       about {
                         version
                       }
@@ -113,14 +88,191 @@ class PingAlive(threading.Thread):
 
 
 @dataclass(unsafe_hash=True)
+class ApiConsumer(Thread):  # pylint: disable=too-many-instance-attributes
+    execution_pool: ThreadPoolExecutor
+    connector: Dict[str, Any] = field(hash=False)
+    config: Dict[str, Any] = field(hash=False)
+    opencti_token: str
+    listen_api_ssl_verify: bool
+    listen_api_http_proxy: str
+    listen_api_https_proxy: str
+    log_level: str = "info"
+    json_logging: bool = True
+
+    def __post_init__(self) -> None:
+        super().__init__()
+        self.logger_class = logger(self.log_level.upper(), self.json_logging)
+        self.worker_logger = self.logger_class("worker")
+
+        self.queue_name = self.connector["config"]["listen"]
+        self.pika_credentials = pika.PlainCredentials(
+            self.connector["config"]["connection"]["user"],
+            self.connector["config"]["connection"]["pass"],
+        )
+        ssl_options = None
+        if self.connector["config"]["connection"]["use_ssl"]:
+            ssl_options = pika.SSLOptions(
+                create_mq_ssl_context(self.config),
+                self.connector["config"]["connection"]["host"],
+            )
+
+        self.pika_parameters = pika.ConnectionParameters(
+            self.connector["config"]["connection"]["host"],
+            self.connector["config"]["connection"]["port"],
+            self.connector["config"]["connection"]["vhost"],
+            self.pika_credentials,
+            ssl_options=ssl_options,
+        )
+        self.pika_connection = pika.BlockingConnection(self.pika_parameters)
+        self.channel = self.pika_connection.channel()
+        try:
+            self.channel.confirm_delivery()
+        except Exception as err:  # pylint: disable=broad-except
+            self.worker_logger.warning(str(err))
+        self.channel.basic_qos(prefetch_count=1)
+        assert self.channel is not None
+        self.current_bundle_id: [str, None] = None
+        self.current_bundle_seq: int = 0
+
+    @property
+    def id(self) -> Any:  # pylint: disable=inconsistent-return-statements
+        if hasattr(self, "_thread_id"):
+            return self._thread_id  # type: ignore  # pylint: disable=no-member
+        # pylint: disable=protected-access
+        for id_, thread in threading._active.items():  # type: ignore
+            if thread is self:
+                return id_
+
+    def terminate(self) -> None:
+        thread_id = self.id
+        res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            thread_id, ctypes.py_object(SystemExit)
+        )
+        if res > 1:
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
+            self.worker_logger.info("Unable to kill the thread")
+
+    def nack_message(self, channel: BlockingChannel, delivery_tag: int) -> None:
+        if channel.is_open:
+            self.worker_logger.info("Message rejected", {"tag": delivery_tag})
+            channel.basic_nack(delivery_tag)
+        else:
+            self.worker_logger.info(
+                "Message NOT rejected (channel closed)", {"tag": delivery_tag}
+            )
+
+    def ack_message(self, channel: BlockingChannel, delivery_tag: int) -> None:
+        if channel.is_open:
+            self.worker_logger.info("Message acknowledged", {"tag": delivery_tag})
+            channel.basic_ack(delivery_tag)
+        else:
+            self.worker_logger.info(
+                "Message NOT acknowledged (channel closed)", {"tag": delivery_tag}
+            )
+
+    def stop_consume(self, channel: BlockingChannel) -> None:
+        if channel.is_open:
+            channel.stop_consuming()
+
+    # Callable for consuming a message
+    def _process_message(
+        self,
+        channel: BlockingChannel,
+        method: Any,
+        properties: None,  # pylint: disable=unused-argument
+        body: str,
+    ) -> None:
+        self.worker_logger.info(
+            "Processing a new message, launching a thread...",
+            {"tag": method.delivery_tag},
+        )
+        task_future = self.execution_pool.submit(
+            self.data_handler, self.pika_connection, channel, method.delivery_tag, body
+        )
+        while task_future.running():  # Loop while the thread is processing
+            self.pika_connection.sleep(0.05)
+        self.worker_logger.info("Message processed, thread terminated")
+
+    # Data handling
+    def data_handler(  # pylint: disable=too-many-statements, too-many-locals
+        self,
+        connection: Any,
+        channel: BlockingChannel,
+        delivery_tag: str,
+        data: str,
+    ) -> Optional[bool]:
+        try:
+            callback_uri = self.connector["config"].get("listen_callback_uri")
+            request_headers = {
+                "User-Agent": "pycti/" + __version__,
+                "Authorization": "Bearer " + self.opencti_token,
+            }
+            requests.post(
+                callback_uri,
+                data=data,
+                headers=request_headers,
+                verify=self.listen_api_ssl_verify,
+                proxies={
+                    "http": self.listen_api_http_proxy,
+                    "https": self.listen_api_https_proxy,
+                },
+                timeout=300,
+            )
+            # Ack the message
+            cb = functools.partial(self.ack_message, channel, delivery_tag)
+            connection.add_callback_threadsafe(cb)
+        except (RequestException, Timeout):
+            self.worker_logger.warning("A connection error or timeout occurred")
+            # Platform is under heavy load: wait for unlock & retry almost indefinitely.
+            sleep_jitter = round(random.uniform(10, 30), 2)
+            time.sleep(sleep_jitter)
+            # Nack the message
+            cb = functools.partial(self.nack_message, channel, delivery_tag)
+            connection.add_callback_threadsafe(cb)
+        except Exception as ex:
+            # Technical unmanaged exception
+            self.worker_logger.error(
+                "Error executing listen handling", {"reason": str(ex)}
+            )
+            error_msg = traceback.format_exc()
+            if ERROR_TYPE_BAD_GATEWAY in error_msg or ERROR_TYPE_TIMEOUT in error_msg:
+                # Nack the message
+                cb = functools.partial(self.nack_message, channel, delivery_tag)
+                connection.add_callback_threadsafe(cb)
+            else:
+                # Technical error, log and continue
+                # Ack the message
+                cb = functools.partial(self.ack_message, channel, delivery_tag)
+                connection.add_callback_threadsafe(cb)
+
+    def run(self) -> None:
+        try:
+            # Consume the queue
+            self.worker_logger.info(
+                "Thread for listen queue started", {"queue": self.queue_name}
+            )
+            self.channel.basic_consume(
+                queue=self.queue_name,
+                on_message_callback=self._process_message,
+            )
+            self.channel.start_consuming()
+        finally:
+            self.channel.stop_consuming()
+            self.worker_logger.info(
+                "Thread for listen queue terminated", {"queue": self.queue_name}
+            )
+
+
+@dataclass(unsafe_hash=True)
 class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
+    execution_pool: ThreadPoolExecutor
     connector: Dict[str, Any] = field(hash=False)
     config: Dict[str, Any] = field(hash=False)
     opencti_url: str
     opencti_token: str
     log_level: str
     ssl_verify: Union[bool, str] = False
-    json_logging: bool = False
+    json_logging: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -164,7 +316,6 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
             self.worker_logger.warning(str(err))
         self.channel.basic_qos(prefetch_count=1)
         assert self.channel is not None
-        self.processing_count: int = 0
         self.current_bundle_id: [str, None] = None
         self.current_bundle_seq: int = 0
 
@@ -223,12 +374,10 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
             "Processing a new message, launching a thread...",
             {"tag": method.delivery_tag},
         )
-        thread = Thread(
-            target=self.data_handler,
-            args=[self.pika_connection, channel, method.delivery_tag, data],
+        task_future = self.execution_pool.submit(
+            self.data_handler, self.pika_connection, channel, method.delivery_tag, data
         )
-        thread.start()
-        while thread.is_alive():  # Loop while the thread is processing
+        while task_future.running():  # Loop while the thread is processing
             self.pika_connection.sleep(0.05)
         self.worker_logger.info("Message processed, thread terminated")
 
@@ -242,40 +391,75 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
     ) -> Optional[bool]:
         start_processing = datetime.datetime.now()
         # Set the API headers
-        applicant_id = data["applicant_id"]
-        self.api.set_applicant_id_header(applicant_id)
+        self.api.set_applicant_id_header(data.get("applicant_id"))
+        self.api.set_playbook_id_header(data.get("playbook_id"))
+        self.api.set_event_id(data.get("event_id"))
+        self.api.set_draft_id(data.get("draft_id"))
         work_id = data["work_id"] if "work_id" in data else None
         synchronized = data["synchronized"] if "synchronized" in data else False
         self.api.set_synchronized_upsert_header(synchronized)
         previous_standard = data.get("previous_standard")
         self.api.set_previous_standard_header(previous_standard)
         # Execute the import
-        self.processing_count += 1
-        content = "Unparseable"
+        imported_items = []
+        event_type = data["type"] if "type" in data else "bundle"
+        types = (
+            data["entities_types"]
+            if "entities_types" in data and len(data["entities_types"]) > 0
+            else None
+        )
         try:
-            event_type = data["type"] if "type" in data else "bundle"
-            types = (
-                data["entities_types"]
-                if "entities_types" in data and len(data["entities_types"]) > 0
-                else None
-            )
-            processing_count = self.processing_count
-            if self.processing_count == PROCESSING_COUNT:
-                processing_count = None  # type: ignore
             if event_type == "bundle":
                 content = base64.b64decode(data["content"]).decode("utf-8")
-                update = data["update"] if "update" in data else False
-                self.api.stix2.import_bundle_from_json(
-                    content, update, types, processing_count
-                )
-                # Ack the message
-                cb = functools.partial(self.ack_message, channel, delivery_tag)
-                connection.add_callback_threadsafe(cb)
-                if work_id is not None:
-                    self.api.work.report_expectation(work_id, None)
-                self.processing_count = 0
-                bundles_success_counter.add(1)
-                return True
+                content_json = json.loads(content)
+                if "objects" not in content_json or len(content_json["objects"]) == 0:
+                    raise ValueError("JSON data type is not a STIX2 bundle")
+                if len(content_json["objects"]) == 1:
+                    update = data["update"] if "update" in data else False
+                    imported_items = self.api.stix2.import_bundle_from_json(
+                        content, update, types, work_id
+                    )
+                else:
+                    # As bundle is received as complete, split and requeue
+                    # Create a specific channel to push the split bundles
+                    push_pika_connection = pika.BlockingConnection(self.pika_parameters)
+                    push_channel = push_pika_connection.channel()
+                    try:
+                        push_channel.confirm_delivery()
+                    except Exception as err:  # pylint: disable=broad-except
+                        self.worker_logger.warning(str(err))
+                    # Instance spliter and split the big bundle
+                    event_version = (
+                        content_json["x_opencti_event_version"]
+                        if "x_opencti_event_version" in content_json
+                        else None
+                    )
+                    stix2_splitter = OpenCTIStix2Splitter()
+                    expectations, bundles = (
+                        stix2_splitter.split_bundle_with_expectations(
+                            content_json, False, event_version
+                        )
+                    )
+                    # Add expectations to the work
+                    if work_id is not None:
+                        self.api.work.add_expectations(work_id, expectations)
+                    # For each split bundle, send it to the same queue
+                    for bundle in bundles:
+                        text_bundle = json.dumps(bundle)
+                        data["content"] = base64.b64encode(
+                            text_bundle.encode("utf-8", "escape")
+                        ).decode("utf-8")
+                        push_channel.basic_publish(
+                            exchange=self.connector["config"]["push_exchange"],
+                            routing_key=self.connector["config"]["push_routing"],
+                            body=json.dumps(data),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_encoding="utf-8",  # make message persistent
+                            ),
+                        )
+                    push_channel.close()
+                    push_pika_connection.close()
             elif event_type == "event":
                 event = base64.b64decode(data["content"]).decode("utf-8")
                 event_content = json.loads(event)
@@ -285,10 +469,19 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
                         "type": "bundle",
                         "objects": [event_content["data"]],
                     }
-                    self.api.stix2.import_bundle(bundle, True, types, processing_count)
+                    imported_items = self.api.stix2.import_bundle(
+                        bundle, True, types, work_id
+                    )
                 elif event_type == "delete":
-                    delete_id = event_content["data"]["id"]
-                    self.api.stix.delete(id=delete_id)
+                    delete_object = event_content["data"]
+                    delete_object["opencti_operation"] = event_type
+                    bundle = {
+                        "type": "bundle",
+                        "objects": [delete_object],
+                    }
+                    imported_items = self.api.stix2.import_bundle(
+                        bundle, True, types, work_id
+                    )
                 elif event_type == "merge":
                     # Start with a merge
                     target_id = event_content["data"]["id"]
@@ -298,115 +491,36 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
                             event_content["context"]["sources"],
                         )
                     )
-                    self.api.stix.merge(id=target_id, object_ids=source_ids)
-                    # Update the target entity after merge
+                    merge_object = event_content["data"]
+                    merge_object["opencti_operation"] = "merge"
+                    merge_object["merge_target_id"] = target_id
+                    merge_object["merge_source_ids"] = source_ids
                     bundle = {
                         "type": "bundle",
-                        "objects": [event_content["data"]],
+                        "objects": [merge_object],
                     }
-                    self.api.stix2.import_bundle(bundle, True, types, processing_count)
-                # Ack the message
-                cb = functools.partial(self.ack_message, channel, delivery_tag)
-                connection.add_callback_threadsafe(cb)
-                self.processing_count = 0
-                bundles_success_counter.add(1)
-                return True
+                    imported_items = self.api.stix2.import_bundle(
+                        bundle, True, types, work_id
+                    )
+                else:
+                    raise ValueError(
+                        "Unsupported operation type", {"event_type": event_type}
+                    )
             else:
-                # Unknown type, just move on.
-                return True
-        except Timeout:
-            bundles_timeout_error_counter.add(1)
-            self.worker_logger.warning("A connection timeout occurred")
-            time.sleep(60)
-            # Platform is under heavy load: wait for unlock & retry almost indefinitely.
-            sleep_jitter = round(random.uniform(10, 30), 2)
-            time.sleep(sleep_jitter)
-            self.data_handler(connection, channel, delivery_tag, data)
-            return True
-        except RequestException:
-            bundles_request_error_counter.add(1, {"origin": "opencti-worker"})
+                raise ValueError("Unsupported event type", {"event_type": event_type})
+        except Exception as ex:
+            # Technical unmanaged exception
             self.worker_logger.error(
-                "Message NOT acknowledged",
-                {"tag": delivery_tag, "type": "RequestException"},
+                "Error executing data handling", {"reason": str(ex)}
             )
-            cb = functools.partial(self.nack_message, channel, delivery_tag)
-            connection.add_callback_threadsafe(cb)
-            self.processing_count = 0
-            return False
-        except Exception as ex:  # pylint: disable=broad-except
-            error = str(ex)
-            error_msg = traceback.format_exc()
-            if "LOCK_ERROR" in error_msg:
-                bundles_lock_error_counter.add(1)
-                # Platform is under heavy load:
-                # wait for unlock & retry indefinitely.
-                sleep_jitter = round(random.uniform(10, 30), 2)
-                time.sleep(sleep_jitter)
-                self.data_handler(connection, channel, delivery_tag, data)
-            elif (
-                "MISSING_REFERENCE_ERROR" in error_msg
-                and self.processing_count < PROCESSING_COUNT
-            ):
-                bundles_missing_reference_error_counter.add(1)
-                # In case of missing reference, wait & retry
-                sleep_jitter = round(random.uniform(1, 3), 2)
-                time.sleep(sleep_jitter)
-                self.worker_logger.info(
-                    "Message reprocess",
-                    {"tag": delivery_tag, "count": self.processing_count},
-                )
-                self.data_handler(connection, channel, delivery_tag, data)
-            elif "MISSING_REFERENCE_ERROR" in error_msg:
-                self.worker_logger.warning(error_msg)
-                self.processing_count = 0
-                cb = functools.partial(self.ack_message, channel, delivery_tag)
-                connection.add_callback_threadsafe(cb)
-                if work_id is not None:
-                    self.api.work.report_expectation(
-                        work_id,
-                        {
-                            "error": error,
-                            "source": (
-                                content if len(content) < 50000 else "Bundle too large"
-                            ),
-                        },
-                    )
-                return False
-            elif "Bad Gateway" in error_msg:
-                bundles_bad_gateway_error_counter.add(1)
-                self.worker_logger.error("A connection error occurred")
-                time.sleep(60)
-                self.worker_logger.info(
-                    "Message NOT acknowledged (Bad Gateway)", {"tag": delivery_tag}
-                )
-                cb = functools.partial(self.nack_message, channel, delivery_tag)
-                connection.add_callback_threadsafe(cb)
-                self.processing_count = 0
-                return False
-            else:
-                bundles_technical_error_counter.add(1)
-                # Platform does not know what to do and raises an error:
-                # fail and acknowledge the message.
-                self.worker_logger.error(error)
-                self.processing_count = 0
-                cb = functools.partial(self.ack_message, channel, delivery_tag)
-                connection.add_callback_threadsafe(cb)
-                if work_id is not None:
-                    self.api.work.report_expectation(
-                        work_id,
-                        {
-                            "error": error,
-                            "source": (
-                                content if len(content) < 50000 else "Bundle too large"
-                            ),
-                        },
-                    )
-                return False
-            return None
         finally:
-            bundles_global_counter.add(1)
+            bundles_global_counter.add(len(imported_items))
             processing_delta = datetime.datetime.now() - start_processing
             bundles_processing_time_gauge.record(processing_delta.seconds)
+            # Ack the message
+            cb = functools.partial(self.ack_message, channel, delivery_tag)
+            connection.add_callback_threadsafe(cb)
+            return True
 
     def run(self) -> None:
         try:
@@ -430,6 +544,7 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
 class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attributes
     logs_all_queue: str = "logs_all"
     consumer_threads: Dict[str, Any] = field(default_factory=dict, hash=False)
+    listen_api_threads: Dict[str, Any] = field(default_factory=dict, hash=False)
     logger_threads: Dict[str, Any] = field(default_factory=dict, hash=False)
 
     def __post_init__(self) -> None:
@@ -452,14 +567,44 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
             "OPENCTI_TOKEN", ["opencti", "token"], config
         )
         self.opencti_ssl_verify = get_config_variable(
-            "OPENCTI_SSL_VERIFY", ["opencti", "ssl_verify"], config, False, False
+            "OPENCTI_SSL_VERIFY", ["opencti", "ssl_verify"], config, default=False
         )
         self.opencti_json_logging = get_config_variable(
-            "OPENCTI_JSON_LOGGING", ["opencti", "json_logging"], config, False, True
+            "OPENCTI_JSON_LOGGING", ["opencti", "json_logging"], config, default=True
+        )
+        self.opencti_pool_size = get_config_variable(
+            "OPENCTI_EXECUTION_POOL_SIZE",
+            ["opencti", "execution_pool_size"],
+            config,
+            default=5,
+        )
+        self.listen_pool_size = get_config_variable(
+            "WORKER_LISTEN_POOL_SIZE",
+            ["worker", "listen_pool_size"],
+            config,
+            default=5,
         )
         # Load worker config
         self.log_level = get_config_variable(
             "WORKER_LOG_LEVEL", ["worker", "log_level"], config
+        )
+        self.listen_api_ssl_verify = get_config_variable(
+            "WORKER_LISTEN_API_SSL_VERIFY",
+            ["worker", "listen_api_ssl_verify"],
+            config,
+            default=False,
+        )
+        self.listen_api_http_proxy = get_config_variable(
+            "WORKER_LISTEN_API_HTTP_PROXY",
+            ["worker", "listen_api_http_proxy"],
+            config,
+            default="",
+        )
+        self.listen_api_https_proxy = get_config_variable(
+            "WORKER_LISTEN_API_HTTPS_PROXY",
+            ["worker", "listen_api_https_proxy"],
+            config,
+            default="",
         )
         # Telemetry
         self.telemetry_enabled = get_config_variable(
@@ -506,6 +651,10 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
         # Initialize variables
         self.connectors: List[Any] = []
         self.queues: List[Any] = []
+        self.execution_pool = ThreadPoolExecutor(max_workers=self.opencti_pool_size)
+        self.listen_api_execution_pool = ThreadPoolExecutor(
+            max_workers=self.listen_pool_size
+        )
 
     # Start the main loop
     def start(self) -> None:
@@ -513,20 +662,21 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
         while True:
             try:
                 # Fetch queue configuration from API
+                self.queues = list()
                 self.connectors = self.api.connector.list()
-                self.queues = list(
-                    map(lambda x: x["config"]["push"], self.connectors)  # type: ignore
-                )
                 # Check if all queues are consumed
                 for connector in self.connectors:
-                    queue = connector["config"]["push"]
-                    if queue in self.consumer_threads:
-                        if not self.consumer_threads[queue].is_alive():
+                    # Push to ingest message
+                    push_queue = connector["config"]["push"]
+                    self.queues.append(push_queue)
+                    if push_queue in self.consumer_threads:
+                        if not self.consumer_threads[push_queue].is_alive():
                             self.worker_logger.info(
                                 "Thread for queue not alive, creating a new one...",
-                                {"queue": queue},
+                                {"queue": push_queue},
                             )
-                            self.consumer_threads[queue] = Consumer(
+                            self.consumer_threads[push_queue] = Consumer(
+                                self.execution_pool,
                                 connector,
                                 self.config,
                                 self.opencti_url,
@@ -535,9 +685,10 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
                                 self.opencti_ssl_verify,
                                 self.opencti_json_logging,
                             )
-                            self.consumer_threads[queue].start()
+                            self.consumer_threads[push_queue].start()
                     else:
-                        self.consumer_threads[queue] = Consumer(
+                        self.consumer_threads[push_queue] = Consumer(
+                            self.execution_pool,
                             connector,
                             self.config,
                             self.opencti_url,
@@ -546,7 +697,38 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
                             self.opencti_ssl_verify,
                             self.opencti_json_logging,
                         )
-                        self.consumer_threads[queue].start()
+                        self.consumer_threads[push_queue].start()
+                    # Listen for webhook message
+                    if connector["config"].get("listen_callback_uri") is not None:
+                        listen_queue = connector["config"]["listen"]
+                        self.queues.append(listen_queue)
+                        if listen_queue in self.listen_api_threads:
+                            if not self.listen_api_threads[listen_queue].is_alive():
+                                self.listen_api_threads[listen_queue] = ApiConsumer(
+                                    self.listen_api_execution_pool,
+                                    connector,
+                                    self.config,
+                                    self.opencti_token,
+                                    self.listen_api_ssl_verify,
+                                    self.listen_api_http_proxy,
+                                    self.listen_api_https_proxy,
+                                    self.log_level,
+                                    self.opencti_json_logging,
+                                )
+                                self.listen_api_threads[listen_queue].start()
+                        else:
+                            self.listen_api_threads[listen_queue] = ApiConsumer(
+                                self.listen_api_execution_pool,
+                                connector,
+                                self.config,
+                                self.opencti_token,
+                                self.listen_api_ssl_verify,
+                                self.listen_api_http_proxy,
+                                self.listen_api_https_proxy,
+                                self.log_level,
+                                self.opencti_json_logging,
+                            )
+                            self.listen_api_threads[listen_queue].start()
 
                 # Check if some threads must be stopped
                 for thread in list(self.consumer_threads):

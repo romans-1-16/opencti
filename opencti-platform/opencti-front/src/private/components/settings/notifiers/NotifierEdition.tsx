@@ -6,7 +6,7 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { Field, Form, Formik } from 'formik';
 import { FormikHelpers } from 'formik/dist/types';
 import React, { createRef, FunctionComponent, useRef, useState } from 'react';
-import { graphql, PreloadedQuery, useFragment, useMutation, usePreloadedQuery, useQueryLoader } from 'react-relay';
+import { graphql, PreloadedQuery, useFragment, usePreloadedQuery, useQueryLoader } from 'react-relay';
 import * as Yup from 'yup';
 import { useFormatter } from '../../../../components/i18n';
 import TextField from '../../../../components/TextField';
@@ -23,7 +23,10 @@ import { uiSchema } from './NotifierUtils';
 import notifierValidator from './NotifierValidator';
 import { handleErrorInForm } from '../../../../relay/environment';
 import { convertAuthorizedMembers } from '../../../../utils/edition';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   buttons: {
     marginTop: 20,
@@ -105,7 +108,7 @@ const NotifierEdition: FunctionComponent<NotifierEditionComponentProps> = ({
   const { notifier } = usePreloadedQuery<NotifierEditionQuery>(notifierEditionQuery, queryRef);
   const data = useFragment<NotifierEdition_edition$key>(notifierEditionFragment, notifier);
 
-  const [commitFieldPatch] = useMutation(notifierMutationFieldPatch);
+  const [commitFieldPatch] = useApiMutation(notifierMutationFieldPatch);
   const initialValues: NotifierEditionValues = {
     name: data?.name ?? '',
     description: data?.description,
@@ -158,7 +161,7 @@ const NotifierEdition: FunctionComponent<NotifierEditionComponentProps> = ({
         onClose={onClose}
       >
         {({ values, setFieldValue, setSubmitting, setErrors, isSubmitting }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               variant="standard"

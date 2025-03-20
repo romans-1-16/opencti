@@ -14,9 +14,14 @@ import {
   FilterAltOffOutlined,
   FilterListOutlined,
   GestureOutlined,
+  HubOutlined,
   LinkOutlined,
-  ReadMoreOutlined,
+  PolylineOutlined,
   ScatterPlotOutlined,
+  SwipeDown,
+  SwipeUp,
+  SwipeVertical,
+  TouchApp,
   VisibilityOutlined,
 } from '@mui/icons-material';
 import { AutoFix, FamilyTree, SelectAll, SelectGroup, SelectionDrag, Video3d } from 'mdi-material-ui';
@@ -34,7 +39,6 @@ import Popover from '@mui/material/Popover';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Divider from '@mui/material/Divider';
-import TimeRange from 'react-timeline-range-slider';
 import { ResponsiveContainer, Scatter, ScatterChart, YAxis, ZAxis } from 'recharts';
 import Badge from '@mui/material/Badge';
 import Dialog from '@mui/material/Dialog';
@@ -42,10 +46,14 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Slide from '@mui/material/Slide';
+import { Form, Formik } from 'formik';
+import ToggleButton from '@mui/material/ToggleButton';
+import { ToggleButtonGroup } from '@mui/material';
+import StixNestedRefRelationshipCreationFromKnowledgeGraph from '../../common/stix_nested_ref_relationships/StixNestedRefRelationshipCreationFromKnowledgeGraph';
+import CommitMessage from '../../common/form/CommitMessage';
 import inject18n from '../../../../components/i18n';
-import ContainerAddStixCoreObjects from '../../common/containers/ContainerAddStixCoreObjects';
 import StixCoreRelationshipCreation from '../../common/stix_core_relationships/StixCoreRelationshipCreation';
-import { dateFormat } from '../../../../utils/Time';
+import { dateFormat, minutesBefore, now } from '../../../../utils/Time';
 import { truncate } from '../../../../utils/String';
 import StixCoreRelationshipEdition from '../../common/stix_core_relationships/StixCoreRelationshipEdition';
 import StixDomainObjectEdition from '../../common/stix_domain_objects/StixDomainObjectEdition';
@@ -59,10 +67,12 @@ import StixCyberObservableEdition from '../../observations/stix_cyber_observable
 import { isStixNestedRefRelationship } from '../../../../utils/Relation';
 import { convertCreatedBy, convertMarkings } from '../../../../utils/edition';
 import { UserContext } from '../../../../utils/hooks/useAuth';
+import ContainerAddStixCoreObjectsInGraph from '../../common/containers/ContainerAddStixCoreObjectsInGraph';
+import TimeRange from '../../../../components/range_slider/RangeSlider';
 
 const styles = () => ({
   bottomNav: {
-    zIndex: 1000,
+    zIndex: 1,
     display: 'flex',
     overflow: 'hidden',
   },
@@ -96,7 +106,9 @@ class ReportKnowledgeGraphBar extends Component {
       openCreatedNested: false,
       relationReversed: false,
       sightingReversed: false,
+      selectRelationshipByType: null,
       nestedReversed: false,
+      nestedRelationExist: false,
       openEditRelation: false,
       openEditSighting: false,
       openEditNested: false,
@@ -104,12 +116,16 @@ class ReportKnowledgeGraphBar extends Component {
       openEditObservable: false,
       displayRemove: false,
       deleteObject: false,
+      referenceDialogOpened: false,
     };
   }
 
   componentDidUpdate(prevProps) {
     if (prevProps.openCreatedRelation === false && this.props.openCreatedRelation) {
       this.setState({ openCreatedRelation: true });
+    }
+    if (prevProps.numberOfSelectedNodes !== this.props.numberOfSelectedNodes) {
+      this.setState({ selectRelationshipByType: null });
     }
   }
 
@@ -180,7 +196,7 @@ class ReportKnowledgeGraphBar extends Component {
   }
 
   handleCloseCreateRelationship() {
-    this.setState({ openCreatedRelation: false });
+    this.setState({ openCreatedRelation: false, relationReversed: null });
     this.props.handleCloseRelationCreation();
   }
 
@@ -205,11 +221,15 @@ class ReportKnowledgeGraphBar extends Component {
   }
 
   handleCloseCreateNested() {
-    this.setState({ openCreatedNested: false });
+    this.setState({ openCreatedNested: false, nestedReversed: null });
   }
 
   handleReverseNested() {
     this.setState({ nestedReversed: !this.state.nestedReversed });
+  }
+
+  handleSetNestedRelationExist(val) {
+    this.setState({ nestedRelationExist: val });
   }
 
   handleOpenEditItem() {
@@ -258,6 +278,26 @@ class ReportKnowledgeGraphBar extends Component {
     }
   }
 
+  handleSelectRelationships() {
+    const { handleSelectRelationshipsByAdjacentNode } = this.props;
+    const { selectRelationshipByType } = this.state;
+
+    handleSelectRelationshipsByAdjacentNode(selectRelationshipByType);
+
+    let nextType;
+    if (selectRelationshipByType === null) {
+      nextType = 'children';
+    } else if (selectRelationshipByType === 'children') {
+      nextType = 'parent';
+    } else if (selectRelationshipByType === 'parent') {
+      nextType = 'deselect';
+    } else if (selectRelationshipByType === 'deselect') {
+      nextType = null;
+    }
+
+    this.setState({ selectRelationshipByType: nextType });
+  }
+
   handleCloseDomainObjectEdition() {
     this.setState({ openEditDomainObject: false });
     this.props.handleCloseEntityEdition(
@@ -298,10 +338,34 @@ class ReportKnowledgeGraphBar extends Component {
     this.handleCloseSelectByType();
   }
 
+  closeReferencesPopup() {
+    this.setState({ referenceDialogOpened: false });
+  }
+
+  submitReference(values, { setSubmitting, resetForm }) {
+    const { handleDeleteSelected } = this.props;
+    const { deleteObject } = this.state;
+    const references = (values.references || []).map((ref) => ref.value);
+    this.handleCloseRemove();
+    handleDeleteSelected(deleteObject, values.message, references, setSubmitting, resetForm);
+  }
+
+  handleSubmitRemoveElements() {
+    const { enableReferences, handleDeleteSelected } = this.props;
+    const { deleteObject } = this.state;
+    if (enableReferences) {
+      this.setState({ referenceDialogOpened: true });
+    } else {
+      this.handleCloseRemove();
+      handleDeleteSelected(deleteObject);
+    }
+  }
+
   render() {
     const {
       t,
       classes,
+      currentQueryMode,
       currentMode3D,
       currentModeTree,
       currentModeFixed,
@@ -311,6 +375,7 @@ class ReportKnowledgeGraphBar extends Component {
       currentSelectRectangleModeFree,
       currentSelectModeFree,
       selectModeFreeReady,
+      handleToggleQueryMode,
       handleToggle3DMode,
       handleToggleTreeMode,
       handleToggleFixedMode,
@@ -345,6 +410,7 @@ class ReportKnowledgeGraphBar extends Component {
       theme,
       navOpen,
       resetAllFilters,
+      enableReferences,
     } = this.props;
     const {
       openStixCoreObjectsTypes,
@@ -367,6 +433,7 @@ class ReportKnowledgeGraphBar extends Component {
       openEditObservable,
       openEditNested,
       deleteObject,
+      referenceDialogOpened,
     } = this.state;
     const isInferred = selectedNodes.filter((n) => n.inferred || n.isNestedInferred).length
         > 0
@@ -426,6 +493,7 @@ class ReportKnowledgeGraphBar extends Component {
         : [selectedNodes[0]];
     }
     const stixCoreObjectOrRelationshipId = (selectedNodes[0]?.id ?? null) || (selectedLinks[0]?.id ?? null);
+    const defaultTime = now();
     return (
       <UserContext.Consumer>
         {({ bannerSettings }) => (
@@ -644,6 +712,44 @@ class ReportKnowledgeGraphBar extends Component {
                       </IconButton>
                     </span>
                   </Tooltip>
+                  <Tooltip
+                    title={
+                      (() => {
+                        switch (this.state.selectRelationshipByType) {
+                          case 'children':
+                            return t('Select Child Relationships of Selected Nodes (From)');
+                          case 'parent':
+                            return t('Select Parent Relationships of Selected Nodes (To)');
+                          case 'deselect':
+                            return t('Deselect Relationships of Selected Nodes');
+                          default:
+                            return t('Select Relationships of Selected Nodes');
+                        }
+                      })()
+                    }
+                  >
+                    <span>
+                      <IconButton
+                        color="primary"
+                        onClick={this.handleSelectRelationships.bind(this)}
+                        disabled={numberOfSelectedNodes === 0}
+                        size="large"
+                      >
+                        {(() => {
+                          switch (this.state.selectRelationshipByType) {
+                            case 'children':
+                              return <SwipeDown />;
+                            case 'parent':
+                              return <SwipeUp />;
+                            case 'deselect':
+                              return <TouchApp />;
+                            default:
+                              return <SwipeVertical />;
+                          }
+                        })()}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <Divider className={classes.divider} orientation="vertical" />
                   <Tooltip title={t('Display time range selector')}>
                     <span>
@@ -859,7 +965,7 @@ class ReportKnowledgeGraphBar extends Component {
                     style={{ float: 'right', display: 'flex', height: '100%' }}
                   >
                     {onAdd && (
-                      <ContainerAddStixCoreObjects
+                      <ContainerAddStixCoreObjectsInGraph
                         containerId={report.id}
                         containerStixCoreObjects={report.objects.edges}
                         knowledgeGraph={true}
@@ -872,7 +978,43 @@ class ReportKnowledgeGraphBar extends Component {
                         onAdd={onAdd}
                         onDelete={onDelete}
                         confidence={report.confidence}
+                        enableReferences={enableReferences}
                       />
+                    )}
+                    {handleToggleQueryMode && (
+                      <ToggleButtonGroup
+                        size="small"
+                        value={currentQueryMode}
+                        exclusive
+                        onChange={handleToggleQueryMode}
+                        style={{
+                          padding: '6px 8px',
+                          marginBottom: '3px',
+                        }}
+                      >
+                        <Tooltip title={t('Show all correlated entities')}>
+                          <ToggleButton
+                            value="all-entities"
+                            selected={currentQueryMode === 'all-entities'}
+                          >
+                            <HubOutlined
+                              fontSize="small"
+                              color={currentQueryMode === 'all-entities' ? 'secondary' : 'primary'}
+                            />
+                          </ToggleButton>
+                        </Tooltip>
+                        <Tooltip title={t('Show only correlated observables and indicators')}>
+                          <ToggleButton
+                            value="indicators-and-observables"
+                            selected={currentQueryMode === 'indicators-and-observables'}
+                          >
+                            <PolylineOutlined
+                              fontSize="small"
+                              color={currentQueryMode === 'indicators-and-observables' ? 'secondary' : 'primary'}
+                            />
+                          </ToggleButton>
+                        </Tooltip>
+                      </ToggleButtonGroup>
                     )}
                     <Tooltip title={t('Edit the selected item')}>
                       <span>
@@ -882,7 +1024,7 @@ class ReportKnowledgeGraphBar extends Component {
                           disabled={!editionEnabled}
                           size="large"
                         >
-                          <EditOutlined />
+                          <EditOutlined/>
                         </IconButton>
                       </span>
                     </Tooltip>
@@ -955,10 +1097,10 @@ class ReportKnowledgeGraphBar extends Component {
                         fromObjects={relationFromObjects}
                         toObjects={relationToObjects}
                         startTime={
-                          lastLinkFirstSeen || dateFormat(report.published)
+                          lastLinkFirstSeen || minutesBefore(1, defaultTime)
                         }
                         stopTime={
-                          lastLinkLastSeen || dateFormat(report.published)
+                          lastLinkLastSeen || defaultTime
                         }
                         confidence={report.confidence}
                         handleClose={this.handleCloseCreateRelationship.bind(
@@ -973,18 +1115,15 @@ class ReportKnowledgeGraphBar extends Component {
                       />
                     )}
                     {onAddRelation && (
-                      <Tooltip title={t('Create a nested relationship')}>
-                        <span>
-                          <IconButton
-                            color="primary"
-                            onClick={this.handleOpenCreateNested.bind(this)}
-                            disabled={!nestedEnabled}
-                            size="large"
-                          >
-                            <ReadMoreOutlined />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <StixNestedRefRelationshipCreationFromKnowledgeGraph
+                        nestedRelationExist={this.state.nestedRelationExist}
+                        openCreateNested={this.state.openCreateNested}
+                        nestedEnabled={nestedEnabled}
+                        relationFromObjects={relationFromObjects}
+                        relationToObjects={relationToObjects}
+                        handleSetNestedRelationExist={this.handleSetNestedRelationExist.bind(this)}
+                        handleOpenCreateNested={this.handleOpenCreateNested.bind(this)}
+                      />
                     )}
                     {onAddRelation && (
                       <StixNestedRefRelationshipCreation
@@ -1096,16 +1235,39 @@ class ReportKnowledgeGraphBar extends Component {
                           {t('Cancel')}
                         </Button>
                         <Button
-                          onClick={() => {
-                            this.handleCloseRemove();
-                            handleDeleteSelected(deleteObject);
-                          }}
+                          onClick={ this.handleSubmitRemoveElements.bind(this)}
                           color="secondary"
                         >
                           {t('Remove')}
                         </Button>
                       </DialogActions>
                     </Dialog>
+                    {enableReferences && (
+                    <Formik
+                      initialValues={{ message: '', references: [] }}
+                      onSubmit={this.submitReference.bind(this)}
+                    >
+                      {({
+                        submitForm,
+                        isSubmitting,
+                        setFieldValue,
+                        values,
+                      }) => (
+                        <Form>
+                          <CommitMessage
+                            handleClose={this.closeReferencesPopup.bind(this)}
+                            open={referenceDialogOpened}
+                            submitForm={submitForm}
+                            disabled={isSubmitting}
+                            setFieldValue={setFieldValue}
+                            values={values.references}
+                            id={report.id}
+                            noStoreUpdate={true}
+                          />
+                        </Form>
+                      )}
+                    </Formik>
+                    )}
                   </div>
                 )}
                 <div className="clearfix" />
@@ -1183,6 +1345,8 @@ ReportKnowledgeGraphBar.propTypes = {
   classes: PropTypes.object,
   t: PropTypes.func,
   report: PropTypes.object,
+  handleToggleQueryMode: PropTypes.func,
+  currentQueryMode: PropTypes.string,
   handleToggle3DMode: PropTypes.func,
   handleToggleRectangleSelectModeFree: PropTypes.func,
   handleToggleSelectModeFree: PropTypes.func,
@@ -1227,6 +1391,7 @@ ReportKnowledgeGraphBar.propTypes = {
   timeRangeValues: PropTypes.array,
   theme: PropTypes.object,
   navOpen: PropTypes.bool,
+  enableReferences: PropTypes.bool,
 };
 
 export default R.compose(

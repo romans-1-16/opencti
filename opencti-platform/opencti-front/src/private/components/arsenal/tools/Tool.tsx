@@ -1,11 +1,7 @@
 import React from 'react';
 import { graphql, useFragment } from 'react-relay';
 import Grid from '@mui/material/Grid';
-import makeStyles from '@mui/styles/makeStyles';
 import ToolDetails from './ToolDetails';
-import ToolEdition from './ToolEdition';
-import Security from '../../../../utils/Security';
-import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
 import StixCoreObjectOrStixCoreRelationshipNotes from '../../analyses/notes/StixCoreObjectOrStixCoreRelationshipNotes';
 import StixDomainObjectOverview from '../../common/stix_domain_objects/StixDomainObjectOverview';
 import StixCoreObjectExternalReferences from '../../analyses/external_references/StixCoreObjectExternalReferences';
@@ -13,12 +9,11 @@ import StixCoreObjectLatestHistory from '../../common/stix_core_objects/StixCore
 import SimpleStixObjectOrStixRelationshipStixCoreRelationships from '../../common/stix_core_relationships/SimpleStixObjectOrStixRelationshipStixCoreRelationships';
 import { Tool_tool$key } from './__generated__/Tool_tool.graphql';
 import StixCoreObjectOrStixRelationshipLastContainers from '../../common/containers/StixCoreObjectOrStixRelationshipLastContainers';
-
-const useStyles = makeStyles(() => ({
-  gridContainer: {
-    marginBottom: 20,
-  },
-}));
+import useOverviewLayoutCustomization from '../../../../utils/hooks/useOverviewLayoutCustomization';
+import Security from '../../../../utils/Security';
+import { KNOWLEDGE_KNUPDATE } from '../../../../utils/hooks/useGranted';
+import ToolEdition from './ToolEdition';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const toolFragment = graphql`
   fragment Tool_tool on Tool {
@@ -72,49 +67,93 @@ const toolFragment = graphql`
   }
 `;
 
-const ToolComponent = ({ tool }: { tool: Tool_tool$key }) => {
-  const toolData = useFragment(toolFragment, tool);
-  const classes = useStyles();
+interface ToolProps {
+  toolData: Tool_tool$key
+}
+
+const Tool: React.FC<ToolProps> = ({ toolData }) => {
+  const tool = useFragment(toolFragment, toolData);
+  const overviewLayoutCustomization = useOverviewLayoutCustomization(tool.entity_type);
+
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   return (
     <>
       <Grid
         container={true}
         spacing={3}
-        classes={{ container: classes.gridContainer }}
+        style={{ marginBottom: 20 }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <ToolDetails tool={toolData} />
-        </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
-          <StixDomainObjectOverview stixDomainObject={toolData} />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <SimpleStixObjectOrStixRelationshipStixCoreRelationships
-            stixObjectOrStixRelationshipId={toolData.id}
-            stixObjectOrStixRelationshipLink={`/dashboard/arsenal/tools/${toolData.id}/knowledge`}
-          />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <StixCoreObjectOrStixRelationshipLastContainers
-            stixCoreObjectOrStixRelationshipId={toolData.id}
-          />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <StixCoreObjectExternalReferences stixCoreObjectId={toolData.id} />
-        </Grid>
-        <Grid item={true} xs={6} style={{ marginTop: 30 }}>
-          <StixCoreObjectLatestHistory stixCoreObjectId={toolData.id} />
-        </Grid>
+        {
+          overviewLayoutCustomization.map(({ key, width }) => {
+            switch (key) {
+              case 'details':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <ToolDetails tools={tool} />
+                  </Grid>
+                );
+              case 'basicInformation':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixDomainObjectOverview stixDomainObject={tool} />
+                  </Grid>
+                );
+              case 'latestCreatedRelationships':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <SimpleStixObjectOrStixRelationshipStixCoreRelationships
+                      stixObjectOrStixRelationshipId={tool.id}
+                      stixObjectOrStixRelationshipLink={`/dashboard/arsenal/tools/${tool.id}/knowledge`}
+                    />
+                  </Grid>
+                );
+              case 'latestContainers':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixCoreObjectOrStixRelationshipLastContainers
+                      stixCoreObjectOrStixRelationshipId={tool.id}
+                    />
+                  </Grid>
+                );
+              case 'externalReferences':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixCoreObjectExternalReferences
+                      stixCoreObjectId={tool.id}
+                    />
+                  </Grid>
+                );
+              case 'mostRecentHistory':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixCoreObjectLatestHistory
+                      stixCoreObjectId={tool.id}
+                    />
+                  </Grid>
+                );
+              case 'notes':
+                return (
+                  <Grid key={key} item xs={width}>
+                    <StixCoreObjectOrStixCoreRelationshipNotes
+                      stixCoreObjectOrStixCoreRelationshipId={tool.id}
+                      defaultMarkings={tool.objectMarking ?? []}
+                    />
+                  </Grid>
+                );
+              default:
+                return null;
+            }
+          })
+        }
       </Grid>
-      <StixCoreObjectOrStixCoreRelationshipNotes
-        stixCoreObjectOrStixCoreRelationshipId={toolData.id}
-        defaultMarkings={toolData.objectMarking ?? []}
-      />
-      <Security needs={[KNOWLEDGE_KNUPDATE]}>
-        <ToolEdition toolId={toolData.id} />
-      </Security>
+      {!isFABReplaced && (
+        <Security needs={[KNOWLEDGE_KNUPDATE]}>
+          <ToolEdition toolId={tool.id} />
+        </Security>
+      )}
     </>
   );
 };
 
-export default ToolComponent;
+export default Tool;

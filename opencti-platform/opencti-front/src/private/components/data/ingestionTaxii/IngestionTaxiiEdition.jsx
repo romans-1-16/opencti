@@ -11,9 +11,12 @@ import TextField from '../../../../components/TextField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import CreatorField from '../../common/form/CreatorField';
 import { convertUser } from '../../../../utils/edition';
-import SelectField from '../../../../components/SelectField';
+import SelectField from '../../../../components/fields/SelectField';
 import DateTimePickerField from '../../../../components/DateTimePickerField';
 import Drawer from '../../common/drawer/Drawer';
+import { BASIC_AUTH, BEARER_AUTH, CERT_AUTH, extractCA, extractCert, extractKey, extractPassword, extractUsername } from '../../../../utils/ingestionAuthentificationUtils';
+import SwitchField from '../../../../components/fields/SwitchField';
+import PasswordTextField from '../../../../components/PasswordTextField';
 
 export const ingestionTaxiiMutationFieldPatch = graphql`
   mutation IngestionTaxiiEditionFieldPatchMutation(
@@ -43,6 +46,7 @@ const ingestionTaxiiValidation = (t) => Yup.object().shape({
   added_after_start: Yup.date()
     .typeError(t('The value must be a datetime (yyyy-MM-dd hh:mm (a|p)m)'))
     .nullable(),
+  confidence_to_score: Yup.bool().nullable(),
 });
 
 const IngestionTaxiiEditionContainer = ({
@@ -60,36 +64,37 @@ const IngestionTaxiiEditionContainer = ({
         if (name === 'user_id') {
           finalValue = value?.value;
         }
+
+        // region authentication  -- If you change something here, please have a look at IngestionCsvEdition
+        const backendAuthValue = ingestionTaxii.authentication_value;
+        // re-compose username:password
         if (name === 'username') {
           finalName = 'authentication_value';
-          finalValue = `${value}:${
-            ingestionTaxii.authentication_value.split(':')[1]
-          }`;
+          finalValue = `${value}:${extractPassword(backendAuthValue)}`;
         }
+
         if (name === 'password') {
           finalName = 'authentication_value';
-          finalValue = `${
-            ingestionTaxii.authentication_value.split(':')[0]
-          }:${value}`;
+          finalValue = `${extractUsername(backendAuthValue)}:${value}`;
         }
+
+        // re-compose cert:key:ca
         if (name === 'cert') {
           finalName = 'authentication_value';
-          finalValue = `${value}:${
-            ingestionTaxii.authentication_value.split(':')[1]
-          }:${ingestionTaxii.authentication_value.split(':')[2]}`;
+          finalValue = `${value}:${extractKey(backendAuthValue)}:${extractCA(backendAuthValue)}`;
         }
+
         if (name === 'key') {
           finalName = 'authentication_value';
-          finalValue = `${
-            ingestionTaxii.authentication_value.split(':')[0]
-          }:${value}:${ingestionTaxii.authentication_value.split(':')[2]}`;
+          finalValue = `${extractCert(backendAuthValue)}:${value}:${extractCA(backendAuthValue)}`;
         }
+
         if (name === 'ca') {
           finalName = 'authentication_value';
-          finalValue = `${ingestionTaxii.authentication_value.split(':')[0]}:${
-            ingestionTaxii.authentication_value.split(':')[1]
-          }:${value}`;
+          finalValue = `${extractCert(backendAuthValue)}:${extractKey(backendAuthValue)}:${value}`;
         }
+        // end region authentication
+
         commitMutation({
           mutation: ingestionTaxiiMutationFieldPatch,
           variables: {
@@ -104,31 +109,31 @@ const IngestionTaxiiEditionContainer = ({
     R.assoc('user_id', convertUser(ingestionTaxii, 'user')),
     R.assoc(
       'username',
-      ingestionTaxii.authentication_type === 'basic'
+      ingestionTaxii.authentication_type === BASIC_AUTH
         ? ingestionTaxii.authentication_value.split(':')[0]
         : '',
     ),
     R.assoc(
       'password',
-      ingestionTaxii.authentication_type === 'basic'
+      ingestionTaxii.authentication_type === BASIC_AUTH
         ? ingestionTaxii.authentication_value.split(':')[1]
         : '',
     ),
     R.assoc(
       'cert',
-      ingestionTaxii.authentication_type === 'certificate'
+      ingestionTaxii.authentication_type === CERT_AUTH
         ? ingestionTaxii.authentication_value.split(':')[0]
         : '',
     ),
     R.assoc(
       'key',
-      ingestionTaxii.authentication_type === 'certificate'
+      ingestionTaxii.authentication_type === CERT_AUTH
         ? ingestionTaxii.authentication_value.split(':')[1]
         : '',
     ),
     R.assoc(
       'ca',
-      ingestionTaxii.authentication_type === 'certificate'
+      ingestionTaxii.authentication_type === CERT_AUTH
         ? ingestionTaxii.authentication_value.split(':')[2]
         : '',
     ),
@@ -147,6 +152,7 @@ const IngestionTaxiiEditionContainer = ({
       'ca',
       'user_id',
       'added_after_start',
+      'confidence_to_score',
     ]),
   )(ingestionTaxii);
 
@@ -162,7 +168,7 @@ const IngestionTaxiiEditionContainer = ({
         validationSchema={ingestionTaxiiValidation(t)}
       >
         {({ values }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               variant="standard"
@@ -201,12 +207,6 @@ const IngestionTaxiiEditionContainer = ({
                 marginTop: 20,
               }}
             >
-              <MenuItem value="v1" disabled={true}>
-                {t('TAXII 1.0')}
-              </MenuItem>
-              <MenuItem value="v2" disabled={true}>
-                {t('TAXII 2.0')}
-              </MenuItem>
               <MenuItem value="v21">{t('TAXII 2.1')}</MenuItem>
             </Field>
             <Field
@@ -237,7 +237,7 @@ const IngestionTaxiiEditionContainer = ({
                 {t('Client certificate')}
               </MenuItem>
             </Field>
-            {values.authentication_type === 'basic' && (
+            {values.authentication_type === BASIC_AUTH && (
               <>
                 <Field
                   component={TextField}
@@ -248,29 +248,21 @@ const IngestionTaxiiEditionContainer = ({
                   fullWidth={true}
                   style={fieldSpacingContainerStyle}
                 />
-                <Field
-                  component={TextField}
-                  variant="standard"
+                <PasswordTextField
                   name="password"
                   label={t('Password')}
                   onSubmit={handleSubmitField}
-                  fullWidth={true}
-                  style={fieldSpacingContainerStyle}
                 />
               </>
             )}
-            {values.authentication_type === 'bearer' && (
-              <Field
-                component={TextField}
-                variant="standard"
+            {values.authentication_type === BEARER_AUTH && (
+              <PasswordTextField
                 name="authentication_value"
                 label={t('Token')}
                 onSubmit={handleSubmitField}
-                fullWidth={true}
-                style={fieldSpacingContainerStyle}
               />
             )}
-            {values.authentication_type === 'certificate' && (
+            {values.authentication_type === CERT_AUTH && (
               <>
                 <Field
                   component={TextField}
@@ -281,14 +273,10 @@ const IngestionTaxiiEditionContainer = ({
                   fullWidth={true}
                   style={fieldSpacingContainerStyle}
                 />
-                <Field
-                  component={TextField}
-                  variant="standard"
+                <PasswordTextField
                   name="key"
                   label={t('Key (base64)')}
                   onSubmit={handleSubmitField}
-                  fullWidth={true}
-                  style={fieldSpacingContainerStyle}
                 />
                 <Field
                   component={TextField}
@@ -301,6 +289,13 @@ const IngestionTaxiiEditionContainer = ({
                 />
               </>
             )}
+            <CreatorField
+              name="user_id"
+              label={t('User responsible for data creation (empty = System)')}
+              onChange={handleSubmitField}
+              containerStyle={fieldSpacingContainerStyle}
+              showConfidence
+            />
             <Field
               component={DateTimePickerField}
               name="added_after_start"
@@ -313,11 +308,13 @@ const IngestionTaxiiEditionContainer = ({
                 style: { marginTop: 20 },
               }}
             />
-            <CreatorField
-              name="user_id"
-              label={t('User responsible for data creation (empty = System)')}
+            <Field
+              component={SwitchField}
               onChange={handleSubmitField}
-              containerStyle={fieldSpacingContainerStyle}
+              type="checkbox"
+              name="confidence_to_score"
+              label={t('Copy confidence level to OpenCTI scores for indicators')}
+              containerstyle={fieldSpacingContainerStyle}
             />
           </Form>
         )}
@@ -341,6 +338,7 @@ const IngestionTaxiiEditionFragment = createFragmentContainer(
       fragment IngestionTaxiiEdition_ingestionTaxii on IngestionTaxii {
         id
         name
+        description
         uri
         version
         collection
@@ -353,6 +351,7 @@ const IngestionTaxiiEditionFragment = createFragmentContainer(
           entity_type
           name
         }
+        confidence_to_score
       }
     `,
   },

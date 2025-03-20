@@ -7,13 +7,12 @@ import { OrganizationEditionContainer_organization$data } from '@components/enti
 import { FormikConfig } from 'formik/dist/types';
 import { Option } from '@components/common/form/ReferenceField';
 import { ExternalReferencesValues } from '@components/common/form/ExternalReferencesField';
-import makeStyles from '@mui/styles/makeStyles';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import TextField from '../../../../components/TextField';
 import { SubscriptionFocus } from '../../../../components/Subscription';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import { adaptFieldValue } from '../../../../utils/String';
 import CommitMessage from '../../common/form/CommitMessage';
 import { convertCreatedBy, convertMarkings, convertStatus } from '../../../../utils/edition';
@@ -24,12 +23,8 @@ import useFormEditor, { GenericData } from '../../../../utils/hooks/useFormEdito
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { useFormatter } from '../../../../components/i18n';
 import AlertConfidenceForEntity from '../../../../components/AlertConfidenceForEntity';
-
-const useStyles = makeStyles(() => ({
-  formContainer: {
-    margin: '20px 0 20px 0',
-  },
-}));
+import OrganizationDeletion from './OrganizationDeletion';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const organizationMutationFieldPatch = graphql`
   mutation OrganizationEditionOverviewFieldPatchMutation(
@@ -109,11 +104,11 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
   context,
   handleClose,
 }) => {
-  const classes = useStyles();
   const { t_i18n } = useFormatter();
-
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     description: Yup.string().nullable(),
     confidence: Yup.number().nullable(),
     contact_information: Yup.string().nullable(),
@@ -194,7 +189,7 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
   };
 
   return (
-    <Formik
+    <Formik<OrganizationEditionFormValues>
       enableReinitialize={true}
       initialValues={initialValues}
       validationSchema={organizationValidator}
@@ -208,7 +203,7 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
         isValid,
         dirty,
       }) => (
-        <Form className={classes.formContainer}>
+        <Form>
           <AlertConfidenceForEntity entity={organization} />
           <Field
             component={TextField}
@@ -220,7 +215,7 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus context={context} fieldName="name" />
-              }
+            }
           />
           <Field
             component={MarkdownField}
@@ -234,7 +229,7 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus context={context} fieldName="description" />
-              }
+            }
           />
           <ConfidenceField
             onFocus={editor.changeFocus}
@@ -257,7 +252,7 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus context={context} fieldName="contact_information" />
-              }
+            }
           />
           <OpenVocabField
             label={t_i18n('Organization type')}
@@ -284,17 +279,17 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
             containerStyle={fieldSpacingContainerStyle}
           />
           {organization.workflowEnabled && (
-          <StatusField
-            name="x_opencti_workflow_id"
-            type="Organization"
-            onFocus={editor.changeFocus}
-            onChange={handleSubmitField}
-            setFieldValue={setFieldValue}
-            style={{ marginTop: 20 }}
-            helpertext={
-              <SubscriptionFocus context={context} fieldName="x_opencti_workflow_id" />
-                }
-          />
+            <StatusField
+              name="x_opencti_workflow_id"
+              type="Organization"
+              onFocus={editor.changeFocus}
+              onChange={handleSubmitField}
+              setFieldValue={setFieldValue}
+              style={{ marginTop: 20 }}
+              helpertext={
+                <SubscriptionFocus context={context} fieldName="x_opencti_workflow_id" />
+              }
+            />
           )}
           <CreatedByField
             name="createdBy"
@@ -302,7 +297,7 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
             setFieldValue={setFieldValue}
             helpertext={
               <SubscriptionFocus context={context} fieldName="createdBy" />
-              }
+            }
             onChange={editor.changeCreated}
           />
           <ObjectMarkingField
@@ -310,20 +305,27 @@ const OrganizationEditionOverviewComponent: FunctionComponent<OrganizationEditio
             style={fieldSpacingContainerStyle}
             helpertext={
               <SubscriptionFocus context={context} fieldname="objectMarking" />
-              }
+            }
             setFieldValue={setFieldValue}
             onChange={editor.changeMarking}
           />
-          {enableReferences && (
-          <CommitMessage
-            submitForm={submitForm}
-            disabled={isSubmitting || !isValid || !dirty}
-            setFieldValue={setFieldValue}
-            open={false}
-            values={values.references}
-            id={organization.id}
-          />
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
+            {isFABReplaced
+              ? <OrganizationDeletion
+                  id={organization.id}
+                />
+              : <div />}
+            {enableReferences && (
+              <CommitMessage
+                submitForm={submitForm}
+                disabled={isSubmitting || !isValid || !dirty}
+                setFieldValue={setFieldValue}
+                open={false}
+                values={values.references}
+                id={organization.id}
+              />
+            )}
+          </div>
         </Form>
       )}
     </Formik>
@@ -337,6 +339,7 @@ export default createFragmentContainer(OrganizationEditionOverviewComponent, {
         name
         description
         confidence
+        entity_type
         contact_information
         x_opencti_organization_type
         x_opencti_reliability

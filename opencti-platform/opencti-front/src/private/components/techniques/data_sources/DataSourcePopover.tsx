@@ -8,8 +8,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import MoreVert from '@mui/icons-material/MoreVert';
-import { graphql, useMutation } from 'react-relay';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { graphql } from 'react-relay';
+import { useNavigate } from 'react-router-dom';
 import { useFormatter } from '../../../../components/i18n';
 import Security from '../../../../utils/Security';
 import { KNOWLEDGE_KNUPDATE_KNDELETE } from '../../../../utils/hooks/useGranted';
@@ -17,6 +17,8 @@ import useQueryLoading from '../../../../utils/hooks/useQueryLoading';
 import { DataSourceEditionContainerQuery } from './__generated__/DataSourceEditionContainerQuery.graphql';
 import DataSourceEditionContainer, { dataSourceEditionQuery } from './DataSourceEditionContainer';
 import Transition from '../../../../components/Transition';
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
 
 const DataSourcePopoverDeletionMutation = graphql`
   mutation DataSourcePopoverDeletionMutation($id: ID!) {
@@ -32,8 +34,9 @@ const DataSourcePopover = ({ id }: { id: string }) => {
   const [displayDelete, setDisplayDelete] = useState<boolean>(false);
   const [displayEdit, setDisplayEdit] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
-
-  const [commit] = useMutation(DataSourcePopoverDeletionMutation);
+  const { isFeatureEnable } = useHelper();
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const [commit] = useApiMutation(DataSourcePopoverDeletionMutation);
   const queryRef = useQueryLoading<DataSourceEditionContainerQuery>(
     dataSourceEditionQuery,
     { id },
@@ -71,53 +74,55 @@ const DataSourcePopover = ({ id }: { id: string }) => {
     handleClose();
   };
 
-  return (
-    <>
-      <ToggleButton
-        value="popover"
-        size="small"
-        onClick={handleOpen}
-      >
-        <MoreVert fontSize="small" color="primary" />
-      </ToggleButton>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
-        <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
-          <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
-        </Security>
-      </Menu>
-      <Dialog
-        open={displayDelete}
-        keepMounted={true}
-        TransitionComponent={Transition}
-        PaperProps={{ elevation: 1 }}
-        onClose={handleCloseDelete}
-      >
-        <DialogContent>
-          <DialogContentText>
-            {t_i18n('Do you want to delete this data source?')}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDelete} disabled={deleting}>
-            {t_i18n('Cancel')}
-          </Button>
-          <Button color="secondary" onClick={submitDelete} disabled={deleting}>
-            {t_i18n('Delete')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      {queryRef && (
-        <React.Suspense fallback={<div />}>
-          <DataSourceEditionContainer
-            queryRef={queryRef}
-            handleClose={handleClose}
-            open={displayEdit}
-          />
-        </React.Suspense>
-      )}
-    </>
-  );
+  return isFABReplaced
+    ? (<></>)
+    : (
+      <>
+        <ToggleButton
+          value="popover"
+          size="small"
+          onClick={handleOpen}
+        >
+          <MoreVert fontSize="small" color="primary" />
+        </ToggleButton>
+        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
+          <MenuItem onClick={handleOpenEdit}>{t_i18n('Update')}</MenuItem>
+          <Security needs={[KNOWLEDGE_KNUPDATE_KNDELETE]}>
+            <MenuItem onClick={handleOpenDelete}>{t_i18n('Delete')}</MenuItem>
+          </Security>
+        </Menu>
+        <Dialog
+          open={displayDelete}
+          keepMounted={true}
+          TransitionComponent={Transition}
+          PaperProps={{ elevation: 1 }}
+          onClose={handleCloseDelete}
+        >
+          <DialogContent>
+            <DialogContentText>
+              {t_i18n('Do you want to delete this data source?')}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDelete} disabled={deleting}>
+              {t_i18n('Cancel')}
+            </Button>
+            <Button color="secondary" onClick={submitDelete} disabled={deleting}>
+              {t_i18n('Delete')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        {queryRef && (
+          <React.Suspense fallback={<div />}>
+            <DataSourceEditionContainer
+              queryRef={queryRef}
+              handleClose={handleClose}
+              open={displayEdit}
+            />
+          </React.Suspense>
+        )}
+      </>
+    );
 };
 
 export default DataSourcePopover;

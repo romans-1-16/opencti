@@ -3,6 +3,7 @@ import { createFragmentContainer, graphql } from 'react-relay';
 import { Field, Form, Formik } from 'formik';
 import * as R from 'ramda';
 import * as Yup from 'yup';
+import { useTheme } from '@mui/styles';
 import { attackPatternMutationRelationAdd, attackPatternMutationRelationDelete } from './AttackPatternEditionOverview';
 import { useFormatter } from '../../../../components/i18n';
 import { SubscriptionFocus } from '../../../../components/Subscription';
@@ -51,6 +52,7 @@ export const attackPatternEditionDetailsFocus = graphql`
 const AttackPatternEditionDetailsComponent = (props) => {
   const { attackPattern, enableReferences, context, handleClose } = props;
   const { t_i18n } = useFormatter();
+  const theme = useTheme();
 
   const basicShape = {
     x_mitre_platforms: Yup.array(),
@@ -73,15 +75,6 @@ const AttackPatternEditionDetailsComponent = (props) => {
     queries,
     attackPatternEditionDetailsValidator,
   );
-
-  const handleChangeFocus = (name) => editor.changeFocus({
-    variables: {
-      id: attackPattern.id,
-      input: {
-        focusOn: name,
-      },
-    },
-  });
 
   const onSubmit = (values, { setSubmitting }) => {
     const commitMessage = values.message;
@@ -162,7 +155,7 @@ const AttackPatternEditionDetailsComponent = (props) => {
         isValid,
         dirty,
       }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
+        <Form style={{ marginTop: theme.spacing(2) }}>
           <AlertConfidenceForEntity entity={attackPattern} />
           <OpenVocabField
             label={t_i18n('Platforms')}
@@ -194,7 +187,7 @@ const AttackPatternEditionDetailsComponent = (props) => {
             multiline={true}
             rows="4"
             style={{ marginTop: 20 }}
-            onFocus={handleChangeFocus}
+            onFocus={editor.changeFocus}
             onSubmit={handleSubmitField}
             helperText={
               <SubscriptionFocus
@@ -227,6 +220,7 @@ export default createFragmentContainer(AttackPatternEditionDetailsComponent, {
       x_mitre_permissions_required
       x_mitre_detection
       confidence
+      entity_type
     }
   `,
 });

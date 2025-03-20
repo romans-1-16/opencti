@@ -8,7 +8,7 @@ import { FormikHelpers } from 'formik/dist/types';
 import { graphql, PreloadedQuery, usePreloadedQuery, useQueryLoader } from 'react-relay';
 import makeStyles from '@mui/styles/makeStyles';
 import { Option } from '@components/common/form/ReferenceField';
-import SwitchField from '../../../../components/SwitchField';
+import SwitchField from '../../../../components/fields/SwitchField';
 import { useFormatter } from '../../../../components/i18n';
 import { InvestigationExpandFormTargetsDistributionFromQuery } from './__generated__/InvestigationExpandFormTargetsDistributionFromQuery.graphql';
 import { InvestigationExpandFormTargetsDistributionToQuery } from './__generated__/InvestigationExpandFormTargetsDistributionToQuery.graphql';
@@ -69,6 +69,8 @@ const investigationExpandFormRelDistributionQuery = graphql`
   }
 `;
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   checkboxesContainer: {
     display: 'flex',
@@ -254,8 +256,15 @@ const InvestigationExpandFormContent = ({
         });
       }
     });
+
     // relations refs involving the user are not expandable
-    const relationRefsWithUser = (schema.schemaRelationsRefTypesMapping.get('*_User') ?? []).map((ref) => ref.toLowerCase());
+    const relationRefsWithUser = new Set(
+      Array.from(schema.schemaRelationsRefTypesMapping.values())
+        .flat()
+        .filter((ref) => ref.toTypes.includes('User'))
+        .map((ref) => ref.name.toLowerCase()),
+    );
+
     const nonNullDistribution = (
       distributionRel.stixRelationshipsDistribution ?? []
     )
@@ -277,7 +286,7 @@ const InvestigationExpandFormContent = ({
         ]
         : []))
       // Remove from the list relations with nothing to add and relations ref involving the user
-      .filter(({ label, value }) => value > 0 && !relationRefsWithUser?.includes(label.replace('-', '')))
+      .filter(({ label, value }) => value > 0 && !relationRefsWithUser?.has(label.replace('-', '')))
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
     setRelationships(
       nonNullDistribution.map(({ label, value }) => ({

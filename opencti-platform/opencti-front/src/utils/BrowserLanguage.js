@@ -7,6 +7,8 @@ export const LANGUAGES = {
   SPANISH: 'es-es',
   JAPANESE: 'ja-jp',
   CHINESE: 'zh-cn',
+  GERMAN: 'de-de',
+  KOREAN: 'ko-kr',
 };
 
 export const DEFAULT_LANG = LANGUAGES.ENGLISH;
@@ -31,6 +33,8 @@ const availableLanguages = [
   LANGUAGES.SPANISH,
   LANGUAGES.JAPANESE,
   LANGUAGES.CHINESE,
+  LANGUAGES.GERMAN,
+  LANGUAGES.KOREAN,
 ];
 
 const detectedLocale = R.pipe(

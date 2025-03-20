@@ -3,12 +3,13 @@ import { head } from 'ramda';
 import * as jsonpatch from 'fast-json-patch';
 import { clearIntervalAsync, setIntervalAsync, type SetIntervalAsyncTimer } from 'set-interval-async/fixed';
 import type { Moment } from 'moment';
-import { createStreamProcessor, fetchRangeNotifications, lockResource, storeNotificationEvent, type StreamProcessor } from '../database/redis';
+import { createStreamProcessor, fetchRangeNotifications, storeNotificationEvent, type StreamProcessor } from '../database/redis';
+import { lockResources } from '../lock/master-lock';
 import conf, { booleanConf, logApp } from '../config/conf';
 import { FunctionalError, TYPE_LOCK_ERROR } from '../config/errors';
 import { executionContext, INTERNAL_USERS, isUserCanAccessStixElement, isUserCanAccessStoreElement, SYSTEM_USER } from '../utils/access';
 import type { DataEvent, SseEvent, StreamNotifEvent, UpdateEvent } from '../types/event';
-import type { AuthContext, AuthUser } from '../types/user';
+import type { AuthContext, AuthUser, UserOrigin } from '../types/user';
 import { utcDate } from '../utils/format';
 import { EVENT_TYPE_CREATE, EVENT_TYPE_DELETE, EVENT_TYPE_UPDATE } from '../database/utils';
 import type { StixCoreObject, StixObject, StixRelationshipObject } from '../types/stix-common';
@@ -34,12 +35,17 @@ import { isStixMatchFilterGroup } from '../utils/filtering/filtering-stix/stix-f
 import { replaceFilterKey } from '../utils/filtering/filtering-utils';
 import { CONNECTED_TO_INSTANCE_FILTER, CONNECTED_TO_INSTANCE_SIDE_EVENTS_FILTER } from '../utils/filtering/filtering-constants';
 import type { FilterGroup } from '../generated/graphql';
+import { DigestPeriod, TriggerEventType, TriggerType } from '../generated/graphql';
 
 const NOTIFICATION_LIVE_KEY = conf.get('notification_manager:lock_live_key');
 const NOTIFICATION_DIGEST_KEY = conf.get('notification_manager:lock_digest_key');
 export const EVENT_NOTIFICATION_VERSION = '1';
 const CRON_SCHEDULE_TIME = 60000; // 1 minute
 const STREAM_SCHEDULE_TIME = 10000;
+export const TRIGGER_EVENT_TYPES_VALUES = Object.values(TriggerEventType);
+export const TRIGGER_TYPE_VALUES = Object.values(TriggerType);
+export const DIGEST_PERIOD_VALUES = Object.values(DigestPeriod);
+export const TRIGGER_SCOPE_VALUES = ['knowledge', 'activity'];
 
 export interface ResolvedTrigger {
   users: Array<AuthUser>
@@ -66,12 +72,15 @@ export interface KnowledgeNotificationEvent extends StreamNotifEvent {
   type: 'live'
   targets: Array<{ user: NotificationUser, type: string, message: string }>
   data: StixObject
+  streamMessage?: string
+  origin: Partial<UserOrigin>
 }
 
 export interface ActivityNotificationEvent extends StreamNotifEvent {
   type: 'live'
   targets: Array<{ user: NotificationUser, type: string, message: string }>
   data: Partial<{ id: string }>
+  origin: Partial<UserOrigin>
 }
 
 export interface DigestEvent extends StreamNotifEvent {
@@ -138,10 +147,33 @@ export const isDigest = (n: ResolvedTrigger): n is ResolvedDigest => {
   return n.trigger.trigger_type === 'digest';
 };
 
+const generateAssigneeTrigger = (user: AuthUser) => {
+  const filters = {
+    mode: 'or',
+    filters: [
+      { key: ['objectAssignee'], values: [user.internal_id], operator: 'eq', mode: 'or' },
+      { key: ['objectParticipant'], values: [user.internal_id], operator: 'eq', mode: 'or' }
+    ],
+    filterGroups: []
+  };
+  return {
+    internal_id: `default-trigger-${user.id}`,
+    name: 'Default Trigger for Assignee/Participant',
+    trigger_type: 'live',
+    trigger_scope: 'knowledge',
+    event_types: TRIGGER_EVENT_TYPES_VALUES,
+    notifiers: user.personal_notifiers,
+    filters: JSON.stringify(filters),
+    instance_trigger: false,
+    authorized_members: [],
+  } as unknown as BasicStoreEntityLiveTrigger;
+};
+
 export const getNotifications = async (context: AuthContext): Promise<Array<ResolvedTrigger>> => {
   const triggers = await getEntitiesListFromCache<BasicStoreEntityTrigger>(context, SYSTEM_USER, ENTITY_TYPE_TRIGGER);
   const platformUsers = await getEntitiesListFromCache<AuthUser>(context, SYSTEM_USER, ENTITY_TYPE_USER);
-  return triggers.map((trigger) => {
+  const nativeTriggers = platformUsers.map((user) => ({ users: [user], trigger: generateAssigneeTrigger(user) }));
+  const definedTriggers = triggers.map((trigger) => {
     const triggerAuthorizedMembersIds = trigger.authorized_members?.map((member) => member.id) ?? [];
     const usersFromGroups = platformUsers.filter((user) => user.groups.map((g) => g.internal_id)
       .some((id: string) => triggerAuthorizedMembersIds.includes(id)));
@@ -153,6 +185,7 @@ export const getNotifications = async (context: AuthContext): Promise<Array<Reso
     const users = R.uniqBy(R.prop('id'), withoutInternalUsers);
     return { users, trigger };
   });
+  return [...nativeTriggers, ...definedTriggers];
 };
 
 export const getLiveNotifications = async (context: AuthContext): Promise<Array<ResolvedLive>> => {
@@ -456,7 +489,7 @@ export const buildTargetEvents = async (
             const message = await generateNotificationMessageForInstance(context, user, data);
             targets.push({ user: notificationUser, type: translatedType, message });
           } else if (isCurrentlyMatch && triggerEventTypes.includes(translatedType)) {
-            // Case 03. Just an update
+          // Case 03. Just an update
             const message = await generateNotificationMessageForInstance(context, user, data);
             targets.push({ user: notificationUser, type: translatedType, message });
           }
@@ -494,6 +527,19 @@ export const buildTargetEvents = async (
   return targets;
 };
 
+export const generateDefaultTrigger = (notifiers: string[], type: string) => {
+  return {
+    name: `Default Trigger for ${type}`,
+    trigger_type: 'live',
+    trigger_scope: 'knowledge',
+    event_types: TRIGGER_EVENT_TYPES_VALUES,
+    notifiers,
+    filters: '',
+    instance_trigger: false,
+    authorized_members: [],
+  } as unknown as BasicStoreEntityLiveTrigger;
+};
+
 const notificationLiveStreamHandler = async (streamEvents: Array<SseEvent<DataEvent>>) => {
   try {
     if (streamEvents.length === 0) {
@@ -501,32 +547,32 @@ const notificationLiveStreamHandler = async (streamEvents: Array<SseEvent<DataEv
     }
     const context = executionContext('notification_manager');
     const liveNotifications = await getLiveNotifications(context);
+    const version = EVENT_NOTIFICATION_VERSION;
+
     for (let index = 0; index < streamEvents.length; index += 1) {
       const streamEvent = streamEvents[index];
-      const { data: { data } } = streamEvent;
+      const { data: { data, message: streamMessage, origin } } = streamEvent;
       // For each event we need to check ifs
       for (let notifIndex = 0; notifIndex < liveNotifications.length; notifIndex += 1) {
         const { users, trigger }: ResolvedLive = liveNotifications[notifIndex];
         const { internal_id: notification_id, trigger_type: type, instance_trigger } = trigger;
         const targets = await buildTargetEvents(context, users, streamEvent, trigger);
         if (targets.length > 0) {
-          const version = EVENT_NOTIFICATION_VERSION;
-          const notificationEvent: KnowledgeNotificationEvent = { version, notification_id, type, targets, data };
+          const notificationEvent: KnowledgeNotificationEvent = { version, notification_id, type, targets, data, streamMessage, origin };
           await storeNotificationEvent(context, notificationEvent);
         }
         // search side events for instance_trigger
         if (instance_trigger && trigger.event_types.includes(EVENT_TYPE_UPDATE)) {
           const sideTargets = await buildTargetEvents(context, users, streamEvent, trigger, true);
           if (sideTargets.length > 0) {
-            const version = EVENT_NOTIFICATION_VERSION;
-            const notificationEvent: KnowledgeNotificationEvent = { version, notification_id, type, targets: sideTargets, data };
+            const notificationEvent: KnowledgeNotificationEvent = { version, notification_id, type, targets: sideTargets, data, streamMessage, origin };
             await storeNotificationEvent(context, notificationEvent);
           }
         }
       }
     }
   } catch (e) {
-    logApp.error(e, { manager: 'NOTIFICATION_MANAGER' });
+    logApp.error('[OPENCTI-MODULE] Notification manager error', { cause: e, manager: 'NOTIFICATION_MANAGER' });
   }
 };
 
@@ -585,7 +631,7 @@ const initNotificationManager = () => {
     let lock;
     try {
       // Lock the manager
-      lock = await lockResource([NOTIFICATION_LIVE_KEY], { retryCount: 0 });
+      lock = await lockResources([NOTIFICATION_LIVE_KEY], { retryCount: 0 });
       running = true;
       logApp.info('[OPENCTI-MODULE] Running notification manager (live)');
       streamProcessor = createStreamProcessor(SYSTEM_USER, 'Notification manager', notificationLiveStreamHandler);
@@ -599,7 +645,7 @@ const initNotificationManager = () => {
       if (e.name === TYPE_LOCK_ERROR) {
         logApp.debug('[OPENCTI-MODULE] Notification manager already started by another API');
       } else {
-        logApp.error(e, { manager: 'NOTIFICATION_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Notification manager live handler error', { cause: e, manager: 'NOTIFICATION_MANAGER' });
       }
     } finally {
       if (streamProcessor) await streamProcessor.shutdown();
@@ -612,7 +658,7 @@ const initNotificationManager = () => {
     let lock;
     try {
       // Lock the manager
-      lock = await lockResource([NOTIFICATION_DIGEST_KEY], { retryCount: 0 });
+      lock = await lockResources([NOTIFICATION_DIGEST_KEY], { retryCount: 0 });
       logApp.info('[OPENCTI-MODULE] Running notification manager (digest)');
       while (!shutdown) {
         lock.signal.throwIfAborted();
@@ -624,7 +670,7 @@ const initNotificationManager = () => {
       if (e.name === TYPE_LOCK_ERROR) {
         logApp.debug('[OPENCTI-MODULE] Notification manager (digest) already started by another API');
       } else {
-        logApp.error(e, { manager: 'NOTIFICATION_MANAGER' });
+        logApp.error('[OPENCTI-MODULE] Notification manager digest handler error', { cause: e, manager: 'NOTIFICATION_MANAGER' });
       }
     } finally {
       if (lock) await lock.unlock();

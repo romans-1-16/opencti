@@ -6,11 +6,13 @@ import { INDEX_HISTORY, isNotEmptyField, READ_INDEX_HISTORY } from '../database/
 import { isWorkCompleted, redisDeleteWorks, redisUpdateActionExpectation, redisUpdateWorkFigures } from '../database/redis';
 import { ENTITY_TYPE_CONNECTOR, ENTITY_TYPE_WORK } from '../schema/internalObject';
 import { now, sinceNowInMinutes } from '../utils/format';
-import { CONNECTOR_INTERNAL_EXPORT_FILE } from '../schema/general';
+import { buildRefRelationKey, CONNECTOR_INTERNAL_EXPORT_FILE } from '../schema/general';
 import { publishUserAction } from '../listener/UserActionListener';
 import { AlreadyDeletedError, DatabaseError } from '../config/errors';
 import { addFilter } from '../utils/filtering/filtering-utils';
 import { IMPORT_CSV_CONNECTOR, IMPORT_CSV_CONNECTOR_ID } from '../connector/importCsv/importCsv';
+import { RELATION_OBJECT_MARKING } from '../schema/stixRefRelationship';
+import { DRAFT_VALIDATION_CONNECTOR, DRAFT_VALIDATION_CONNECTOR_ID } from '../modules/draftWorkspace/draftWorkspace-connector';
 
 export const workToExportFile = (work) => {
   const lastModifiedSinceMin = sinceNowInMinutes(work.updated_at);
@@ -21,7 +23,7 @@ export const workToExportFile = (work) => {
     size: 0,
     lastModified: moment(work.updated_at).toDate(),
     lastModifiedSinceMin,
-    uploadStatus: isWorkActive ? work.status : 'timeout',
+    uploadStatus: (isWorkActive || work.status === 'complete') ? work.status : 'timeout',
     metaData: {
       messages: work.messages,
       errors: work.errors,
@@ -117,6 +119,8 @@ export const deleteWorkForConnector = async (context, user, connectorId) => {
   let connector;
   if (connectorId === IMPORT_CSV_CONNECTOR_ID) {
     connector = IMPORT_CSV_CONNECTOR;
+  } else if (connectorId === DRAFT_VALIDATION_CONNECTOR_ID) {
+    connector = DRAFT_VALIDATION_CONNECTOR;
   } else {
     connector = await elLoadById(context, user, connectorId, { type: ENTITY_TYPE_CONNECTOR });
   }
@@ -168,7 +172,7 @@ export const deleteWorkForSource = async (sourceId) => {
 
 export const createWork = async (context, user, connector, friendlyName, sourceId, args = {}) => {
   // Create the new work
-  const { receivedTime = null } = args;
+  const { receivedTime = null, fileMarkings = [] } = args;
   // Create the work and an initial job
   const { id: workId, timestamp } = generateWorkId(connector.internal_id);
   const work = {
@@ -192,6 +196,7 @@ export const createWork = async (context, user, connector, friendlyName, sourceI
     completed_number: 0,
     messages: [],
     errors: [],
+    [buildRefRelationKey(RELATION_OBJECT_MARKING)]: [...fileMarkings]
   };
   await elIndex(INDEX_HISTORY, work);
   return loadWorkById(context, user, workId);
@@ -223,6 +228,14 @@ export const reportExpectation = async (context, user, workId, errorData) => {
   return workId;
 };
 
+/**
+ * Called by worker to increase expected numbers.
+ * @param context
+ * @param user
+ * @param workId
+ * @param expectations
+ * @returns {Promise<string>}
+ */
 export const updateExpectationsNumber = async (context, user, workId, expectations) => {
   const currentWork = await loadWorkById(context, user, workId);
   const params = { updated_at: now(), import_expected_number: expectations };
@@ -230,6 +243,23 @@ export const updateExpectationsNumber = async (context, user, workId, expectatio
   source += 'ctx._source["import_expected_number"] = ctx._source["import_expected_number"] + params.import_expected_number;';
   await elUpdate(currentWork._index, workId, { script: { source, lang: 'painless', params } });
   return redisUpdateActionExpectation(user, workId, expectations);
+};
+
+/**
+ * Called by worker to link a work to a specific draft context.
+ * @param context
+ * @param user
+ * @param workId
+ * @param draftContext
+ * @returns {Promise<string>}
+ */
+export const addDraftContext = async (context, user, workId, draftContext) => {
+  const currentWork = await loadWorkById(context, user, workId);
+  const params = { updated_at: now(), draft_context: draftContext };
+  let source = 'ctx._source.updated_at = params.updated_at;';
+  source += 'ctx._source["draft_context"] =  params.draft_context;';
+  await elUpdate(currentWork._index, workId, { script: { source, lang: 'painless', params } });
+  return workId;
 };
 
 export const updateReceivedTime = async (context, user, workId, message) => {

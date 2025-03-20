@@ -1,40 +1,36 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useEffect, useState } from 'react';
 import { Field, Form, Formik } from 'formik';
 import Button from '@mui/material/Button';
 import * as Yup from 'yup';
-import { graphql, useMutation } from 'react-relay';
-import makeStyles from '@mui/styles/makeStyles';
+import { graphql } from 'react-relay';
 import { RecordSourceSelectorProxy } from 'relay-runtime';
 import { FormikConfig } from 'formik/dist/types';
-import Drawer, { DrawerVariant } from '@components/common/drawer/Drawer';
+import Drawer, { DrawerControlledDialProps, DrawerVariant } from '@components/common/drawer/Drawer';
 import { useFormatter } from '../../../../components/i18n';
 import { handleErrorInForm } from '../../../../relay/environment';
-import TextField from '../../../../components/TextField';
 import CreatedByField from '../../common/form/CreatedByField';
 import ObjectLabelField from '../../common/form/ObjectLabelField';
 import ObjectMarkingField from '../../common/form/ObjectMarkingField';
-import MarkdownField from '../../../../components/MarkdownField';
+import MarkdownField from '../../../../components/fields/MarkdownField';
 import ConfidenceField from '../../common/form/ConfidenceField';
 import { ExternalReferencesField } from '../../common/form/ExternalReferencesField';
 import { fieldSpacingContainerStyle } from '../../../../utils/field';
 import { useSchemaCreationValidation } from '../../../../utils/hooks/useEntitySettings';
 import { insertNode } from '../../../../utils/store';
 import useDefaultValues from '../../../../utils/hooks/useDefaultValues';
-import type { Theme } from '../../../../components/Theme';
 import { Option } from '../../common/form/ReferenceField';
 import { CampaignCreationMutation, CampaignCreationMutation$variables } from './__generated__/CampaignCreationMutation.graphql';
 import { CampaignsCardsPaginationQuery$variables } from './__generated__/CampaignsCardsPaginationQuery.graphql';
 import CustomFileUploader from '../../common/files/CustomFileUploader';
-
-const useStyles = makeStyles<Theme>((theme) => ({
-  buttons: {
-    marginTop: 20,
-    textAlign: 'right',
-  },
-  button: {
-    marginLeft: theme.spacing(2),
-  },
-}));
+import useApiMutation from '../../../../utils/hooks/useApiMutation';
+import useHelper from '../../../../utils/hooks/useHelper';
+import useBulkCommit from '../../../../utils/hooks/useBulkCommit';
+import { splitMultilines } from '../../../../utils/String';
+import BulkTextModal from '../../../../components/fields/BulkTextField/BulkTextModal';
+import ProgressBar from '../../../../components/ProgressBar';
+import BulkTextField from '../../../../components/fields/BulkTextField/BulkTextField';
+import BulkTextModalButton from '../../../../components/fields/BulkTextField/BulkTextModalButton';
+import CreateEntityControlledDial from '../../../../components/CreateEntityControlledDial';
 
 const campaignMutation = graphql`
   mutation CampaignCreationMutation($input: CampaignAddInput!) {
@@ -42,6 +38,9 @@ const campaignMutation = graphql`
       id
       standard_id
       name
+      representative {
+        main
+      }
       description
       entity_type
       parent_types
@@ -55,12 +54,12 @@ const CAMPAIGN_TYPE = 'Campaign';
 interface CampaignAddInput {
   name: string;
   description: string;
-  confidence: number | undefined;
-  createdBy: Option | undefined;
+  confidence: number | null;
+  createdBy: Option | null;
   objectMarking: Option[];
   objectLabel: Option[];
   externalReferences: { value: string }[];
-  file: File | undefined;
+  file: File | null;
 }
 
 interface CampaignFormProps {
@@ -71,6 +70,8 @@ interface CampaignFormProps {
   defaultMarkingDefinitions?: { value: string; label: string }[];
   defaultConfidence?: number;
   inputValue?: string;
+  bulkModalOpen?: boolean;
+  onBulkModalClose: () => void;
 }
 
 export const CampaignCreationForm: FunctionComponent<CampaignFormProps> = ({
@@ -81,11 +82,14 @@ export const CampaignCreationForm: FunctionComponent<CampaignFormProps> = ({
   defaultMarkingDefinitions,
   defaultConfidence,
   inputValue,
+  bulkModalOpen = false,
+  onBulkModalClose,
 }) => {
-  const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const [progressBarOpen, setProgressBarOpen] = useState(false);
+
   const basicShape = {
-    name: Yup.string().min(2).required(t_i18n('This field is required')),
+    name: Yup.string().trim().min(2).required(t_i18n('This field is required')),
     confidence: Yup.number().nullable(),
     description: Yup.string().nullable(),
   };
@@ -94,40 +98,60 @@ export const CampaignCreationForm: FunctionComponent<CampaignFormProps> = ({
     basicShape,
   );
 
-  const [commit] = useMutation<CampaignCreationMutation>(campaignMutation);
+  const [commit] = useApiMutation<CampaignCreationMutation>(
+    campaignMutation,
+    undefined,
+    { successMessage: `${t_i18n('entity_Campaign')} ${t_i18n('successfully created')}` },
+  );
+  const {
+    bulkCommit,
+    bulkCount,
+    bulkCurrentCount,
+    BulkResult,
+    resetBulk,
+  } = useBulkCommit<CampaignCreationMutation>({
+    commit,
+    relayUpdater: (store) => {
+      if (updater) {
+        updater(store, 'campaignAdd');
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (bulkCount > 1) {
+      setProgressBarOpen(true);
+    }
+  }, [bulkCount]);
 
   const onSubmit: FormikConfig<CampaignAddInput>['onSubmit'] = (
     values,
     { setSubmitting, setErrors, resetForm },
   ) => {
-    const input: CampaignCreationMutation$variables['input'] = {
-      name: values.name,
-      description: values.description,
-      confidence: parseInt(String(values.confidence), 10),
-      createdBy: values.createdBy?.value,
-      objectMarking: values.objectMarking.map((v) => v.value),
-      objectLabel: values.objectLabel.map((v) => v.value),
-      externalReferences: values.externalReferences.map(({ value }) => value),
-      file: values.file,
-    };
-    commit({
-      variables: {
-        input,
+    const allNames = splitMultilines(values.name);
+    const variables: CampaignCreationMutation$variables[] = allNames.map((name) => ({
+      input: {
+        name,
+        description: values.description,
+        confidence: parseInt(String(values.confidence), 10),
+        createdBy: values.createdBy?.value,
+        objectMarking: values.objectMarking.map((v) => v.value),
+        objectLabel: values.objectLabel.map((v) => v.value),
+        externalReferences: values.externalReferences.map(({ value }) => value),
+        file: values.file,
       },
-      updater: (store) => {
-        if (updater) {
-          updater(store, 'campaignAdd');
-        }
-      },
-      onError: (error) => {
+    }));
+
+    bulkCommit({
+      variables,
+      onStepError: (error) => {
         handleErrorInForm(error, setErrors);
-        setSubmitting(false);
       },
-      onCompleted: () => {
+      onCompleted: (total: number) => {
         setSubmitting(false);
-        resetForm();
-        if (onCompleted) {
-          onCompleted();
+        if (total < 2) {
+          resetForm();
+          onCompleted?.();
         }
       },
     });
@@ -135,93 +159,134 @@ export const CampaignCreationForm: FunctionComponent<CampaignFormProps> = ({
 
   const initialValues = useDefaultValues(CAMPAIGN_TYPE, {
     name: inputValue ?? '',
-    confidence: defaultConfidence,
+    confidence: defaultConfidence ?? null,
     description: '',
-    createdBy: defaultCreatedBy,
+    createdBy: defaultCreatedBy ?? null,
     objectMarking: defaultMarkingDefinitions ?? [],
     objectLabel: [],
     externalReferences: [],
-    file: undefined,
+    file: null,
   });
 
   return (
-    <Formik
+    <Formik<CampaignAddInput>
       initialValues={initialValues}
       validationSchema={campaignValidator}
       onSubmit={onSubmit}
       onReset={onReset}
     >
-      {({ submitForm, handleReset, isSubmitting, setFieldValue, values }) => (
-        <Form style={{ margin: '20px 0 20px 0' }}>
-          <Field
-            component={TextField}
-            name="name"
-            label={t_i18n('Name')}
-            fullWidth={true}
-            askAi={true}
-            detectDuplicate={[
-              'Threat-Actor',
-              'Intrusion-Set',
-              'Campaign',
-              'Malware',
-            ]}
+      {({ submitForm, handleReset, isSubmitting, setFieldValue, values, resetForm }) => (
+        <>
+          <BulkTextModal
+            open={bulkModalOpen}
+            onClose={onBulkModalClose}
+            onValidate={async (val) => {
+              await setFieldValue('name', val);
+              if (splitMultilines(val).length > 1) {
+                await setFieldValue('file', null);
+              }
+            }}
+            formValue={values.name}
           />
-          <ConfidenceField
-            entityType="Campaign"
-            containerStyle={fieldSpacingContainerStyle}
-          />
-          <Field
-            component={MarkdownField}
-            name="description"
-            label={t_i18n('Description')}
-            fullWidth={true}
-            multiline={true}
-            rows="4"
-            style={{ marginTop: 20 }}
-            askAi={true}
-          />
-          <CreatedByField
-            name="createdBy"
-            style={fieldSpacingContainerStyle}
-            setFieldValue={setFieldValue}
-          />
-          <ObjectLabelField
-            name="objectLabel"
-            style={fieldSpacingContainerStyle}
-            setFieldValue={setFieldValue}
-            values={values.objectLabel}
-          />
-          <ObjectMarkingField
-            name="objectMarking"
-            style={fieldSpacingContainerStyle}
-          />
-          <ExternalReferencesField
-            name="externalReferences"
-            style={fieldSpacingContainerStyle}
-            setFieldValue={setFieldValue}
-            values={values.externalReferences}
-          />
-          <CustomFileUploader setFieldValue={setFieldValue} />
-          <div className={classes.buttons}>
-            <Button
-              variant="contained"
-              onClick={handleReset}
-              disabled={isSubmitting}
-              classes={{ root: classes.button }}
+          <ProgressBar
+            open={progressBarOpen}
+            value={(bulkCurrentCount / bulkCount) * 100}
+            label={`${bulkCurrentCount}/${bulkCount}`}
+            title={t_i18n('Create multiple entities')}
+            onClose={() => {
+              setProgressBarOpen(false);
+              resetForm();
+              resetBulk();
+              onCompleted?.();
+            }}
+          >
+            <BulkResult variablesToString={(v) => v.input.name} />
+          </ProgressBar>
+          <Form>
+            <Field
+              component={BulkTextField}
+              name="name"
+              label={t_i18n('Name')}
+              fullWidth={true}
+              askAi={true}
+              detectDuplicate={[
+                'Threat-Actor',
+                'Intrusion-Set',
+                'Campaign',
+                'Malware',
+              ]}
+            />
+            <ConfidenceField
+              entityType="Campaign"
+              containerStyle={fieldSpacingContainerStyle}
+            />
+            <Field
+              component={MarkdownField}
+              name="description"
+              label={t_i18n('Description')}
+              fullWidth={true}
+              multiline={true}
+              rows="4"
+              style={fieldSpacingContainerStyle}
+              askAi={true}
+            />
+            <CreatedByField
+              name="createdBy"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+            />
+            <ObjectLabelField
+              name="objectLabel"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+              values={values.objectLabel}
+            />
+            <ObjectMarkingField
+              name="objectMarking"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+            />
+            <ExternalReferencesField
+              name="externalReferences"
+              style={fieldSpacingContainerStyle}
+              setFieldValue={setFieldValue}
+              values={values.externalReferences}
+            />
+            <Field
+              component={CustomFileUploader}
+              name="file"
+              setFieldValue={setFieldValue}
+              disabled={splitMultilines(values.name).length > 1}
+              noFileSelectedLabel={splitMultilines(values.name).length > 1
+                ? t_i18n('File upload not allowed in bulk creation')
+                : undefined
+              }
+            />
+            <div style={{
+              marginTop: '20px',
+              textAlign: 'right',
+            }}
             >
-              {t_i18n('Cancel')}
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={submitForm}
-              disabled={isSubmitting}
-              classes={{ root: classes.button }}
-            >
-              {t_i18n('Create')}
-            </Button>
-          </div>
-        </Form>
+              <Button
+                variant="contained"
+                onClick={handleReset}
+                disabled={isSubmitting}
+                sx={{ marginLeft: 2 }}
+              >
+                {t_i18n('Cancel')}
+              </Button>
+              <Button
+                variant="contained"
+                color="secondary"
+                onClick={submitForm}
+                disabled={isSubmitting}
+                sx={{ marginLeft: 2 }}
+              >
+                {t_i18n('Create')}
+              </Button>
+            </div>
+          </Form>
+        </>
       )}
     </Formik>
   );
@@ -232,15 +297,30 @@ const CampaignCreation = ({
 }: {
   paginationOptions: CampaignsCardsPaginationQuery$variables;
 }) => {
+  const { isFeatureEnable } = useHelper();
   const { t_i18n } = useFormatter();
+  const [bulkOpen, setBulkOpen] = useState(false);
   const updater = (store: RecordSourceSelectorProxy) => insertNode(store, 'Pagination_campaigns', paginationOptions, 'campaignAdd');
+
+  const isFABReplaced = isFeatureEnable('FAB_REPLACEMENT');
+  const CreateCampaignControlledDial = (props: DrawerControlledDialProps) => (
+    <CreateEntityControlledDial entityType='Campaign' {...props} />
+  );
+
   return (
-    <Drawer title={t_i18n('Create a campaign')} variant={DrawerVariant.create}>
+    <Drawer
+      title={t_i18n('Create a campaign')}
+      variant={isFABReplaced ? undefined : DrawerVariant.create}
+      controlledDial={isFABReplaced ? CreateCampaignControlledDial : undefined}
+      header={<BulkTextModalButton onClick={() => setBulkOpen(true)} />}
+    >
       {({ onClose }) => (
         <CampaignCreationForm
           updater={updater}
           onCompleted={onClose}
           onReset={onClose}
+          bulkModalOpen={bulkOpen}
+          onBulkModalClose={() => setBulkOpen(false)}
         />
       )}
     </Drawer>

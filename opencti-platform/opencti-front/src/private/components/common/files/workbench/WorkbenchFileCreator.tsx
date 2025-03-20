@@ -1,5 +1,5 @@
 import React, { FunctionComponent } from 'react';
-import { graphql, useMutation } from 'react-relay';
+import { graphql } from 'react-relay';
 import { v4 as uuid } from 'uuid';
 import { Field, Form, Formik } from 'formik';
 import { FormikConfig } from 'formik/dist/types';
@@ -11,6 +11,7 @@ import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import makeStyles from '@mui/styles/makeStyles';
 import { WorkbenchFileCreatorStixCoreObjectQuery$data } from '@components/common/files/workbench/__generated__/WorkbenchFileCreatorStixCoreObjectQuery.graphql';
+import ObjectMarkingField from '@components/common/form/ObjectMarkingField';
 import TextField from '../../../../../components/TextField';
 import AutocompleteFreeSoloField from '../../../../../components/AutocompleteFreeSoloField';
 import ItemIcon from '../../../../../components/ItemIcon';
@@ -20,7 +21,11 @@ import { Option } from '../../form/ReferenceField';
 import { WorkbenchFileViewer_entity$data } from './__generated__/WorkbenchFileViewer_entity.graphql';
 import { WorkbenchFileCreatorMutation } from './__generated__/WorkbenchFileCreatorMutation.graphql';
 import { fetchQuery } from '../../../../../relay/environment';
+import useApiMutation from '../../../../../utils/hooks/useApiMutation';
+import { fieldSpacingContainerStyle } from '../../../../../utils/field';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles<Theme>((theme) => ({
   icon: {
     paddingTop: 4,
@@ -41,11 +46,13 @@ const workbenchFileCreatorMutation = graphql`
   mutation WorkbenchFileCreatorMutation(
     $file: Upload!
     $labels: [String]
+    $file_markings: [String!]
     $entityId: String
   ) {
     uploadPending(
       file: $file
       labels: $labels
+      file_markings: $file_markings
       errorOnExisting: true
       entityId: $entityId
     ) {
@@ -56,12 +63,13 @@ const workbenchFileCreatorMutation = graphql`
 `;
 
 const fileValidation = (t: (value: string) => string) => Yup.object().shape({
-  name: Yup.string().required(t('This field is required')),
+  name: Yup.string().trim().required(t('This field is required')),
 });
 
 interface WorkbenchFileCreatorFormValues {
   name: string;
   labels: Option[];
+  fileMarkings: Option[];
 }
 
 interface WorkbenchFileCreatorProps {
@@ -88,23 +96,36 @@ const WorkbenchFileCreator: FunctionComponent<WorkbenchFileCreatorProps> = ({
 }) => {
   const { t_i18n } = useFormatter();
   const classes = useStyles();
-  const [commitWorkbench] = useMutation<WorkbenchFileCreatorMutation>(
+  const [commitWorkbench] = useApiMutation<WorkbenchFileCreatorMutation>(
     workbenchFileCreatorMutation,
+    undefined,
   );
   const entityId = entity?.id;
   const onSubmitCreate: FormikConfig<WorkbenchFileCreatorFormValues>['onSubmit'] = (values, { setSubmitting, resetForm }) => {
     let { name } = values;
     const finalLabels = values.labels.map((label) => label.value);
+    const file_markings = values.fileMarkings.map(({ value }) => value);
     if (!name.endsWith('.json')) {
       name += '.json';
     }
+
+    const handleCompleted = () => {
+      setSubmitting(false);
+      resetForm();
+      handleCloseCreate();
+      onCompleted?.();
+    };
+
+    const handleError = () => {
+      setSubmitting(false);
+      resetForm();
+      handleCloseCreate();
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const objects: any = [];
     if (entityId) {
-      fetchQuery(workbenchFileCreatorStixCoreObjectQuery, {
-        id: entityId,
-      })
-        .toPromise()
+      fetchQuery(workbenchFileCreatorStixCoreObjectQuery, { id: entityId }).toPromise()
         .then(async (entityData) => {
           const { stixCoreObject: workbenchStixCoreObject } = entityData as WorkbenchFileCreatorStixCoreObjectQuery$data;
           if (workbenchStixCoreObject?.toStix) {
@@ -120,12 +141,12 @@ const WorkbenchFileCreator: FunctionComponent<WorkbenchFileCreatorProps> = ({
             type: 'application/json',
           });
           commitWorkbench({
-            variables: { file, labels: finalLabels, entityId },
+            variables: { file, labels: finalLabels, entityId, file_markings },
             onCompleted: () => {
-              setSubmitting(false);
-              resetForm();
-              handleCloseCreate();
-              onCompleted?.();
+              handleCompleted();
+            },
+            onError: () => {
+              handleError();
             },
           });
         });
@@ -137,12 +158,12 @@ const WorkbenchFileCreator: FunctionComponent<WorkbenchFileCreatorProps> = ({
         type: 'application/json',
       });
       commitWorkbench({
-        variables: { file, labels: finalLabels, entityId },
+        variables: { file, labels: finalLabels, entityId, file_markings },
         onCompleted: () => {
-          setSubmitting(false);
-          resetForm();
-          handleCloseCreate();
-          onCompleted?.();
+          handleCompleted();
+        },
+        onError: () => {
+          handleError();
         },
       });
     }
@@ -151,6 +172,7 @@ const WorkbenchFileCreator: FunctionComponent<WorkbenchFileCreatorProps> = ({
   const initialValues: WorkbenchFileCreatorFormValues = {
     name: '',
     labels: [],
+    fileMarkings: [],
   };
 
   return (
@@ -161,7 +183,7 @@ const WorkbenchFileCreator: FunctionComponent<WorkbenchFileCreatorProps> = ({
       onSubmit={onSubmitCreate}
       onReset={handleCloseCreate}
     >
-      {({ submitForm, handleReset, isSubmitting }) => (
+      {({ submitForm, handleReset, isSubmitting, setFieldValue }) => (
         <Form>
           <Dialog
             PaperProps={{ elevation: 1 }}
@@ -202,6 +224,13 @@ const WorkbenchFileCreator: FunctionComponent<WorkbenchFileCreatorProps> = ({
                 classes={{
                   clearIndicator: classes.autoCompleteIndicator,
                 }}
+              />
+              <ObjectMarkingField
+                name="fileMarkings"
+                label={t_i18n('File marking definition levels')}
+                style={fieldSpacingContainerStyle}
+                setFieldValue={setFieldValue}
+                required={false}
               />
             </DialogContent>
             <DialogActions>

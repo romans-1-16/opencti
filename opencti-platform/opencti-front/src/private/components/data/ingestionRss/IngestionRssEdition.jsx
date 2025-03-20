@@ -104,7 +104,7 @@ const IngestionRssEditionContainer = ({
         validationSchema={ingestionRssValidation(t)}
       >
         {({ setFieldValue }) => (
-          <Form style={{ margin: '20px 0 20px 0' }}>
+          <Form>
             <Field
               component={TextField}
               variant="standard"
@@ -136,6 +136,7 @@ const IngestionRssEditionContainer = ({
               label={t('User responsible for data creation (empty = System)')}
               onChange={handleSubmitField}
               containerStyle={fieldSpacingContainerStyle}
+              showConfidence
             />
             <Field
               component={DateTimePickerField}
@@ -170,6 +171,7 @@ const IngestionRssEditionContainer = ({
               name="object_marking_refs"
               style={fieldSpacingContainerStyle}
               onChange={handleSubmitField}
+              setFieldValue={setFieldValue}
             />
           </Form>
         )}

@@ -8,6 +8,8 @@ import { useFormatter } from '../../../../components/i18n';
 import { radarChartOptions } from '../../../../utils/Charts';
 import { generateGreenToRedColors } from '../../../../utils/Colors';
 import { StixCoreObjectOpinionsRadarDistributionQuery } from './__generated__/StixCoreObjectOpinionsRadarDistributionQuery.graphql';
+import { simpleNumberFormat } from '../../../../utils/Number';
+import { MESSAGING$ } from '../../../../relay/environment';
 
 export const stixCoreObjectOpinionsRadarDistributionQuery = graphql`
   query StixCoreObjectOpinionsRadarDistributionQuery(
@@ -40,22 +42,13 @@ interface StixCoreObjectOpinionsRadarProps {
   queryRef: PreloadedQuery<StixCoreObjectOpinionsRadarDistributionQuery>
   height: number
   opinionOptions: { label: string, value: number }[]
+  handleOpen: () => void
 }
 
-const StixCoreObjectOpinionsRadar: FunctionComponent<
-StixCoreObjectOpinionsRadarProps
-> = ({
-  queryRef,
-  height,
-  opinionOptions,
-}) => {
+const StixCoreObjectOpinionsRadar: FunctionComponent<StixCoreObjectOpinionsRadarProps> = ({ queryRef, opinionOptions, height, handleOpen }) => {
   const { t_i18n } = useFormatter();
   const theme = useTheme();
-  const { opinionsDistribution } = usePreloadedQuery<StixCoreObjectOpinionsRadarDistributionQuery>(
-    stixCoreObjectOpinionsRadarDistributionQuery,
-    queryRef,
-  );
-
+  const { opinionsDistribution } = usePreloadedQuery<StixCoreObjectOpinionsRadarDistributionQuery>(stixCoreObjectOpinionsRadarDistributionQuery, queryRef);
   const distributionData = R.indexBy(
     R.prop('label'),
     (opinionsDistribution || []).map((n) => ({
@@ -72,16 +65,49 @@ StixCoreObjectOpinionsRadarProps
   const labels = opinionOptions.map((m) => m.label);
   const colors = generateGreenToRedColors(opinionOptions.length);
 
+  const handleRadarOpen = () => {
+    if (opinionsDistribution && opinionsDistribution.length > 0) {
+      handleOpen();
+    } else {
+      MESSAGING$.notifyError(
+        <span>
+          {t_i18n('No opinions have been added for this entity.')}
+        </span>,
+      );
+    }
+  };
+
+  if (opinionOptions.length === 0) {
+    return (
+      <div style={{ pointerEvents: 'none', cursor: 'auto' }}>
+        <Chart
+          options={{
+            noData: {
+              text: t_i18n('No data available.'),
+              align: 'center',
+              verticalAlign: 'middle',
+              style: { color: '#888', fontSize: '14px' },
+            },
+          }}
+          series={[]}
+          type="radar"
+          width="100%"
+          height={height}
+        />
+      </div>
+    );
+  }
+
   return (
     <Chart
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       // Need to migrate Chart Charts.js file to TSX
-      options={radarChartOptions(theme, labels, colors, true, true)}
+      options={radarChartOptions(theme, labels, simpleNumberFormat, colors, true, 'transparent', (height / 2) - 20, handleRadarOpen)}
       series={chartData}
       type="radar"
       width="100%"
-      height={height}
+      height="100%"
     />
   );
 };

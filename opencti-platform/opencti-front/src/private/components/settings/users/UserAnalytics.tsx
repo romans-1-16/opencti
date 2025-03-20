@@ -1,8 +1,8 @@
 /*
-Copyright (c) 2021-2024 Filigran SAS
+Copyright (c) 2021-2025 Filigran SAS
 
 This file is part of the OpenCTI Enterprise Edition ("EE") and is
-licensed under the OpenCTI Non-Commercial License (the "License");
+licensed under the OpenCTI Enterprise Edition License (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -28,6 +28,8 @@ import AuditsList from '@components/common/audits/AuditsList';
 import { useFormatter } from '../../../../components/i18n';
 import useEnterpriseEdition from '../../../../utils/hooks/useEnterpriseEdition';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   gridContainer: {
     marginBottom: 20,
@@ -57,12 +59,16 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
   return (
     <>
       <Grid
-        container={true}
-        spacing={3}
+        container
+        rowSpacing={5}
+        columnSpacing={2}
         classes={{ container: classes.gridContainer }}
       >
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <AuditsMultiVerticalBars
+            variant={undefined}
+            startDate={undefined}
+            endDate={undefined}
             height={300}
             parameters={{
               title: t_i18n('Login to the platform'),
@@ -88,8 +94,11 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
             ]}
           />
         </Grid>
-        <Grid item={true} xs={6} style={{ paddingTop: 10 }}>
+        <Grid item xs={6}>
           <AuditsMultiLineChart
+            variant={undefined}
+            startDate={undefined}
+            endDate={undefined}
             height={300}
             parameters={{
               title: t_i18n('Knowledge generation'),
@@ -152,8 +161,11 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
             ]}
           />
         </Grid>
-        <Grid item={true} xs={4} style={{ marginTop: 30 }}>
+        <Grid item xs={4}>
           <AuditsHorizontalBars
+            variant={undefined}
+            startDate={undefined}
+            endDate={undefined}
             height={350}
             parameters={{
               title: t_i18n('Top global search keywords'),
@@ -177,7 +189,7 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
             ]}
           />
         </Grid>
-        <Grid item={true} xs={4} style={{ marginTop: 30 }}>
+        <Grid item xs={4}>
           <AuditsDonut
             height={350}
             parameters={{
@@ -206,8 +218,11 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
             ]}
           />
         </Grid>
-        <Grid item={true} xs={4} style={{ marginTop: 30 }}>
+        <Grid item xs={4}>
           <AuditsRadar
+            variant={undefined}
+            startDate={undefined}
+            endDate={undefined}
             height={350}
             parameters={{
               title: t_i18n('Top authors of read and exported entities'),
@@ -236,8 +251,11 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
             ]}
           />
         </Grid>
-        <Grid item={true} xs={8} style={{ marginTop: 30 }}>
+        <Grid item xs={8}>
           <AuditsList
+            variant={undefined}
+            startDate={undefined}
+            endDate={undefined}
             height={350}
             parameters={{
               title: t_i18n('Latest exports'),
@@ -263,8 +281,11 @@ const UserAnalytics: FunctionComponent<UserAnalyticsProps> = ({ data }) => {
             ]}
           />
         </Grid>
-        <Grid item={true} xs={4} style={{ marginTop: 30 }}>
+        <Grid item xs={4}>
           <AuditsHorizontalBars
+            variant={undefined}
+            startDate={undefined}
+            endDate={undefined}
             height={350}
             parameters={{
               title: t_i18n('Top read or exported entities'),

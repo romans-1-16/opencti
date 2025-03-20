@@ -3,14 +3,25 @@ import { graphql, useFragment } from 'react-relay';
 import { GenericAttack, GenericAttackCard } from '../../common/cards/GenericAttackCard';
 import { IntrusionSetCard_node$key } from './__generated__/IntrusionSetCard_node.graphql';
 
-const IntrusionSetCardFragment = graphql`
+export const IntrusionSetCardFragment = graphql`
   fragment IntrusionSetCard_node on IntrusionSet {
     id
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     name
     aliases
+    entity_type
     description
     created
     modified
+    primary_motivation
+    secondary_motivations
+    draftVersion {
+      draft_id
+      draft_operation
+    }
     objectMarking {
       id
       definition_type
@@ -27,10 +38,14 @@ const IntrusionSetCardFragment = graphql`
       id
       name
     }
+    creators {
+      id
+      name
+    }
     targetedCountries: stixCoreRelationships(
       relationship_type: "targets"
       toTypes: ["Country"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {
@@ -47,7 +62,7 @@ const IntrusionSetCardFragment = graphql`
     targetedSectors: stixCoreRelationships(
       relationship_type: "targets"
       toTypes: ["Sector"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {
@@ -64,7 +79,7 @@ const IntrusionSetCardFragment = graphql`
     usedMalware: stixCoreRelationships(
       relationship_type: "uses"
       toTypes: ["Malware"]
-      first: 5
+      first: 10
       orderBy: created_at
       orderMode: desc
     ) {

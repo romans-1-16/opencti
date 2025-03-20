@@ -11,9 +11,14 @@ import { useFormatter } from '../../../components/i18n';
 import { INGESTION_MANAGER } from '../../../utils/platformModulesHelper';
 import IngestionMenu from './IngestionMenu';
 import Breadcrumbs from '../../../components/Breadcrumbs';
+import Security from '../../../utils/Security';
+import { INGESTION_SETINGESTIONS } from '../../../utils/hooks/useGranted';
+import useConnectedDocumentModifier from '../../../utils/hooks/useConnectedDocumentModifier';
 
 const LOCAL_STORAGE_KEY = 'ingestionTaxii';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -24,6 +29,8 @@ const useStyles = makeStyles(() => ({
 const IngestionTaxii = () => {
   const classes = useStyles();
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('TAXII Feeds | Ingestion | Data'));
   const { platformModuleHelpers } = useAuth();
   const {
     viewStorage,
@@ -42,22 +49,27 @@ const IngestionTaxii = () => {
     },
     uri: {
       label: 'URL',
-      width: '30%',
-      isSortable: true,
-    },
-    version: {
-      label: 'Version',
-      width: '10%',
+      width: '25%',
       isSortable: true,
     },
     ingestion_running: {
-      label: 'Running',
+      label: 'Status',
+      width: '20%',
+      isSortable: false,
+    },
+    last_execution_date: {
+      label: 'Last run',
       width: '15%',
       isSortable: false,
     },
     added_after_start: {
-      label: 'Current state',
-      width: '15%',
+      label: 'Added after date',
+      width: '10%',
+      isSortable: false,
+    },
+    current_state_cursor: {
+      label: 'Next cursor',
+      width: '10%',
       isSortable: false,
     },
   };
@@ -73,7 +85,7 @@ const IngestionTaxii = () => {
   }
   return (
     <div className={classes.container}>
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Data') }, { label: t_i18n('Ingestion') }, { label: t_i18n('TAXII feeds'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Data') }, { label: t_i18n('Ingestion') }, { label: t_i18n('TAXII feeds'), current: true }]} />
       <IngestionMenu/>
       <ListLines
         helpers={storageHelpers}
@@ -100,7 +112,9 @@ const IngestionTaxii = () => {
           )}
         />
       </ListLines>
-      <IngestionTaxiiCreation paginationOptions={paginationOptions}/>
+      <Security needs={[INGESTION_SETINGESTIONS]}>
+        <IngestionTaxiiCreation paginationOptions={paginationOptions} />
+      </Security>
     </div>
   );
 };

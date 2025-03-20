@@ -11,7 +11,10 @@ import CaseTemplateLineDummy from './CaseTemplateLineDummy';
 import CaseTemplateLines, { caseTemplatesLinesQuery } from './CaseTemplateLines';
 import Breadcrumbs from '../../../../components/Breadcrumbs';
 import { useFormatter } from '../../../../components/i18n';
+import useConnectedDocumentModifier from '../../../../utils/hooks/useConnectedDocumentModifier';
 
+// Deprecated - https://mui.com/system/styles/basics/
+// Do not use it for new code.
 const useStyles = makeStyles(() => ({
   container: {
     margin: 0,
@@ -23,6 +26,8 @@ const LOCAL_STORAGE_KEY_CASE_TEMPLATES = 'case-templates';
 
 const CaseTemplates = () => {
   const { t_i18n } = useFormatter();
+  const { setTitle } = useConnectedDocumentModifier();
+  setTitle(t_i18n('Case Templates | Taxonomies | Settings'));
   const classes = useStyles();
   const { viewStorage, helpers, paginationOptions } = usePaginationLocalStorage<CaseTemplateLinesPaginationQuery$variables>(
     LOCAL_STORAGE_KEY_CASE_TEMPLATES,
@@ -44,13 +49,13 @@ const CaseTemplates = () => {
       },
       description: {
         label: 'Description',
-        width: '40%',
-        isSortable: true,
+        width: '50%',
+        isSortable: false,
         render: (data: CaseTemplateLine_node$data) => data.description,
       },
       tasks: {
         label: 'Tasks',
-        width: '10%',
+        width: '20%',
         isSortable: false,
         render: (data: CaseTemplateLine_node$data) => data.tasks.pageInfo.globalCount,
       },
@@ -103,7 +108,7 @@ const CaseTemplates = () => {
   return (
     <div className={classes.container}>
       <LabelsVocabulariesMenu />
-      <Breadcrumbs variant="list" elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Taxonomies') }, { label: t_i18n('Case templates'), current: true }]} />
+      <Breadcrumbs elements={[{ label: t_i18n('Settings') }, { label: t_i18n('Taxonomies') }, { label: t_i18n('Case templates'), current: true }]} />
       {renderLines()}
       <CaseTemplateCreation
         paginationOptions={paginationOptions}
